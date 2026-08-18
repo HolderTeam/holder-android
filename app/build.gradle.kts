@@ -8,19 +8,22 @@ plugins {
 
 val holderCoreDir = rootProject.layout.projectDirectory.dir("submodules/holder-core").asFile
 val holderNdkVersion = "28.2.13676358"
-val holderAndroidAbis = (findProperty("holder.android.abis") as String?)
-    ?.split(",")
-    ?.map { it.trim() }
-    ?.filter { it.isNotEmpty() }
-    ?: listOf("arm64-v8a", "x86_64")
-val vcpkgRoot = System.getenv("VCPKG_ROOT")
-val vcpkgInstalledDir = rootProject.layout.buildDirectory.dir("vcpkg_installed").get().asFile
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.isFile) {
         file.inputStream().use(::load)
     }
 }
+val holderAndroidAbis = (findProperty("holder.android.abis") as String?
+    ?: localProperties.getProperty("holder.android.abis"))
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "x86_64")
+val vcpkgRoot = System.getenv("VCPKG_ROOT")
+    ?: localProperties.getProperty("vcpkg.dir")
+val vcpkgInstalledDir = rootProject.layout.buildDirectory.dir("vcpkg_installed").get().asFile
+val vcpkgAndroidWrapper = project.layout.projectDirectory.file("src/main/cpp/vcpkg-android-wrapper.cmake").asFile
 val androidSdkDir = System.getenv("ANDROID_HOME")
     ?: System.getenv("ANDROID_SDK_ROOT")
     ?: localProperties.getProperty("sdk.dir")
@@ -53,8 +56,8 @@ android {
                     val ndkDir = holderNdkDir
                         ?: throw GradleException("ANDROID_HOME, ANDROID_SDK_ROOT, or local.properties sdk.dir is required when VCPKG_ROOT is set")
                     arguments += listOf(
-                        "-DCMAKE_TOOLCHAIN_FILE=$vcpkgRoot/scripts/buildsystems/vcpkg.cmake",
-                        "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${ndkDir.absolutePath}/build/cmake/android.toolchain.cmake",
+                        "-DVCPKG_ROOT=$vcpkgRoot",
+                        "-DHOLDER_ANDROID_NDK_HOME=${ndkDir.absolutePath}",
                         "-DVCPKG_MANIFEST_DIR=${holderCoreDir.absolutePath}",
                         "-DVCPKG_INSTALLED_DIR=${vcpkgInstalledDir.absolutePath}",
                     )
