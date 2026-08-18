@@ -13,16 +13,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import team.holder.android.ui.theme.HolderTheme
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val snapshot = HolderNative.snapshot(
+            dataDir = File(filesDir, "holder"),
+            schemaSql = assets.open("schema.sql").bufferedReader().use { it.readText() },
+        )
         enableEdgeToEdge()
         setContent {
             HolderTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     HolderStatus(
-                        coreVersion = HolderNative.version(),
+                        snapshot = snapshot,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -32,10 +37,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HolderStatus(coreVersion: String, modifier: Modifier = Modifier) {
+fun HolderStatus(snapshot: HolderSnapshot, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(text = "Holder Android")
-        Text(text = "libholder $coreVersion")
+        Text(text = "libholder ${snapshot.coreVersion}")
+        Text(text = snapshot.status)
+        Text(text = "Projects: ${snapshot.projectCount}")
+        Text(text = "Cards: ${snapshot.cardCount}")
     }
 }
 
@@ -43,6 +51,13 @@ fun HolderStatus(coreVersion: String, modifier: Modifier = Modifier) {
 @Composable
 fun HolderStatusPreview() {
     HolderTheme {
-        HolderStatus("0.1.2")
+        HolderStatus(
+            HolderSnapshot(
+                coreVersion = "0.1.7",
+                projectCount = 1,
+                cardCount = 2,
+                status = "Opened native Holder store",
+            )
+        )
     }
 }

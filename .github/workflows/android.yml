@@ -13,9 +13,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
 
     steps:
-      - name: Check out holder-android-phone
+      - name: Check out holder-android
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -33,11 +36,39 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses >/dev/null
 
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Restore vcpkg binary package cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vcpkg-binary-cache
+          key: vcpkg-android-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-android-${{ runner.os }}-
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug -Pholder.android.abis=arm64-v8a
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
+
+      - name: Save vcpkg binary package cache
+        if: success() && github.event_name != 'pull_request' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vcpkg-binary-cache
+          key: vcpkg-android-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
