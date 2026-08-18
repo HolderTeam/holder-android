@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -20,8 +21,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             HolderTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
+                    HolderStatus(
+                        coreVersion = HolderNative.version(),
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -31,17 +32,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
+fun HolderStatus(coreVersion: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(text = "Holder Android")
+        Text(text = "libholder $coreVersion")
+    }
 }
 
 @Preview(showBackground = true)
 @Composable
-fun GreetingPreview() {
+fun HolderStatusPreview() {
     HolderTheme {
-        Greeting("Android")
+        HolderStatus("0.1.2")
     }
 }
