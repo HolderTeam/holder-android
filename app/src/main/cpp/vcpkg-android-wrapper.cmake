@@ -23,6 +23,8 @@ endif()
 # This ensures that CMAKE_SYSROOT and other Android variables are set correctly for AGP.
 set(_ANDROID_TOOLCHAIN_FILE "${HOLDER_ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake")
 if(EXISTS "${_ANDROID_TOOLCHAIN_FILE}")
+  # Use VCPKG_CHAINLOAD_TOOLCHAIN_FILE to let vcpkg know we are using the Android toolchain.
+  set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${_ANDROID_TOOLCHAIN_FILE}")
   include("${_ANDROID_TOOLCHAIN_FILE}")
 else()
   # Only fail in the main project if NDK is missing
@@ -38,8 +40,6 @@ if(DEFINED VCPKG_ROOT AND NOT VCPKG_ROOT STREQUAL "")
     set(ENV{ANDROID_NDK_ROOT} "${HOLDER_ANDROID_NDK_HOME}")
   endif()
 
-  # When including vcpkg.cmake after a toolchain is already loaded,
-  # it acts as a supplementary script to set up library paths.
   include("${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
 else()
   if(NOT CMAKE_BINARY_DIR MATCHES "CMakeTmp")

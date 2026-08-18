@@ -56,10 +56,13 @@ android {
                     val ndkDir = holderNdkDir
                         ?: throw GradleException("ANDROID_HOME, ANDROID_SDK_ROOT, or local.properties sdk.dir is required when VCPKG_ROOT is set")
                     arguments += listOf(
+                        "-DCMAKE_TOOLCHAIN_FILE=${vcpkgAndroidWrapper.absolutePath}",
                         "-DVCPKG_ROOT=$vcpkgRoot",
                         "-DHOLDER_ANDROID_NDK_HOME=${ndkDir.absolutePath}",
+                        "-DANDROID_NDK=${ndkDir.absolutePath}",
                         "-DVCPKG_MANIFEST_DIR=${holderCoreDir.absolutePath}",
                         "-DVCPKG_INSTALLED_DIR=${vcpkgInstalledDir.absolutePath}",
+                        "-DCMAKE_TRY_COMPILE_PLATFORM_VARIABLES=VCPKG_ROOT;HOLDER_ANDROID_NDK_HOME;VCPKG_MANIFEST_DIR;VCPKG_INSTALLED_DIR",
                     )
                 }
             }
