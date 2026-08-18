@@ -1,0 +1,3 @@
+[submodule "submodules/holder-core"]
+	path = submodules/holder-core
+	url = https://github.com/HolderTeam/holder-core.git
