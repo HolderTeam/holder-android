@@ -19,12 +19,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import team.holder.android.HolderSettings
+import team.holder.android.combineTitleAndBody
+import team.holder.android.splitLeadingHeading
+import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,8 +44,21 @@ fun CardEditScreen(
     onSave: (title: String, content: String) -> Unit,
     onCancel: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
+
+    // Two independent field states, one per mode -- only one is ever shown, but both are
+    // deterministically derived from initialContent regardless of which value `separateTitle`
+    // resolves to (it loads asynchronously from DataStore), so whichever ends up displayed is
+    // already correctly initialized. See splitLeadingHeading/combineTitleAndBody: cards always
+    // store the title as a leading `# Title` heading, so switching modes is non-destructive.
     var title by remember { mutableStateOf(initialTitle) }
-    val contentState = rememberTextFieldState(initialContent)
+    val separateBodyState = rememberTextFieldState(
+        remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent },
+    )
+    val firstLineBodyState = rememberTextFieldState(
+        remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } },
+    )
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
     // false as soon as the save completes (createCard/updateCard can finish in well under
@@ -53,6 +72,8 @@ fun CardEditScreen(
     LaunchedEffect(errorMessage) {
         if (errorMessage != null) hasSubmitted = false
     }
+
+    val derivedTitle = if (separateTitle) title else titleFromFirstLine(firstLineBodyState.text.toString())
 
     Scaffold(
         topBar = {
@@ -71,10 +92,15 @@ fun CardEditScreen(
                             onClick = {
                                 if (!hasSubmitted) {
                                     hasSubmitted = true
-                                    onSave(title, contentState.text.toString())
+                                    val content = if (separateTitle) {
+                                        combineTitleAndBody(title, separateBodyState.text.toString())
+                                    } else {
+                                        firstLineBodyState.text.toString()
+                                    }
+                                    onSave(derivedTitle, content)
                                 }
                             },
-                            enabled = title.isNotBlank(),
+                            enabled = derivedTitle.isNotBlank(),
                         ) {
                             Icon(Icons.Filled.Check, contentDescription = "Save")
                         }
@@ -91,17 +117,24 @@ fun CardEditScreen(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Title") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            HolderMarkdownEditor(
-                state = contentState,
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
-            )
+            if (separateTitle) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                HolderMarkdownEditor(
+                    state = separateBodyState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
+                )
+            } else {
+                HolderMarkdownEditor(
+                    state = firstLineBodyState,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
         }
     }
 }

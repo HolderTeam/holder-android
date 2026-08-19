@@ -15,15 +15,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
+import team.holder.android.HolderSettings
+import team.holder.android.splitLeadingHeading
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.markdown.HolderMarkdownViewer
@@ -39,6 +43,8 @@ fun CardViewScreen(
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
 
     LaunchedEffect(cardId, refreshKey) {
@@ -79,8 +85,13 @@ fun CardViewScreen(
                 Text("Failed to load card: ${current.message}")
             }
             is LoadState.Success -> {
+                val displayed = if (separateTitle) {
+                    splitLeadingHeading(current.value) ?: current.value
+                } else {
+                    current.value
+                }
                 HolderMarkdownViewer(
-                    markdown = current.value,
+                    markdown = displayed,
                     projectId = projectId,
                     onNavigateToCard = onNavigateToCard,
                     modifier = Modifier

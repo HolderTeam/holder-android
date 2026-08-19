@@ -27,6 +27,7 @@ import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.ProjectListScreen
+import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.theme.HolderTheme
 import java.io.File
 
@@ -79,7 +80,11 @@ private fun HolderNavHost() {
                     selectedProjectName = project.name
                     navController.navigate("projects/${project.projectId}/cards")
                 },
+                onSettingsClick = { navController.navigate("settings") },
             )
+        }
+        composable("settings") {
+            SettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("projects/{projectId}/cards") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
