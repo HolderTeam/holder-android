@@ -87,9 +87,9 @@ private fun HolderNavHost() {
                 projectId = projectId,
                 projectName = selectedProjectName,
                 refreshKey = cardListRefreshKey,
-                onCardClick = { card ->
-                    selectedCardTitle = card.title
-                    navController.navigate("cards/${card.cardId}")
+                onCardClick = { cardId, title ->
+                    selectedCardTitle = title
+                    navController.navigate("cards/$cardId")
                 },
                 onCreateCard = {
                     saveError = null

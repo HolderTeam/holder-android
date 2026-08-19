@@ -16,6 +16,12 @@ data class HolderCard(
     val parentCardId: String?,
 )
 
+data class HolderSearchResult(
+    val cardId: String,
+    val title: String,
+    val snippet: String,
+)
+
 /**
  * Kotlin -> JNI -> C ABI -> libholder boundary. Opens a single native
  * holder_context on first use (see initialize) and keeps it open for the
@@ -66,6 +72,13 @@ object HolderNative {
         title: String?,
     ): String
     private external fun nativeCardDelete(contextHandle: Long, cardId: String)
+    private external fun nativeCardSearch(
+        contextHandle: Long,
+        projectId: String,
+        query: String,
+        limit: Int,
+        offset: Int,
+    ): String
 
     fun version(): String {
         loadError?.let {
@@ -139,6 +152,18 @@ object HolderNative {
 
     fun deleteCard(cardId: String) {
         nativeCardDelete(requireContext(), cardId)
+    }
+
+    fun searchCards(projectId: String, query: String, limit: Int = 50): List<HolderSearchResult> {
+        val results = JSONArray(nativeCardSearch(requireContext(), projectId, query, limit, 0))
+        return List(results.length()) { index ->
+            val result = results.getJSONObject(index)
+            HolderSearchResult(
+                cardId = result.getString("card_id"),
+                title = result.getString("title"),
+                snippet = result.getString("snippet"),
+            )
+        }
     }
 
     private fun requireContext(): Long {
