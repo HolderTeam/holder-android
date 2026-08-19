@@ -22,6 +22,34 @@ data class HolderSearchResult(
     val snippet: String,
 )
 
+data class GitTestRemoteResult(
+    val status: String,
+    val remoteHasHead: Boolean,
+    val errorMessage: String?,
+)
+
+data class GitPushResult(
+    val status: String,
+    val aheadCount: Int,
+    val behindCount: Int,
+    val errorMessage: String?,
+)
+
+data class GitPullResult(
+    val status: String,
+    val errorMessage: String?,
+)
+
+data class GitSyncStatus(
+    val lastPushAt: Long?,
+    val lastPullAt: Long?,
+    val uncommittedChangesCount: Int,
+    val unpushedCommitsCount: Int,
+    val lastPushStatus: String?,
+    val lastPullStatus: String?,
+    val lastSyncError: String?,
+)
+
 /**
  * Kotlin -> JNI -> C ABI -> libholder boundary. Opens a single native
  * holder_context on first use (see initialize) and keeps it open for the
@@ -79,6 +107,20 @@ object HolderNative {
         limit: Int,
         offset: Int,
     ): String
+    private external fun nativeProjectUpdateGitRemote(
+        contextHandle: Long,
+        projectId: String,
+        remoteUrl: String?,
+    ): String
+    private external fun nativeGitTestRemote(contextHandle: Long, projectId: String, branch: String?): String
+    private external fun nativeGitPush(
+        contextHandle: Long,
+        projectId: String,
+        branch: String?,
+        setUpstream: Boolean,
+    ): String
+    private external fun nativeGitPull(contextHandle: Long, projectId: String): String
+    private external fun nativeGitSyncStatus(contextHandle: Long, projectId: String): String
 
     fun version(): String {
         loadError?.let {
@@ -102,6 +144,10 @@ object HolderNative {
 
         if (contextHandle == 0L) {
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
+            // Best-effort: git sync still falls back to the (nonexistent, on Android)
+            // default ssh-agent/~/.ssh lookup if this fails, so a Keystore hiccup here
+            // shouldn't block the rest of the app from opening.
+            runCatching { team.holder.android.git.GitIdentity.registerWithNative(contextHandle, dataDir) }
         }
         nativeEnsureDefaultProject(
             contextHandle,
@@ -166,6 +212,50 @@ object HolderNative {
         }
     }
 
+    /** remoteUrl null clears the configured remote. */
+    fun updateProjectGitRemote(projectId: String, remoteUrl: String?): HolderProject =
+        parseProject(JSONObject(nativeProjectUpdateGitRemote(requireContext(), projectId, remoteUrl)))
+
+    fun testGitRemote(projectId: String, branch: String? = null): GitTestRemoteResult {
+        val json = JSONObject(nativeGitTestRemote(requireContext(), projectId, branch))
+        return GitTestRemoteResult(
+            status = json.getString("status"),
+            remoteHasHead = json.optBoolean("remote_has_head", false),
+            errorMessage = json.optStringOrNull("error_message"),
+        )
+    }
+
+    fun pushGit(projectId: String, branch: String? = null, setUpstream: Boolean = true): GitPushResult {
+        val json = JSONObject(nativeGitPush(requireContext(), projectId, branch, setUpstream))
+        return GitPushResult(
+            status = json.getString("status"),
+            aheadCount = json.optInt("ahead_count", 0),
+            behindCount = json.optInt("behind_count", 0),
+            errorMessage = json.optStringOrNull("error_message"),
+        )
+    }
+
+    fun pullGit(projectId: String): GitPullResult {
+        val json = JSONObject(nativeGitPull(requireContext(), projectId))
+        return GitPullResult(
+            status = json.getString("status"),
+            errorMessage = json.optStringOrNull("error_message"),
+        )
+    }
+
+    fun gitSyncStatus(projectId: String): GitSyncStatus {
+        val sync = JSONObject(nativeGitSyncStatus(requireContext(), projectId)).getJSONObject("sync")
+        return GitSyncStatus(
+            lastPushAt = sync.optLongOrNull("last_push_at"),
+            lastPullAt = sync.optLongOrNull("last_pull_at"),
+            uncommittedChangesCount = sync.optInt("uncommitted_changes_count", 0),
+            unpushedCommitsCount = sync.optInt("unpushed_commits_count", 0),
+            lastPushStatus = sync.optStringOrNull("last_push_status"),
+            lastPullStatus = sync.optStringOrNull("last_pull_status"),
+            lastSyncError = sync.optStringOrNull("last_sync_error"),
+        )
+    }
+
     private fun requireContext(): Long {
         val handle = contextHandle
         check(handle != 0L) { "HolderNative.initialize() must be called first" }
@@ -186,6 +276,9 @@ object HolderNative {
 
     private fun JSONObject.optStringOrNull(name: String): String? =
         if (isNull(name)) null else getString(name)
+
+    private fun JSONObject.optLongOrNull(name: String): Long? =
+        if (isNull(name)) null else getLong(name)
 
     /** Mirrors holder-daemon's Bootstrap.cpp: first line, only if it's a markdown heading. */
     private fun deriveWelcomeTitle(content: String, fallback: String): String {
