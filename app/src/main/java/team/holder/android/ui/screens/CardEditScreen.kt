@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,19 @@ fun CardEditScreen(
     var title by remember { mutableStateOf(initialTitle) }
     var content by remember { mutableStateOf(initialContent) }
 
+    // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
+    // false as soon as the save completes (createCard/updateCard can finish in well under
+    // 100ms), which is exactly what a later, independent save needs -- but it means a second
+    // tap that reaches this same composed button *after* the first save already finished
+    // (e.g. while the pop-back-stack transition is still settling) reads `saving == false`
+    // and is treated as a legitimate new save. hasSubmitted never resets once tripped, so a
+    // second tap on this specific instance is always a no-op, regardless of timing. It's
+    // reset on failure so the user can retry.
+    var hasSubmitted by remember { mutableStateOf(false) }
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) hasSubmitted = false
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -52,10 +66,12 @@ fun CardEditScreen(
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
                     } else {
                         IconButton(
-                            // saving is re-read here (not just via `enabled`) because a second
-                            // tap can reach this same composable before recomposition swaps in
-                            // the progress indicator above -- e.g. a fast double-tap/click.
-                            onClick = { if (!saving) onSave(title, content) },
+                            onClick = {
+                                if (!hasSubmitted) {
+                                    hasSubmitted = true
+                                    onSave(title, content)
+                                }
+                            },
                             enabled = title.isNotBlank(),
                         ) {
                             Icon(Icons.Filled.Check, contentDescription = "Save")

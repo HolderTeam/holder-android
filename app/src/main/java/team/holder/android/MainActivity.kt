@@ -107,20 +107,25 @@ private fun HolderNavHost() {
                 saving = saving,
                 errorMessage = saveError,
                 onSave = { title, content ->
-                    saving = true
-                    saveError = null
-                    scope.launch {
-                        val result = runCatching {
-                            withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, content) }
+                    // CardEditScreen's own one-shot guard is what actually prevents a double-tap
+                    // from calling this twice; this is just a secondary guard against onSave
+                    // itself somehow firing twice concurrently.
+                    if (!saving) {
+                        saving = true
+                        saveError = null
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, content) }
+                            }
+                            saving = false
+                            result.fold(
+                                onSuccess = {
+                                    cardListRefreshKey++
+                                    navController.popBackStack()
+                                },
+                                onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                            )
                         }
-                        saving = false
-                        result.fold(
-                            onSuccess = {
-                                cardListRefreshKey++
-                                navController.popBackStack()
-                            },
-                            onFailure = { saveError = it.message ?: it::class.java.simpleName },
-                        )
                     }
                 },
                 onCancel = { navController.popBackStack() },
@@ -149,22 +154,25 @@ private fun HolderNavHost() {
                 saving = saving,
                 errorMessage = saveError,
                 onSave = { title, content ->
-                    saving = true
-                    saveError = null
-                    scope.launch {
-                        val result = runCatching {
-                            withContext(Dispatchers.IO) { HolderNative.updateCard(cardId, title, content) }
+                    // See the comment in the "new card" route above.
+                    if (!saving) {
+                        saving = true
+                        saveError = null
+                        scope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) { HolderNative.updateCard(cardId, title, content) }
+                            }
+                            saving = false
+                            result.fold(
+                                onSuccess = {
+                                    selectedCardTitle = title
+                                    cardViewRefreshKey++
+                                    cardListRefreshKey++
+                                    navController.popBackStack()
+                                },
+                                onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                            )
                         }
-                        saving = false
-                        result.fold(
-                            onSuccess = {
-                                selectedCardTitle = title
-                                cardViewRefreshKey++
-                                cardListRefreshKey++
-                                navController.popBackStack()
-                            },
-                            onFailure = { saveError = it.message ?: it::class.java.simpleName },
-                        )
                     }
                 },
                 onCancel = { navController.popBackStack() },
