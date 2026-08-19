@@ -12,9 +12,7 @@ data class HolderSnapshot(
 
 object HolderNative {
     private const val DEFAULT_PROJECT_NAME = "Home"
-    private const val WELCOME_CARD_TITLE = "Welcome"
-    private const val WELCOME_CARD_CONTENT = "# Welcome to Holder\n\n" +
-        "This is your first card. Edit or delete it to get started.\n"
+    private const val WELCOME_CARD_TITLE_FALLBACK = "Welcome"
 
     private val loadError: Throwable? = runCatching {
         System.loadLibrary("holder_jni")
@@ -58,7 +56,7 @@ object HolderNative {
         }
     }
 
-    fun snapshot(dataDir: File, schemaSql: String): HolderSnapshot {
+    fun snapshot(dataDir: File, schemaSql: String, welcomeContent: String): HolderSnapshot {
         val coreVersion = version()
         loadError?.let {
             return HolderSnapshot(
@@ -70,7 +68,7 @@ object HolderNative {
         }
 
         return runCatching {
-            ensureDefaultProject(dataDir.absolutePath, schemaSql)
+            ensureDefaultProject(dataDir.absolutePath, schemaSql, welcomeContent)
 
             val projectsJson = nativeProjectList(dataDir.absolutePath, schemaSql)
             val projects = JSONArray(projectsJson)
@@ -97,13 +95,21 @@ object HolderNative {
     }
 
     /** On first launch (no projects yet), creates a default Home project and a welcome card. */
-    private fun ensureDefaultProject(dataDir: String, schemaSql: String) {
+    private fun ensureDefaultProject(dataDir: String, schemaSql: String, welcomeContent: String) {
         nativeEnsureDefaultProject(
             dataDir,
             schemaSql,
             DEFAULT_PROJECT_NAME,
-            WELCOME_CARD_TITLE,
-            WELCOME_CARD_CONTENT,
+            deriveWelcomeTitle(welcomeContent, WELCOME_CARD_TITLE_FALLBACK),
+            welcomeContent,
         )
+    }
+
+    /** Mirrors holder-daemon's Bootstrap.cpp: first line, only if it's a markdown heading. */
+    private fun deriveWelcomeTitle(content: String, fallback: String): String {
+        val firstLine = content.substringBefore('\n').trimStart(' ', '\t', '\r')
+        if (firstLine.isEmpty() || firstLine[0] != '#') return fallback
+        val title = firstLine.trimStart('#', ' ', '\t')
+        return title.ifEmpty { fallback }
     }
 }

@@ -91,6 +91,7 @@ android {
     sourceSets {
         getByName("main") {
             assets.directories.add(holderCoreDir.resolve("schema").absolutePath)
+            assets.directories.add(holderCoreDir.resolve("resources").absolutePath)
         }
     }
 }
