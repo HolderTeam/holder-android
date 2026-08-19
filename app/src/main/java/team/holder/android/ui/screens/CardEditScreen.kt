@@ -1,10 +1,12 @@
 package team.holder.android.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,9 +28,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import team.holder.android.HolderSettings
@@ -37,7 +39,7 @@ import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CardEditScreen(
     screenTitle: String,
@@ -56,13 +58,24 @@ fun CardEditScreen(
     // resolves to (it loads asynchronously from DataStore), so whichever ends up displayed is
     // already correctly initialized. See splitLeadingHeading/combineTitleAndBody: cards always
     // store the title as a leading `# Title` heading, so switching modes is non-destructive.
-    // rememberSaveable: title is the one piece of edit state with no other safety net (the
-    // body TextFieldStates below already survive process death via their own built-in Saver).
-    var title by rememberSaveable { mutableStateOf(initialTitle) }
+    // All three TextFieldStates survive process death via their own built-in Saver.
+    val titleState = rememberTextFieldState(initialTitle)
     val initialSeparateBody = remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent }
     val separateBodyState = rememberTextFieldState(initialSeparateBody)
     val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } }
     val firstLineBodyState = rememberTextFieldState(initialFirstLineBody)
+
+    // Undo/redo acts on whichever field last had focus (defaulting to the body, since that's
+    // where most editing happens); each TextFieldState tracks its own history independently
+    // via its built-in undoState.
+    var titleFocused by remember { mutableStateOf(false) }
+    val activeUndo = if (!separateTitle) {
+        firstLineBodyState.undoState
+    } else if (titleFocused) {
+        titleState.undoState
+    } else {
+        separateBodyState.undoState
+    }
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
     // false as soon as the save completes (createCard/updateCard can finish in well under
@@ -77,10 +90,14 @@ fun CardEditScreen(
         if (errorMessage != null) hasSubmitted = false
     }
 
-    val derivedTitle = if (separateTitle) title else titleFromFirstLine(firstLineBodyState.text.toString())
+    val derivedTitle = if (separateTitle) {
+        titleState.text.toString()
+    } else {
+        titleFromFirstLine(firstLineBodyState.text.toString())
+    }
 
     val isDirty = if (separateTitle) {
-        title != initialTitle || separateBodyState.text.toString() != initialSeparateBody
+        titleState.text.toString() != initialTitle || separateBodyState.text.toString() != initialSeparateBody
     } else {
         firstLineBodyState.text.toString() != initialFirstLineBody
     }
@@ -99,6 +116,12 @@ fun CardEditScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { activeUndo.undo() }, enabled = activeUndo.canUndo) {
+                        Text("↶", style = MaterialTheme.typography.titleLarge)
+                    }
+                    IconButton(onClick = { activeUndo.redo() }, enabled = activeUndo.canRedo) {
+                        Text("↷", style = MaterialTheme.typography.titleLarge)
+                    }
                     if (saving) {
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
                     } else {
@@ -107,7 +130,7 @@ fun CardEditScreen(
                                 if (!hasSubmitted) {
                                     hasSubmitted = true
                                     val content = if (separateTitle) {
-                                        combineTitleAndBody(title, separateBodyState.text.toString())
+                                        combineTitleAndBody(titleState.text.toString(), separateBodyState.text.toString())
                                     } else {
                                         firstLineBodyState.text.toString()
                                     }
@@ -133,11 +156,10 @@ fun CardEditScreen(
             }
             if (separateTitle) {
                 OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
+                    state = titleState,
                     label = { Text("Title") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    lineLimits = TextFieldLineLimits.SingleLine,
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { titleFocused = it.isFocused },
                 )
                 HolderMarkdownEditor(
                     state = separateBodyState,
