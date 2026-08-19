@@ -38,7 +38,7 @@ android {
 
     defaultConfig {
         applicationId = "team.holder.android"
-        minSdk = 23
+        minSdk = 28
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.7"
