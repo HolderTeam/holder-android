@@ -51,6 +51,11 @@ jobs:
           restore-keys: |
             vcpkg-android-${{ runner.os }}-
 
+      - name: Install vcpkg build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool
+
       - name: Bootstrap vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
