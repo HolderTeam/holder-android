@@ -10,6 +10,11 @@ data class HolderSnapshot(
     val status: String,
 )
 
+/**
+ * Kotlin -> JNI -> C ABI -> libholder boundary. Opens a single native
+ * holder_context on first use and keeps it open for the app's lifetime
+ * instead of reopening the SQLite store on every call.
+ */
 object HolderNative {
     private const val DEFAULT_PROJECT_NAME = "Home"
     private const val WELCOME_CARD_TITLE_FALLBACK = "Welcome"
@@ -18,27 +23,29 @@ object HolderNative {
         System.loadLibrary("holder_jni")
     }.exceptionOrNull()
 
+    @Volatile
+    private var contextHandle: Long = 0L
+
     private external fun nativeVersion(): String
-    private external fun nativeProjectList(dataDir: String, schemaSql: String): String
-    private external fun nativeCardList(dataDir: String, schemaSql: String, projectId: String): String
+    private external fun nativeContextOpen(dataDir: String, schemaSql: String): Long
+    private external fun nativeContextClose(contextHandle: Long)
+    private external fun nativeProjectList(contextHandle: Long): String
+    private external fun nativeCardList(contextHandle: Long, projectId: String): String
     private external fun nativeProjectCreate(
-        dataDir: String,
-        schemaSql: String,
+        contextHandle: Long,
         name: String,
         rootPath: String?,
         privacyMode: String?,
     ): String
     private external fun nativeCardCreate(
-        dataDir: String,
-        schemaSql: String,
+        contextHandle: Long,
         projectId: String,
         title: String,
         content: String?,
         parentCardId: String?,
     ): String
     private external fun nativeEnsureDefaultProject(
-        dataDir: String,
-        schemaSql: String,
+        contextHandle: Long,
         name: String,
         welcomeTitle: String,
         welcomeContent: String?,
@@ -68,14 +75,14 @@ object HolderNative {
         }
 
         return runCatching {
-            ensureDefaultProject(dataDir.absolutePath, schemaSql, welcomeContent)
+            val handle = ensureContextOpen(dataDir, schemaSql)
+            ensureDefaultProject(handle, welcomeContent)
 
-            val projectsJson = nativeProjectList(dataDir.absolutePath, schemaSql)
-            val projects = JSONArray(projectsJson)
+            val projects = JSONArray(nativeProjectList(handle))
             var cardCount = 0
             for (index in 0 until projects.length()) {
                 val projectId = projects.getJSONObject(index).getString("project_id")
-                cardCount += JSONArray(nativeCardList(dataDir.absolutePath, schemaSql, projectId)).length()
+                cardCount += JSONArray(nativeCardList(handle, projectId)).length()
             }
 
             HolderSnapshot(
@@ -94,11 +101,28 @@ object HolderNative {
         }
     }
 
+    /** Opens the native store on first call; later calls reuse the same context. */
+    @Synchronized
+    private fun ensureContextOpen(dataDir: File, schemaSql: String): Long {
+        if (contextHandle == 0L) {
+            contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
+        }
+        return contextHandle
+    }
+
+    /** Closes the native store. Safe to call even if it was never opened. */
+    @Synchronized
+    fun close() {
+        if (contextHandle != 0L) {
+            nativeContextClose(contextHandle)
+            contextHandle = 0L
+        }
+    }
+
     /** On first launch (no projects yet), creates a default Home project and a welcome card. */
-    private fun ensureDefaultProject(dataDir: String, schemaSql: String, welcomeContent: String) {
+    private fun ensureDefaultProject(contextHandle: Long, welcomeContent: String) {
         nativeEnsureDefaultProject(
-            dataDir,
-            schemaSql,
+            contextHandle,
             DEFAULT_PROJECT_NAME,
             deriveWelcomeTitle(welcomeContent, WELCOME_CARD_TITLE_FALLBACK),
             welcomeContent,
