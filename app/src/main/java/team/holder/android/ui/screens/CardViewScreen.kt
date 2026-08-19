@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,11 +32,13 @@ import team.holder.android.ui.LoadState
 fun CardViewScreen(
     cardId: String,
     cardTitle: String,
+    refreshKey: Any,
+    onEdit: (content: String) -> Unit,
     onBack: () -> Unit,
 ) {
-    var state by remember(cardId) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
+    var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
 
-    LaunchedEffect(cardId) {
+    LaunchedEffect(cardId, refreshKey) {
         state = runCatching {
             withContext(Dispatchers.IO) { HolderNative.getCardContent(cardId) }
         }.fold(
@@ -51,6 +54,15 @@ fun CardViewScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    val loaded = state as? LoadState.Success
+                    IconButton(
+                        onClick = { loaded?.let { onEdit(it.value) } },
+                        enabled = loaded != null,
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit")
                     }
                 },
             )

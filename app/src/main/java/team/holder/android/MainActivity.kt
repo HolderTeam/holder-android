@@ -10,14 +10,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.ProjectListScreen
@@ -56,8 +62,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun HolderNavHost() {
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
+
     var selectedProjectName by remember { mutableStateOf("") }
     var selectedCardTitle by remember { mutableStateOf("") }
+    var selectedCardContent by remember { mutableStateOf("") }
+    var cardListRefreshKey by remember { mutableIntStateOf(0) }
+    var cardViewRefreshKey by remember { mutableIntStateOf(0) }
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     NavHost(navController = navController, startDestination = "projects") {
         composable("projects") {
@@ -73,11 +86,44 @@ private fun HolderNavHost() {
             CardListScreen(
                 projectId = projectId,
                 projectName = selectedProjectName,
+                refreshKey = cardListRefreshKey,
                 onCardClick = { card ->
                     selectedCardTitle = card.title
                     navController.navigate("cards/${card.cardId}")
                 },
+                onCreateCard = {
+                    saveError = null
+                    navController.navigate("projects/$projectId/cards/new")
+                },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/cards/new") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            CardEditScreen(
+                screenTitle = "New card",
+                initialTitle = "",
+                initialContent = "",
+                saving = saving,
+                errorMessage = saveError,
+                onSave = { title, content ->
+                    saving = true
+                    saveError = null
+                    scope.launch {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, content) }
+                        }
+                        saving = false
+                        result.fold(
+                            onSuccess = {
+                                cardListRefreshKey++
+                                navController.popBackStack()
+                            },
+                            onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                        )
+                    }
+                },
+                onCancel = { navController.popBackStack() },
             )
         }
         composable("cards/{cardId}") { backStackEntry ->
@@ -85,7 +131,43 @@ private fun HolderNavHost() {
             CardViewScreen(
                 cardId = cardId,
                 cardTitle = selectedCardTitle,
+                refreshKey = cardViewRefreshKey,
+                onEdit = { content ->
+                    selectedCardContent = content
+                    saveError = null
+                    navController.navigate("cards/$cardId/edit")
+                },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("cards/{cardId}/edit") { backStackEntry ->
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            CardEditScreen(
+                screenTitle = "Edit card",
+                initialTitle = selectedCardTitle,
+                initialContent = selectedCardContent,
+                saving = saving,
+                errorMessage = saveError,
+                onSave = { title, content ->
+                    saving = true
+                    saveError = null
+                    scope.launch {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) { HolderNative.updateCard(cardId, title, content) }
+                        }
+                        saving = false
+                        result.fold(
+                            onSuccess = {
+                                selectedCardTitle = title
+                                cardViewRefreshKey++
+                                cardListRefreshKey++
+                                navController.popBackStack()
+                            },
+                            onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                        )
+                    }
+                },
+                onCancel = { navController.popBackStack() },
             )
         }
     }

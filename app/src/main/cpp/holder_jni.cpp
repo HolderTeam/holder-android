@@ -302,3 +302,122 @@ Java_team_holder_android_HolderNative_nativeCardGetContent(
   }
   return string_result(env, content);
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeProjectRename(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring name
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars name_chars(env, name);
+  if (project_id_chars.get() == nullptr || name_chars.get() == nullptr) {
+    throw_runtime(env, "project_id and name must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_project_rename(context, project_id_chars.get(), name_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_team_holder_android_HolderNative_nativeProjectDelete(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return;
+  }
+
+  holder_error* error = nullptr;
+  const int rc = holder_project_delete(context, project_id_chars.get(), &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+  }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardUpdateContent(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jstring content,
+    jstring title
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  UtfChars content_chars(env, content);
+  UtfChars title_chars(env, title);
+  if (card_id_chars.get() == nullptr || content_chars.get() == nullptr) {
+    throw_runtime(env, "card_id and content must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_update_content(
+      context,
+      card_id_chars.get(),
+      content_chars.get(),
+      title_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_team_holder_android_HolderNative_nativeCardDelete(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return;
+  }
+
+  holder_error* error = nullptr;
+  const int rc = holder_card_delete(context, card_id_chars.get(), &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+  }
+}

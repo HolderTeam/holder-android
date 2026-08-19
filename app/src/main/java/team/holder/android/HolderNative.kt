@@ -57,6 +57,15 @@ object HolderNative {
         welcomeTitle: String,
         welcomeContent: String?,
     ): String
+    private external fun nativeProjectRename(contextHandle: Long, projectId: String, name: String): String
+    private external fun nativeProjectDelete(contextHandle: Long, projectId: String)
+    private external fun nativeCardUpdateContent(
+        contextHandle: Long,
+        cardId: String,
+        content: String,
+        title: String?,
+    ): String
+    private external fun nativeCardDelete(contextHandle: Long, cardId: String)
 
     fun version(): String {
         loadError?.let {
@@ -100,30 +109,36 @@ object HolderNative {
 
     fun listProjects(): List<HolderProject> {
         val projects = JSONArray(nativeProjectList(requireContext()))
-        return List(projects.length()) { index ->
-            val project = projects.getJSONObject(index)
-            HolderProject(
-                projectId = project.getString("project_id"),
-                name = project.getString("name"),
-            )
-        }
+        return List(projects.length()) { index -> parseProject(projects.getJSONObject(index)) }
     }
 
     fun listCards(projectId: String): List<HolderCard> {
         val cards = JSONArray(nativeCardList(requireContext(), projectId))
-        return List(cards.length()) { index ->
-            val card = cards.getJSONObject(index)
-            HolderCard(
-                cardId = card.getString("card_id"),
-                projectId = card.getString("project_id"),
-                title = card.getString("title"),
-                parentCardId = card.optStringOrNull("parent_card_id"),
-            )
-        }
+        return List(cards.length()) { index -> parseCard(cards.getJSONObject(index)) }
     }
 
     fun getCardContent(cardId: String): String {
         return nativeCardGetContent(requireContext(), cardId)
+    }
+
+    fun createProject(name: String): HolderProject =
+        parseProject(JSONObject(nativeProjectCreate(requireContext(), name, null, null)))
+
+    fun renameProject(projectId: String, name: String): HolderProject =
+        parseProject(JSONObject(nativeProjectRename(requireContext(), projectId, name)))
+
+    fun deleteProject(projectId: String) {
+        nativeProjectDelete(requireContext(), projectId)
+    }
+
+    fun createCard(projectId: String, title: String, content: String): HolderCard =
+        parseCard(JSONObject(nativeCardCreate(requireContext(), projectId, title, content, null)))
+
+    fun updateCard(cardId: String, title: String, content: String): HolderCard =
+        parseCard(JSONObject(nativeCardUpdateContent(requireContext(), cardId, content, title)))
+
+    fun deleteCard(cardId: String) {
+        nativeCardDelete(requireContext(), cardId)
     }
 
     private fun requireContext(): Long {
@@ -131,6 +146,18 @@ object HolderNative {
         check(handle != 0L) { "HolderNative.initialize() must be called first" }
         return handle
     }
+
+    private fun parseProject(json: JSONObject) = HolderProject(
+        projectId = json.getString("project_id"),
+        name = json.getString("name"),
+    )
+
+    private fun parseCard(json: JSONObject) = HolderCard(
+        cardId = json.getString("card_id"),
+        projectId = json.getString("project_id"),
+        title = json.getString("title"),
+        parentCardId = json.optStringOrNull("parent_card_id"),
+    )
 
     private fun JSONObject.optStringOrNull(name: String): String? =
         if (isNull(name)) null else getString(name)
