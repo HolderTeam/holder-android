@@ -52,7 +52,10 @@ fun CardEditScreen(
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
                     } else {
                         IconButton(
-                            onClick = { onSave(title, content) },
+                            // saving is re-read here (not just via `enabled`) because a second
+                            // tap can reach this same composable before recomposition swaps in
+                            // the progress indicator above -- e.g. a fast double-tap/click.
+                            onClick = { if (!saving) onSave(title, content) },
                             enabled = title.isNotBlank(),
                         ) {
                             Icon(Icons.Filled.Check, contentDescription = "Save")

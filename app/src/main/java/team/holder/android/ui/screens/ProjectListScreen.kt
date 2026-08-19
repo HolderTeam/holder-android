@@ -45,6 +45,9 @@ fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit) {
     var projectPendingRename by remember { mutableStateOf<HolderProject?>(null) }
     var projectPendingDelete by remember { mutableStateOf<HolderProject?>(null) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
+    // Guards create/rename/delete against double-tap: a second tap can reach the
+    // same dialog button before recomposition dismisses it, re-running onConfirm.
+    var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
@@ -122,10 +125,14 @@ fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit) {
             label = "Name",
             confirmLabel = "Create",
             onConfirm = { name ->
-                showCreateDialog = false
-                scope.launch {
-                    runCatching { withContext(Dispatchers.IO) { HolderNative.createProject(name) } }
-                    refresh()
+                if (!isSubmitting) {
+                    isSubmitting = true
+                    showCreateDialog = false
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { HolderNative.createProject(name) } }
+                        isSubmitting = false
+                        refresh()
+                    }
                 }
             },
             onDismiss = { showCreateDialog = false },
@@ -139,12 +146,16 @@ fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit) {
             initialValue = project.name,
             confirmLabel = "Rename",
             onConfirm = { name ->
-                projectPendingRename = null
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) { HolderNative.renameProject(project.projectId, name) }
+                if (!isSubmitting) {
+                    isSubmitting = true
+                    projectPendingRename = null
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) { HolderNative.renameProject(project.projectId, name) }
+                        }
+                        isSubmitting = false
+                        refresh()
                     }
-                    refresh()
                 }
             },
             onDismiss = { projectPendingRename = null },
@@ -158,10 +169,14 @@ fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit) {
             text = { Text("This deletes the project and its cards.") },
             confirmButton = {
                 TextButton(onClick = {
-                    projectPendingDelete = null
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { HolderNative.deleteProject(project.projectId) } }
-                        refresh()
+                    if (!isSubmitting) {
+                        isSubmitting = true
+                        projectPendingDelete = null
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) { HolderNative.deleteProject(project.projectId) } }
+                            isSubmitting = false
+                            refresh()
+                        }
                     }
                 }) { Text("Delete") }
             },

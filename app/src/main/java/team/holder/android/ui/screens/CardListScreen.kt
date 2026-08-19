@@ -51,6 +51,9 @@ fun CardListScreen(
     var state by remember(projectId) { mutableStateOf<LoadState<List<HolderCard>>>(LoadState.Loading) }
     var cardPendingDelete by remember { mutableStateOf<HolderCard?>(null) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
+    // Guards delete against double-tap: a second tap can reach the same dialog
+    // button before recomposition dismisses it, re-running the delete.
+    var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
@@ -130,10 +133,14 @@ fun CardListScreen(
             title = { Text("Delete \"${card.title}\"?") },
             confirmButton = {
                 TextButton(onClick = {
-                    cardPendingDelete = null
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(card.cardId) } }
-                        refresh()
+                    if (!isSubmitting) {
+                        isSubmitting = true
+                        cardPendingDelete = null
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(card.cardId) } }
+                            isSubmitting = false
+                            refresh()
+                        }
                     }
                 }) { Text("Delete") }
             },
