@@ -1,6 +1,15 @@
 # holder-android
 Holder Android App
 
+## What is Holder?
+
+Holder is a card management application designed to let users follow their own workflow rather than imposing one methodology. It can support Zettelkasten, wiki-style note systems, the Snowflake Method, personal knowledge management, research projects, family/shared projects through Git sync, and other card-based workflows.
+
+For Android, the first goal is not desktop feature parity. The phone should make Holder useful wherever the user is: create, read, edit, search and sync cards, while keeping the core data model in libholder.
+
+A persistent search bar can sit at the top of many primary views. Most other interactions can use full-screen phone views rather than trying to reproduce the desktop layout.
+
+
 ## Local Development
 
 Check out submodules before opening the project in Android Studio:
