@@ -89,7 +89,7 @@ private fun HolderNavHost() {
                 refreshKey = cardListRefreshKey,
                 onCardClick = { cardId, title ->
                     selectedCardTitle = title
-                    navController.navigate("cards/$cardId")
+                    navController.navigate("projects/$projectId/cards/$cardId")
                 },
                 onCreateCard = {
                     saveError = null
@@ -131,16 +131,23 @@ private fun HolderNavHost() {
                 onCancel = { navController.popBackStack() },
             )
         }
-        composable("cards/{cardId}") { backStackEntry ->
+        composable("projects/{projectId}/cards/{cardId}") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
             CardViewScreen(
                 cardId = cardId,
+                projectId = projectId,
                 cardTitle = selectedCardTitle,
                 refreshKey = cardViewRefreshKey,
                 onEdit = { content ->
                     selectedCardContent = content
                     saveError = null
                     navController.navigate("cards/$cardId/edit")
+                },
+                onNavigateToCard = { targetCardId, title ->
+                    selectedCardTitle = title
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
                 onBack = { navController.popBackStack() },
             )

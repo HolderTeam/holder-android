@@ -26,14 +26,17 @@ import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
+import team.holder.android.ui.markdown.HolderMarkdownViewer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardViewScreen(
     cardId: String,
+    projectId: String,
     cardTitle: String,
     refreshKey: Any,
     onEdit: (content: String) -> Unit,
+    onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
 ) {
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
@@ -76,8 +79,10 @@ fun CardViewScreen(
                 Text("Failed to load card: ${current.message}")
             }
             is LoadState.Success -> {
-                Text(
-                    text = current.value,
+                HolderMarkdownViewer(
+                    markdown = current.value,
+                    projectId = projectId,
+                    onNavigateToCard = onNavigateToCard,
                     modifier = Modifier
                         .padding(innerPadding)
                         .padding(16.dp)

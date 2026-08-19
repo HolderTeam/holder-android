@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import team.holder.android.ui.markdown.HolderMarkdownEditor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +39,7 @@ fun CardEditScreen(
     onCancel: () -> Unit,
 ) {
     var title by remember { mutableStateOf(initialTitle) }
-    var content by remember { mutableStateOf(initialContent) }
+    val contentState = rememberTextFieldState(initialContent)
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
     // false as soon as the save completes (createCard/updateCard can finish in well under
@@ -69,7 +71,7 @@ fun CardEditScreen(
                             onClick = {
                                 if (!hasSubmitted) {
                                     hasSubmitted = true
-                                    onSave(title, content)
+                                    onSave(title, contentState.text.toString())
                                 }
                             },
                             enabled = title.isNotBlank(),
@@ -96,10 +98,8 @@ fun CardEditScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                value = content,
-                onValueChange = { content = it },
-                label = { Text("Content") },
+            HolderMarkdownEditor(
+                state = contentState,
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
             )
         }
