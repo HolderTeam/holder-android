@@ -188,7 +188,7 @@ private fun MarkdownBlock(
             for (item in node.children()) {
                 if (item is ListItem) {
                     Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                        Text("•  ")
+                        Text("•  ", modifier = Modifier.padding(top = 4.dp))
                         Column {
                             for (child in item.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
                         }
@@ -202,7 +202,7 @@ private fun MarkdownBlock(
                 for (item in node.children()) {
                     if (item is ListItem) {
                         Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                            Text("${number++}.  ")
+                            Text("${number++}.  ", modifier = Modifier.padding(top = 4.dp))
                             Column {
                                 for (child in item.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
                             }
