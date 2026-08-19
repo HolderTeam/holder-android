@@ -198,6 +198,52 @@ Java_team_holder_android_HolderNative_nativeCardCreate(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeEnsureDefaultProject(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring data_dir,
+    jstring schema_sql,
+    jstring name,
+    jstring welcome_title,
+    jstring welcome_content
+) {
+  UtfChars data_dir_chars(env, data_dir);
+  UtfChars schema_sql_chars(env, schema_sql);
+  UtfChars name_chars(env, name);
+  UtfChars welcome_title_chars(env, welcome_title);
+  UtfChars welcome_content_chars(env, welcome_content);
+  if (data_dir_chars.get() == nullptr || schema_sql_chars.get() == nullptr ||
+      name_chars.get() == nullptr || welcome_title_chars.get() == nullptr) {
+    throw_runtime(env, "data_dir, schema_sql, name, and welcome_title must not be null");
+    return nullptr;
+  }
+
+  std::unique_ptr<holder_context, decltype(&holder_context_destroy)> context(
+      open_context_or_throw(env, data_dir_chars.get(), schema_sql_chars.get()),
+      holder_context_destroy
+  );
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_ensure_default_project(
+      context.get(),
+      name_chars.get(),
+      welcome_title_chars.get(),
+      welcome_content_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardList(
     JNIEnv* env,
     jobject /* thiz */,

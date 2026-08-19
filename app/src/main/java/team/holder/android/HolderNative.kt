@@ -1,7 +1,6 @@
 package team.holder.android
 
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 data class HolderSnapshot(
@@ -38,6 +37,13 @@ object HolderNative {
         title: String,
         content: String?,
         parentCardId: String?,
+    ): String
+    private external fun nativeEnsureDefaultProject(
+        dataDir: String,
+        schemaSql: String,
+        name: String,
+        welcomeTitle: String,
+        welcomeContent: String?,
     ): String
 
     fun version(): String {
@@ -92,13 +98,12 @@ object HolderNative {
 
     /** On first launch (no projects yet), creates a default Home project and a welcome card. */
     private fun ensureDefaultProject(dataDir: String, schemaSql: String) {
-        val projects = JSONArray(nativeProjectList(dataDir, schemaSql))
-        if (projects.length() > 0) return
-
-        val project = JSONObject(
-            nativeProjectCreate(dataDir, schemaSql, DEFAULT_PROJECT_NAME, null, null)
+        nativeEnsureDefaultProject(
+            dataDir,
+            schemaSql,
+            DEFAULT_PROJECT_NAME,
+            WELCOME_CARD_TITLE,
+            WELCOME_CARD_CONTENT,
         )
-        val projectId = project.getString("project_id")
-        nativeCardCreate(dataDir, schemaSql, projectId, WELCOME_CARD_TITLE, WELCOME_CARD_CONTENT, null)
     }
 }
