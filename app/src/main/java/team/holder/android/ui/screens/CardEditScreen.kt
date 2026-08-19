@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,6 +9,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -16,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,12 +56,10 @@ fun CardEditScreen(
     // already correctly initialized. See splitLeadingHeading/combineTitleAndBody: cards always
     // store the title as a leading `# Title` heading, so switching modes is non-destructive.
     var title by remember { mutableStateOf(initialTitle) }
-    val separateBodyState = rememberTextFieldState(
-        remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent },
-    )
-    val firstLineBodyState = rememberTextFieldState(
-        remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } },
-    )
+    val initialSeparateBody = remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent }
+    val separateBodyState = rememberTextFieldState(initialSeparateBody)
+    val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } }
+    val firstLineBodyState = rememberTextFieldState(initialFirstLineBody)
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
     // false as soon as the save completes (createCard/updateCard can finish in well under
@@ -75,12 +76,22 @@ fun CardEditScreen(
 
     val derivedTitle = if (separateTitle) title else titleFromFirstLine(firstLineBodyState.text.toString())
 
+    val isDirty = if (separateTitle) {
+        title != initialTitle || separateBodyState.text.toString() != initialSeparateBody
+    } else {
+        firstLineBodyState.text.toString() != initialFirstLineBody
+    }
+    var showDiscardDialog by remember { mutableStateOf(false) }
+    val requestCancel = { if (isDirty) showDiscardDialog = true else onCancel() }
+
+    BackHandler(onBack = requestCancel)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(screenTitle) },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = requestCancel) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
                     }
                 },
@@ -136,5 +147,21 @@ fun CardEditScreen(
                 )
             }
         }
+    }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Discard changes?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                    onCancel()
+                }) { Text("Discard") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
+            },
+        )
     }
 }
