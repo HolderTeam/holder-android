@@ -27,6 +27,7 @@ import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
+import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.theme.HolderTheme
@@ -71,6 +72,7 @@ private fun HolderNavHost() {
     // process is recreated. selectedCardContent doesn't need this: it only ever seeds
     // CardEditScreen's initial state, and that screen's own fields already restore themselves.
     var selectedProjectName by rememberSaveable { mutableStateOf("") }
+    var selectedProjectForSync by remember { mutableStateOf<HolderProject?>(null) }
     var selectedCardTitle by rememberSaveable { mutableStateOf("") }
     var selectedCardContent by remember { mutableStateOf("") }
     var cardListRefreshKey by remember { mutableIntStateOf(0) }
@@ -85,11 +87,20 @@ private fun HolderNavHost() {
                     selectedProjectName = project.name
                     navController.navigate("projects/${project.projectId}/cards")
                 },
+                onGitSyncClick = { project ->
+                    selectedProjectForSync = project
+                    navController.navigate("projects/${project.projectId}/git-sync")
+                },
                 onSettingsClick = { navController.navigate("settings") },
             )
         }
         composable("settings") {
             SettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("projects/{projectId}/git-sync") {
+            selectedProjectForSync?.let { project ->
+                GitSyncScreen(project = project, onBack = { navController.popBackStack() })
+            }
         }
         composable("projects/{projectId}/cards") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()

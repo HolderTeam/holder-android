@@ -7,6 +7,7 @@ import java.io.File
 data class HolderProject(
     val projectId: String,
     val name: String,
+    val gitRemoteUrl: String?,
 )
 
 data class HolderCard(
@@ -265,6 +266,7 @@ object HolderNative {
     private fun parseProject(json: JSONObject) = HolderProject(
         projectId = json.getString("project_id"),
         name = json.getString("name"),
+        gitRemoteUrl = json.optStringOrNull("git_remote_url"),
     )
 
     private fun parseCard(json: JSONObject) = HolderCard(

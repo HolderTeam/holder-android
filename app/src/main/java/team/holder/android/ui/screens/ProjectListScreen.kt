@@ -41,7 +41,11 @@ import team.holder.android.ui.TextInputDialog
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit, onSettingsClick: () -> Unit) {
+fun ProjectListScreen(
+    onProjectClick: (HolderProject) -> Unit,
+    onGitSyncClick: (HolderProject) -> Unit,
+    onSettingsClick: () -> Unit,
+) {
     var state by remember { mutableStateOf<LoadState<List<HolderProject>>>(LoadState.Loading) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var projectPendingRename by remember { mutableStateOf<HolderProject?>(null) }
@@ -112,6 +116,13 @@ fun ProjectListScreen(onProjectClick: (HolderProject) -> Unit, onSettingsClick: 
                                         onClick = {
                                             menuOpenFor = null
                                             projectPendingRename = project
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Git Sync") },
+                                        onClick = {
+                                            menuOpenFor = null
+                                            onGitSyncClick(project)
                                         },
                                     )
                                     DropdownMenuItem(
