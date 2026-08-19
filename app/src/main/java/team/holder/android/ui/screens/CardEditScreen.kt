@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -40,6 +41,7 @@ import team.holder.android.combineTitleAndBody
 import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
+import team.holder.android.ui.markdown.MarkdownFormattingToolbar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -146,6 +148,17 @@ fun CardEditScreen(
                     }
                 },
             )
+        },
+        bottomBar = {
+            // Formatting only makes sense for the body -- hidden while the plain single-line
+            // Title field has focus in Separate mode; always shown in First line mode, since
+            // there's only the one field.
+            if (!separateTitle || !titleFocused) {
+                MarkdownFormattingToolbar(
+                    state = if (separateTitle) separateBodyState else firstLineBodyState,
+                    modifier = Modifier.fillMaxWidth().imePadding(),
+                )
+            }
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp)) {

@@ -3,11 +3,17 @@ package team.holder.android.ui.markdown
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,6 +36,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import java.net.URLDecoder
@@ -37,6 +44,14 @@ import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.commonmark.ext.gfm.strikethrough.Strikethrough
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
+import org.commonmark.ext.gfm.tables.TableBlock
+import org.commonmark.ext.gfm.tables.TableCell
+import org.commonmark.ext.gfm.tables.TableRow
+import org.commonmark.ext.gfm.tables.TablesExtension
+import org.commonmark.ext.task.list.items.TaskListItemMarker
+import org.commonmark.ext.task.list.items.TaskListItemsExtension
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
 import org.commonmark.node.Code
@@ -103,7 +118,16 @@ fun HolderMarkdownViewer(
     var creating by remember { mutableStateOf(false) }
 
     val document = remember(markdown) {
-        Parser.builder().build().parse(preprocessWikilinks(markdown))
+        val parser = Parser.builder()
+            .extensions(
+                listOf(
+                    StrikethroughExtension.create(),
+                    TablesExtension.create(),
+                    TaskListItemsExtension.create(),
+                ),
+            )
+            .build()
+        parser.parse(preprocessWikilinks(markdown))
     }
 
     val onWikilinkClick: (String) -> Unit = { target ->
@@ -187,8 +211,13 @@ private fun MarkdownBlock(
         is BulletList -> Column(modifier = Modifier.padding(start = 16.dp)) {
             for (item in node.children()) {
                 if (item is ListItem) {
+                    val checked = (item.firstChild as? TaskListItemMarker)?.isChecked
                     Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                        Text("•  ", modifier = Modifier.padding(top = 4.dp))
+                        if (checked != null) {
+                            Checkbox(checked = checked, onCheckedChange = null)
+                        } else {
+                            Text("•  ", modifier = Modifier.padding(top = 4.dp))
+                        }
                         Column {
                             for (child in item.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
                         }
@@ -236,6 +265,39 @@ private fun MarkdownBlock(
                 .padding(8.dp),
         )
         is ThematicBreak -> HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        is TableBlock -> Column(
+            modifier = Modifier.padding(vertical = 4.dp).horizontalScroll(rememberScrollState()),
+        ) {
+            for (section in node.children()) {
+                for (row in section.children()) {
+                    if (row is TableRow) {
+                        Row {
+                            for (cell in row.children()) {
+                                if (cell is TableCell) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(120.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                            .padding(8.dp),
+                                    ) {
+                                        Text(
+                                            text = inlineText(cell, onWikilinkClick, onUrlClick, linkColor),
+                                            fontWeight = if (cell.isHeader) FontWeight.Bold else FontWeight.Normal,
+                                            textAlign = when (cell.alignment) {
+                                                TableCell.Alignment.CENTER -> TextAlign.Center
+                                                TableCell.Alignment.RIGHT -> TextAlign.End
+                                                else -> TextAlign.Start
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         else -> for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
     }
 }
@@ -270,6 +332,11 @@ private fun appendInline(
                 val start = builder.length
                 appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
                 builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, builder.length)
+            }
+            is Strikethrough -> {
+                val start = builder.length
+                appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, builder.length)
             }
             is Code -> {
                 val start = builder.length

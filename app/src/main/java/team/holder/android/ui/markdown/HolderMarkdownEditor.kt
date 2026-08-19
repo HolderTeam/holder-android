@@ -1,28 +1,39 @@
 package team.holder.android.ui.markdown
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
 
 private val HEADING_REGEX = Regex("(?m)^#{1,6}[ \t].*$")
 private val BOLD_REGEX = Regex("\\*\\*[^*\n]+\\*\\*|__[^_\n]+__")
 private val ITALIC_REGEX = Regex("(?<!\\*)\\*[^*\n]+\\*(?!\\*)|(?<!_)_[^_\n]+_(?!_)")
+private val STRIKETHROUGH_REGEX = Regex("~~[^~\n]+~~")
 private val INLINE_CODE_REGEX = Regex("`[^`\n]+`")
 private val WIKILINK_REGEX = Regex("\\[\\[[^\\]\n]+\\]\\]")
 private val MD_LINK_REGEX = Regex("\\[[^\\]\n]*\\]\\([^)\n]*\\)")
@@ -47,6 +58,9 @@ private class HolderMarkdownHighlighter(
         }
         for (match in ITALIC_REGEX.findAll(text)) {
             addStyle(SpanStyle(fontStyle = FontStyle.Italic), match.range.first, match.range.last + 1)
+        }
+        for (match in STRIKETHROUGH_REGEX.findAll(text)) {
+            addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), match.range.first, match.range.last + 1)
         }
         for (match in INLINE_CODE_REGEX.findAll(text)) {
             addStyle(
@@ -109,6 +123,81 @@ private object ListContinuation : InputTransformation {
             val insertAt = newRange.start + 1
             replace(insertAt, insertAt, marker.markerText)
             placeCursorBeforeCharAt(insertAt + marker.markerText.length)
+        }
+    }
+}
+
+private val HEADING_LINE_REGEX = Regex("^#{1,6}[ \t].*")
+
+/** Wraps the current selection in `prefix`/`suffix`, or inserts an empty pair with the cursor
+ * placed between them if nothing's selected. */
+@OptIn(ExperimentalFoundationApi::class)
+private fun TextFieldState.wrapSelection(prefix: String, suffix: String = prefix) {
+    edit {
+        val sel = selection
+        if (sel.collapsed) {
+            replace(sel.start, sel.start, prefix + suffix)
+            placeCursorBeforeCharAt(sel.start + prefix.length)
+        } else {
+            val start = sel.min
+            val end = sel.max
+            replace(start, start, prefix)
+            val newEnd = end + prefix.length
+            replace(newEnd, newEnd, suffix)
+            selection = TextRange(start + prefix.length, newEnd)
+        }
+    }
+}
+
+/** Adds a leading `# ` to the current line, or removes an existing heading marker if there's
+ * already one -- a simple toggle rather than cycling through heading levels. */
+@OptIn(ExperimentalFoundationApi::class)
+private fun TextFieldState.toggleHeading() {
+    edit {
+        val text = asCharSequence()
+        val searchFrom = selection.start - 1
+        val lineStart = (if (searchFrom < 0) -1 else text.lastIndexOf('\n', searchFrom)) + 1
+        val lineEnd = text.indexOf('\n', lineStart).let { if (it == -1) text.length else it }
+        val line = text.substring(lineStart, lineEnd)
+        if (HEADING_LINE_REGEX.matches(line)) {
+            replace(lineStart, lineEnd, line.replaceFirst(Regex("^#{1,6} "), ""))
+        } else {
+            replace(lineStart, lineStart, "# ")
+        }
+    }
+}
+
+/**
+ * A row of quick-insert buttons for touch typing, since raw Markdown syntax (`**`, `` ` ``,
+ * `[[`) is tedious to type by hand on a soft keyboard. Acts on [state] directly; the caller
+ * decides which field that is (only the body makes sense to format).
+ */
+@Composable
+fun MarkdownFormattingToolbar(state: TextFieldState, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { state.wrapSelection("**") }) {
+            Text("B", fontWeight = FontWeight.Bold)
+        }
+        IconButton(onClick = { state.wrapSelection("*") }) {
+            Text("I", fontStyle = FontStyle.Italic)
+        }
+        IconButton(onClick = { state.wrapSelection("~~") }) {
+            Text("S", textDecoration = TextDecoration.LineThrough)
+        }
+        IconButton(onClick = { state.wrapSelection("`") }) {
+            Text("</>", fontFamily = FontFamily.Monospace)
+        }
+        IconButton(onClick = { state.toggleHeading() }) {
+            Text("H", fontWeight = FontWeight.Bold)
+        }
+        IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
+            Text("[[ ]]")
         }
     }
 }
