@@ -32,8 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import team.holder.android.HolderSettings
+import team.holder.android.R
 import team.holder.android.combineTitleAndBody
 import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
@@ -117,10 +119,10 @@ fun CardEditScreen(
                 },
                 actions = {
                     IconButton(onClick = { activeUndo.undo() }, enabled = activeUndo.canUndo) {
-                        Text("↶", style = MaterialTheme.typography.titleLarge)
+                        Icon(painterResource(R.drawable.ic_undo), contentDescription = "Undo")
                     }
                     IconButton(onClick = { activeUndo.redo() }, enabled = activeUndo.canRedo) {
-                        Text("↷", style = MaterialTheme.typography.titleLarge)
+                        Icon(painterResource(R.drawable.ic_redo), contentDescription = "Redo")
                     }
                     if (saving) {
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
