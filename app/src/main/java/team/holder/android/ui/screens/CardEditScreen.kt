@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -55,7 +56,9 @@ fun CardEditScreen(
     // resolves to (it loads asynchronously from DataStore), so whichever ends up displayed is
     // already correctly initialized. See splitLeadingHeading/combineTitleAndBody: cards always
     // store the title as a leading `# Title` heading, so switching modes is non-destructive.
-    var title by remember { mutableStateOf(initialTitle) }
+    // rememberSaveable: title is the one piece of edit state with no other safety net (the
+    // body TextFieldStates below already survive process death via their own built-in Saver).
+    var title by rememberSaveable { mutableStateOf(initialTitle) }
     val initialSeparateBody = remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent }
     val separateBodyState = rememberTextFieldState(initialSeparateBody)
     val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } }

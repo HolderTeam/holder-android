@@ -1,8 +1,10 @@
 package team.holder.android.ui.markdown
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
@@ -62,6 +64,55 @@ private class HolderMarkdownHighlighter(
     }
 }
 
+private data class ListMarker(val markerText: String, val content: String)
+
+private val BULLET_LINE = Regex("^(\\s*)([-*+]) (.*)$")
+private val ORDERED_LINE = Regex("^(\\s*)(\\d+)\\. (.*)$")
+
+private fun detectListMarker(line: String): ListMarker? {
+    BULLET_LINE.matchEntire(line)?.let { m ->
+        val (indent, bullet, content) = m.destructured
+        return ListMarker("$indent$bullet ", content)
+    }
+    ORDERED_LINE.matchEntire(line)?.let { m ->
+        val (indent, number, content) = m.destructured
+        val next = (number.toIntOrNull() ?: 0) + 1
+        return ListMarker("$indent$next. ", content)
+    }
+    return null
+}
+
+/**
+ * Pressing Enter inside a list item continues the list with the next marker (same bullet, or
+ * the incremented number); pressing Enter on an already-empty item removes its marker instead
+ * of piling up empty ones, ending the list.
+ */
+private object ListContinuation : InputTransformation {
+    @OptIn(ExperimentalFoundationApi::class)
+    override fun TextFieldBuffer.transformInput() {
+        if (changes.changeCount != 1) return
+        val newRange = changes.getRange(0)
+        val originalRange = changes.getOriginalRange(0)
+        if (originalRange.length != 0 || newRange.length != 1) return
+        if (charAt(newRange.start) != '\n') return
+
+        val text = asCharSequence()
+        val searchFrom = newRange.start - 1
+        val lineStart = (if (searchFrom < 0) -1 else text.lastIndexOf('\n', searchFrom)) + 1
+        val precedingLine = text.substring(lineStart, newRange.start)
+        val marker = detectListMarker(precedingLine) ?: return
+
+        if (marker.content.isBlank()) {
+            replace(lineStart, newRange.start, "")
+            placeCursorBeforeCharAt(lineStart + 1)
+        } else {
+            val insertAt = newRange.start + 1
+            replace(insertAt, insertAt, marker.markerText)
+            placeCursorBeforeCharAt(insertAt + marker.markerText.length)
+        }
+    }
+}
+
 /**
  * Source editor for a card's raw Markdown text. Tapping only places the cursor -- links are
  * never followed here, only in [HolderMarkdownViewer].
@@ -89,6 +140,7 @@ fun HolderMarkdownEditor(
             state = state,
             modifier = Modifier.fillMaxSize(),
             textStyle = LocalTextStyle.current.copy(color = colorScheme.onSurface),
+            inputTransformation = ListContinuation,
             outputTransformation = highlighter,
         )
     }

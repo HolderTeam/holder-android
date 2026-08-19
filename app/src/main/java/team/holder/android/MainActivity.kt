@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
@@ -65,8 +66,12 @@ private fun HolderNavHost() {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
 
-    var selectedProjectName by remember { mutableStateOf("") }
-    var selectedCardTitle by remember { mutableStateOf("") }
+    // rememberSaveable: these back the app-bar titles on CardListScreen/CardViewScreen, which
+    // otherwise fall back to a generic label ("Cards"/"Card") until the next navigation if the
+    // process is recreated. selectedCardContent doesn't need this: it only ever seeds
+    // CardEditScreen's initial state, and that screen's own fields already restore themselves.
+    var selectedProjectName by rememberSaveable { mutableStateOf("") }
+    var selectedCardTitle by rememberSaveable { mutableStateOf("") }
     var selectedCardContent by remember { mutableStateOf("") }
     var cardListRefreshKey by remember { mutableIntStateOf(0) }
     var cardViewRefreshKey by remember { mutableIntStateOf(0) }
@@ -153,6 +158,10 @@ private fun HolderNavHost() {
                     selectedCardTitle = title
                     cardListRefreshKey++
                     navController.navigate("projects/$projectId/cards/$targetCardId")
+                },
+                onDeleted = {
+                    cardListRefreshKey++
+                    navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },
             )
