@@ -37,6 +37,9 @@ private val STRIKETHROUGH_REGEX = Regex("~~[^~\n]+~~")
 private val INLINE_CODE_REGEX = Regex("`[^`\n]+`")
 private val WIKILINK_REGEX = Regex("\\[\\[[^\\]\n]+\\]\\]")
 private val MD_LINK_REGEX = Regex("\\[[^\\]\n]*\\]\\([^)\n]*\\)")
+// Cosmetic only -- just flags bare URLs while typing to match what autolink will pick up in
+// view mode; the actual link boundary is decided by the real autolink parser, not this.
+private val BARE_URL_REGEX = Regex("\\bhttps?://[^\\s<>\"]+")
 
 /**
  * Colors the raw Markdown source without touching the underlying text -- what's stored is
@@ -70,6 +73,9 @@ private class HolderMarkdownHighlighter(
             )
         }
         for (match in MD_LINK_REGEX.findAll(text)) {
+            addStyle(SpanStyle(color = linkColor), match.range.first, match.range.last + 1)
+        }
+        for (match in BARE_URL_REGEX.findAll(text)) {
             addStyle(SpanStyle(color = linkColor), match.range.first, match.range.last + 1)
         }
         for (match in WIKILINK_REGEX.findAll(text)) {

@@ -7,8 +7,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -44,6 +47,9 @@ import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.commonmark.ext.autolink.AutolinkExtension
+import org.commonmark.ext.gfm.alerts.Alert
+import org.commonmark.ext.gfm.alerts.AlertsExtension
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TableBlock
@@ -75,6 +81,15 @@ import team.holder.android.HolderNative
 
 private val WIKILINK_REGEX = Regex("\\[\\[([^\\]\n]+)\\]\\]")
 private const val HOLDER_LINK_SCHEME = "holder-link:"
+
+// Roughly matches GitHub's own alert accent colors; doesn't need to be pixel-exact.
+private val ALERT_COLORS = mapOf(
+    "NOTE" to Color(0xFF0969DA),
+    "TIP" to Color(0xFF1A7F37),
+    "IMPORTANT" to Color(0xFF8250DF),
+    "WARNING" to Color(0xFF9A6700),
+    "CAUTION" to Color(0xFFCF222E),
+)
 
 private fun Node.children(): List<Node> {
     val result = mutableListOf<Node>()
@@ -124,6 +139,8 @@ fun HolderMarkdownViewer(
                     StrikethroughExtension.create(),
                     TablesExtension.create(),
                     TaskListItemsExtension.create(),
+                    AutolinkExtension.create(),
+                    AlertsExtension.create(),
                 ),
             )
             .build()
@@ -247,6 +264,22 @@ private fun MarkdownBlock(
                 .padding(8.dp),
         ) {
             for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+        }
+        is Alert -> {
+            val alertColor = ALERT_COLORS[node.type] ?: MaterialTheme.colorScheme.primary
+            val label = AlertsExtension.STANDARD_TYPES[node.type] ?: node.type
+            Row(
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .height(IntrinsicSize.Min)
+                    .background(alertColor.copy(alpha = 0.08f)),
+            ) {
+                Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(alertColor))
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(label, color = alertColor, fontWeight = FontWeight.Bold)
+                    for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+                }
+            }
         }
         is FencedCodeBlock -> Text(
             text = node.literal.trimEnd('\n'),
