@@ -274,3 +274,31 @@ Java_team_holder_android_HolderNative_nativeCardList(
   }
   return string_result(env, json);
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardGetContent(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return nullptr;
+  }
+
+  char* content = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_get_content(context, card_id_chars.get(), &content, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, content);
+}

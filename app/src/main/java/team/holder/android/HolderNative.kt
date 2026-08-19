@@ -1,19 +1,25 @@
 package team.holder.android
 
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
-data class HolderSnapshot(
-    val coreVersion: String,
-    val projectCount: Int,
-    val cardCount: Int,
-    val status: String,
+data class HolderProject(
+    val projectId: String,
+    val name: String,
+)
+
+data class HolderCard(
+    val cardId: String,
+    val projectId: String,
+    val title: String,
+    val parentCardId: String?,
 )
 
 /**
  * Kotlin -> JNI -> C ABI -> libholder boundary. Opens a single native
- * holder_context on first use and keeps it open for the app's lifetime
- * instead of reopening the SQLite store on every call.
+ * holder_context on first use (see initialize) and keeps it open for the
+ * app's lifetime instead of reopening the SQLite store on every call.
  */
 object HolderNative {
     private const val DEFAULT_PROJECT_NAME = "Home"
@@ -31,6 +37,7 @@ object HolderNative {
     private external fun nativeContextClose(contextHandle: Long)
     private external fun nativeProjectList(contextHandle: Long): String
     private external fun nativeCardList(contextHandle: Long, projectId: String): String
+    private external fun nativeCardGetContent(contextHandle: Long, cardId: String): String
     private external fun nativeProjectCreate(
         contextHandle: Long,
         name: String,
@@ -63,51 +70,23 @@ object HolderNative {
         }
     }
 
-    fun snapshot(dataDir: File, schemaSql: String, welcomeContent: String): HolderSnapshot {
-        val coreVersion = version()
-        loadError?.let {
-            return HolderSnapshot(
-                coreVersion = coreVersion,
-                projectCount = 0,
-                cardCount = 0,
-                status = "Native load failed: ${it.message ?: it::class.java.simpleName}",
-            )
-        }
-
-        return runCatching {
-            val handle = ensureContextOpen(dataDir, schemaSql)
-            ensureDefaultProject(handle, welcomeContent)
-
-            val projects = JSONArray(nativeProjectList(handle))
-            var cardCount = 0
-            for (index in 0 until projects.length()) {
-                val projectId = projects.getJSONObject(index).getString("project_id")
-                cardCount += JSONArray(nativeCardList(handle, projectId)).length()
-            }
-
-            HolderSnapshot(
-                coreVersion = coreVersion,
-                projectCount = projects.length(),
-                cardCount = cardCount,
-                status = "Opened native Holder store",
-            )
-        }.getOrElse {
-            HolderSnapshot(
-                coreVersion = coreVersion,
-                projectCount = 0,
-                cardCount = 0,
-                status = "Native store failed: ${it.message ?: it::class.java.simpleName}",
-            )
-        }
-    }
-
-    /** Opens the native store on first call; later calls reuse the same context. */
+    /**
+     * Opens the native store (once; safe to call again) and, on first launch,
+     * bootstraps a default Home project with a welcome card.
+     */
     @Synchronized
-    private fun ensureContextOpen(dataDir: File, schemaSql: String): Long {
+    fun initialize(dataDir: File, schemaSql: String, welcomeContent: String) {
+        loadError?.let { throw it }
+
         if (contextHandle == 0L) {
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
         }
-        return contextHandle
+        nativeEnsureDefaultProject(
+            contextHandle,
+            DEFAULT_PROJECT_NAME,
+            deriveWelcomeTitle(welcomeContent, WELCOME_CARD_TITLE_FALLBACK),
+            welcomeContent,
+        )
     }
 
     /** Closes the native store. Safe to call even if it was never opened. */
@@ -119,15 +98,42 @@ object HolderNative {
         }
     }
 
-    /** On first launch (no projects yet), creates a default Home project and a welcome card. */
-    private fun ensureDefaultProject(contextHandle: Long, welcomeContent: String) {
-        nativeEnsureDefaultProject(
-            contextHandle,
-            DEFAULT_PROJECT_NAME,
-            deriveWelcomeTitle(welcomeContent, WELCOME_CARD_TITLE_FALLBACK),
-            welcomeContent,
-        )
+    fun listProjects(): List<HolderProject> {
+        val projects = JSONArray(nativeProjectList(requireContext()))
+        return List(projects.length()) { index ->
+            val project = projects.getJSONObject(index)
+            HolderProject(
+                projectId = project.getString("project_id"),
+                name = project.getString("name"),
+            )
+        }
     }
+
+    fun listCards(projectId: String): List<HolderCard> {
+        val cards = JSONArray(nativeCardList(requireContext(), projectId))
+        return List(cards.length()) { index ->
+            val card = cards.getJSONObject(index)
+            HolderCard(
+                cardId = card.getString("card_id"),
+                projectId = card.getString("project_id"),
+                title = card.getString("title"),
+                parentCardId = card.optStringOrNull("parent_card_id"),
+            )
+        }
+    }
+
+    fun getCardContent(cardId: String): String {
+        return nativeCardGetContent(requireContext(), cardId)
+    }
+
+    private fun requireContext(): Long {
+        val handle = contextHandle
+        check(handle != 0L) { "HolderNative.initialize() must be called first" }
+        return handle
+    }
+
+    private fun JSONObject.optStringOrNull(name: String): String? =
+        if (isNull(name)) null else getString(name)
 
     /** Mirrors holder-daemon's Bootstrap.cpp: first line, only if it's a markdown heading. */
     private fun deriveWelcomeTitle(content: String, fallback: String): String {
