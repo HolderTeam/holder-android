@@ -32,14 +32,22 @@ Both come from libholder
 
 Build the essential navigation and card workflow:
 
+#### 2.1
+
 * Project list
 * Card list for a project
-* Persistent/global search bar where appropriate
-* Search results
 * Card view
+
+#### 2.2
+
 * Card create/edit
 * Basic project creation/rename/delete
 * Basic card creation/delete
+
+#### 2.3
+
+* Persistent/global search bar where appropriate
+* Search results
 
 At the end of this step, someone should be able to use the Android app **without owning a desktop computer** to write cards. It is already a legitimate Holder client, just without all the advanced features.
 
