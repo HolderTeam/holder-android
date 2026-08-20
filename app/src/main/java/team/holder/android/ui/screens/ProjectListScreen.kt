@@ -30,11 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.HolderProject
+import team.holder.android.R
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.TextInputDialog
@@ -44,6 +46,7 @@ import team.holder.android.ui.TextInputDialog
 fun ProjectListScreen(
     onProjectClick: (HolderProject) -> Unit,
     onGitSyncClick: (HolderProject) -> Unit,
+    onRecoverProjectClick: () -> Unit,
     onSettingsClick: () -> Unit,
 ) {
     var state by remember { mutableStateOf<LoadState<List<HolderProject>>>(LoadState.Loading) }
@@ -72,6 +75,9 @@ fun ProjectListScreen(
             TopAppBar(
                 title = { Text("Holder") },
                 actions = {
+                    IconButton(onClick = onRecoverProjectClick) {
+                        Icon(painterResource(R.drawable.ic_restore), contentDescription = "Recover project")
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }

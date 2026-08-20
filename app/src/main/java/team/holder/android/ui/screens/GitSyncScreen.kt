@@ -57,6 +57,9 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
     var syncStatus by remember(project.projectId) { mutableStateOf<GitSyncStatus?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var isBusy by remember { mutableStateOf(false) }
+    var pinInput by remember(project.projectId) { mutableStateOf("") }
+    var exportedToken by remember(project.projectId) { mutableStateOf<String?>(null) }
+    var exportError by remember(project.projectId) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
@@ -200,6 +203,61 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     },
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Sync now") }
+            }
+
+            if (project.privacyMode == "encrypted_git") {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                Text("Encryption recovery", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "This project's cards are encrypted. Export a PIN-protected recovery token " +
+                        "and keep it somewhere safe -- it's the only way to read this project's " +
+                        "cards on another device.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = pinInput,
+                    onValueChange = { pinInput = it },
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                Button(
+                    enabled = !isBusy && pinInput.isNotBlank(),
+                    modifier = Modifier.padding(top = 8.dp),
+                    onClick = {
+                        if (!isBusy) {
+                            isBusy = true
+                            exportError = null
+                            exportedToken = null
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        HolderNative.exportRecoveryToken(project.projectId, pinInput)
+                                    }
+                                }.fold(
+                                    onSuccess = { exportedToken = it.recoveryToken },
+                                    onFailure = {
+                                        exportError = it.message ?: it::class.java.simpleName
+                                    },
+                                )
+                                isBusy = false
+                            }
+                        }
+                    },
+                ) { Text("Export recovery token") }
+
+                exportError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                }
+                exportedToken?.let { token ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text(token, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { clipboard.setText(AnnotatedString(token)) }) {
+                            Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy recovery token")
+                        }
+                    }
+                }
             }
         }
     }

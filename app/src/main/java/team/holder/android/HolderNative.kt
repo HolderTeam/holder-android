@@ -9,6 +9,7 @@ data class HolderProject(
     val projectId: String,
     val name: String,
     val gitRemoteUrl: String?,
+    val privacyMode: String,
 )
 
 data class HolderCard(
@@ -57,6 +58,38 @@ data class GitSyncIfDueResult(
     val pullStatus: String?,
     val pushAttempted: Boolean,
     val pushStatus: String?,
+)
+
+data class EncryptionCheckResult(
+    val privacyMode: String,
+    val ok: Boolean,
+    val checkedFiles: Int,
+    val unsafeFiles: Int,
+    val unsafePaths: List<String>,
+    val message: String,
+)
+
+data class RecoveryTokenExportResult(
+    val projectId: String,
+    val keyId: String,
+    val recoveryToken: String,
+)
+
+data class RecoveryTokenMetadata(
+    val projectId: String,
+    val projectKeyId: String,
+    val projectName: String?,
+    val gitRemoteUrl: String?,
+)
+
+data class RecoveryTokenImportGlobalResult(
+    val projectId: String,
+    val projectCreated: Boolean,
+    val remoteHintPresent: Boolean,
+    val remoteConfigured: Boolean,
+    val remoteError: String?,
+    val pullStatus: String,
+    val pullError: String?,
 )
 
 /**
@@ -135,6 +168,20 @@ object HolderNative {
         projectId: String,
         pushIntervalSeconds: Int,
         pullIntervalSeconds: Int,
+    ): String
+    private external fun nativeEncryptionCheck(contextHandle: Long, projectId: String): String
+    private external fun nativeRecoveryTokenExport(contextHandle: Long, projectId: String, pin: String): String
+    private external fun nativeRecoveryTokenImport(
+        contextHandle: Long,
+        projectId: String,
+        pin: String,
+        recoveryToken: String,
+    ): String
+    private external fun nativeRecoveryTokenInspect(pin: String, recoveryToken: String): String
+    private external fun nativeRecoveryTokenImportGlobal(
+        contextHandle: Long,
+        pin: String,
+        recoveryToken: String,
     ): String
 
     fun version(): String {
@@ -299,6 +346,64 @@ object HolderNative {
         )
     }
 
+    fun encryptionCheck(projectId: String): EncryptionCheckResult {
+        val json = JSONObject(nativeEncryptionCheck(requireContext(), projectId))
+        val check = json.getJSONObject("check")
+        val unsafePathsJson = check.getJSONArray("unsafe_paths")
+        return EncryptionCheckResult(
+            privacyMode = json.getString("privacy_mode"),
+            ok = check.getBoolean("ok"),
+            checkedFiles = check.getInt("checked_files"),
+            unsafeFiles = check.getInt("unsafe_files"),
+            unsafePaths = List(unsafePathsJson.length()) { unsafePathsJson.getString(it) },
+            message = check.getString("message"),
+        )
+    }
+
+    fun exportRecoveryToken(projectId: String, pin: String): RecoveryTokenExportResult {
+        val json = JSONObject(nativeRecoveryTokenExport(requireContext(), projectId, pin))
+        return RecoveryTokenExportResult(
+            projectId = json.getString("project_id"),
+            keyId = json.getString("key_id"),
+            recoveryToken = json.getString("recovery_token"),
+        )
+    }
+
+    /** Re-establishes projectId's key material from a recovery token; projectId must already
+     * exist and match the token's own project id. See importRecoveryTokenGlobal for recovering
+     * onto a device that doesn't have the project yet. */
+    fun importRecoveryToken(projectId: String, pin: String, recoveryToken: String) {
+        nativeRecoveryTokenImport(requireContext(), projectId, pin, recoveryToken)
+    }
+
+    /** Decrypts a recovery token's metadata without importing anything, so a caller can show
+     * the user what they're about to recover before committing. */
+    fun inspectRecoveryToken(pin: String, recoveryToken: String): RecoveryTokenMetadata {
+        val json = JSONObject(nativeRecoveryTokenInspect(pin, recoveryToken))
+        return RecoveryTokenMetadata(
+            projectId = json.getString("project_id"),
+            projectKeyId = json.getString("project_key_id"),
+            projectName = json.optStringOrNull("project_name"),
+            gitRemoteUrl = json.optStringOrNull("git_remote_url"),
+        )
+    }
+
+    /** The device-setup path: recovers a project from just a PIN and a recovery token, creating
+     * it first if this device has never seen it before, and pulling its remote if the token
+     * includes one. */
+    fun importRecoveryTokenGlobal(pin: String, recoveryToken: String): RecoveryTokenImportGlobalResult {
+        val json = JSONObject(nativeRecoveryTokenImportGlobal(requireContext(), pin, recoveryToken))
+        return RecoveryTokenImportGlobalResult(
+            projectId = json.getString("project_id"),
+            projectCreated = json.getBoolean("project_created"),
+            remoteHintPresent = json.getBoolean("remote_hint_present"),
+            remoteConfigured = json.getBoolean("remote_configured"),
+            remoteError = json.optStringOrNull("remote_error"),
+            pullStatus = json.getString("pull_status"),
+            pullError = json.optStringOrNull("pull_error"),
+        )
+    }
+
     private fun requireContext(): Long {
         val handle = contextHandle
         check(handle != 0L) { "HolderNative.initialize() must be called first" }
@@ -309,6 +414,7 @@ object HolderNative {
         projectId = json.getString("project_id"),
         name = json.getString("name"),
         gitRemoteUrl = json.optStringOrNull("git_remote_url"),
+        privacyMode = json.getString("privacy_mode"),
     )
 
     private fun parseCard(json: JSONObject) = HolderCard(

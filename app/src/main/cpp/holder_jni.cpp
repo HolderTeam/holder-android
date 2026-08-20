@@ -659,3 +659,163 @@ Java_team_holder_android_HolderNative_nativeGitSyncIfDue(
   }
   return string_result(env, json);
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeEncryptionCheck(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_encryption_check(context, project_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeRecoveryTokenExport(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring pin
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars pin_chars(env, pin);
+  if (project_id_chars.get() == nullptr || pin_chars.get() == nullptr) {
+    throw_runtime(env, "project_id and pin must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc =
+      holder_recovery_token_export(context, project_id_chars.get(), pin_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeRecoveryTokenImport(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring pin,
+    jstring recovery_token
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars pin_chars(env, pin);
+  UtfChars recovery_token_chars(env, recovery_token);
+  if (project_id_chars.get() == nullptr || pin_chars.get() == nullptr ||
+      recovery_token_chars.get() == nullptr) {
+    throw_runtime(env, "project_id, pin, and recovery_token must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_recovery_token_import(
+      context,
+      project_id_chars.get(),
+      pin_chars.get(),
+      recovery_token_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeRecoveryTokenInspect(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring pin,
+    jstring recovery_token
+) {
+  UtfChars pin_chars(env, pin);
+  UtfChars recovery_token_chars(env, recovery_token);
+  if (pin_chars.get() == nullptr || recovery_token_chars.get() == nullptr) {
+    throw_runtime(env, "pin and recovery_token must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc =
+      holder_recovery_token_inspect(pin_chars.get(), recovery_token_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeRecoveryTokenImportGlobal(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring pin,
+    jstring recovery_token
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars pin_chars(env, pin);
+  UtfChars recovery_token_chars(env, recovery_token);
+  if (pin_chars.get() == nullptr || recovery_token_chars.get() == nullptr) {
+    throw_runtime(env, "pin and recovery_token must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_recovery_token_import_global(
+      context,
+      pin_chars.get(),
+      recovery_token_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}

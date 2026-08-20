@@ -32,6 +32,7 @@ import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
+import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.theme.HolderTheme
 import java.io.File
@@ -105,11 +106,15 @@ private fun HolderNavHost() {
                     selectedProjectForSync = project
                     navController.navigate("projects/${project.projectId}/git-sync")
                 },
+                onRecoverProjectClick = { navController.navigate("recover-project") },
                 onSettingsClick = { navController.navigate("settings") },
             )
         }
         composable("settings") {
             SettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("recover-project") {
+            RecoverProjectScreen(onBack = { navController.popBackStack() })
         }
         composable("projects/{projectId}/git-sync") {
             selectedProjectForSync?.let { project ->
