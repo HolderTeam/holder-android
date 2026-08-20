@@ -23,6 +23,7 @@ class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val result = runCatching {
             HolderNative.initialize(
+                context = applicationContext,
                 dataDir = File(applicationContext.filesDir, "holder"),
                 schemaSql = applicationContext.assets.open("schema.sql").bufferedReader().use { it.readText() },
                 welcomeContent = applicationContext.assets.open("WELCOME.md").bufferedReader().use { it.readText() },

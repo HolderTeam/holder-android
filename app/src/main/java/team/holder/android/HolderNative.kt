@@ -1,5 +1,6 @@
 package team.holder.android
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -153,11 +154,14 @@ object HolderNative {
      * bootstraps a default Home project with a welcome card.
      */
     @Synchronized
-    fun initialize(dataDir: File, schemaSql: String, welcomeContent: String) {
+    fun initialize(context: Context, dataDir: File, schemaSql: String, welcomeContent: String) {
         loadError?.let { throw it }
 
         if (contextHandle == 0L) {
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
+            // Best-effort: encrypted_git projects fall back to failing outright if this
+            // doesn't register, but nothing else about the app depends on it.
+            runCatching { team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) }
             // Best-effort: git sync still falls back to the (nonexistent, on Android)
             // default ssh-agent/~/.ssh lookup if this fails, so a Keystore hiccup here
             // shouldn't block the rest of the app from opening.
@@ -194,8 +198,9 @@ object HolderNative {
         return nativeCardGetContent(requireContext(), cardId)
     }
 
-    fun createProject(name: String): HolderProject =
-        parseProject(JSONObject(nativeProjectCreate(requireContext(), name, null, null)))
+    /** privacyMode null defaults (server-side) to "plain". "encrypted_git" is also valid. */
+    fun createProject(name: String, privacyMode: String? = null): HolderProject =
+        parseProject(JSONObject(nativeProjectCreate(requireContext(), name, null, privacyMode)))
 
     fun renameProject(projectId: String, name: String): HolderProject =
         parseProject(JSONObject(nativeProjectRename(requireContext(), projectId, name)))

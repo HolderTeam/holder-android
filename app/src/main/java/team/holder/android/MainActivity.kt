@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
 
         val initError = runCatching {
             HolderNative.initialize(
+                context = this,
                 dataDir = File(filesDir, "holder"),
                 schemaSql = assets.open("schema.sql").bufferedReader().use { it.readText() },
                 welcomeContent = assets.open("WELCOME.md").bufferedReader().use { it.readText() },
