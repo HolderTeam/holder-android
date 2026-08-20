@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
 import team.holder.android.sync.GitSyncScheduler
+import team.holder.android.ui.theme.HolderFontFamilyOption
+import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
 import team.holder.android.ui.theme.swatchColor
 
@@ -53,6 +55,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     var intervalMenuExpanded by remember { mutableStateOf(false) }
     val themeOption by HolderSettings.themeOption(context).collectAsState(initial = HolderThemeOption.SYSTEM)
     var themeMenuExpanded by remember { mutableStateOf(false) }
+    val fontSizeOption by HolderSettings.fontSizeOption(context).collectAsState(initial = HolderFontSizeOption.SYSTEM)
+    var fontSizeMenuExpanded by remember { mutableStateOf(false) }
+    val fontFamilyOption by HolderSettings.fontFamilyOption(context)
+        .collectAsState(initial = HolderFontFamilyOption.DEFAULT)
+    var fontFamilyMenuExpanded by remember { mutableStateOf(false) }
 
     // Keeps WorkManager's schedule in sync whenever either setting changes here, in addition
     // to the reconcile MainActivity does once at process start.
@@ -106,6 +113,70 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 onClick = {
                                     themeMenuExpanded = false
                                     scope.launch { HolderSettings.setThemeOption(context, option) }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Font size")
+                    Text(
+                        if (fontSizeOption == HolderFontSizeOption.SYSTEM) {
+                            "Follows your device's font size setting."
+                        } else {
+                            "Overrides your device's font size setting."
+                        },
+                    )
+                }
+                Box {
+                    Button(onClick = { fontSizeMenuExpanded = true }) {
+                        Text(fontSizeOption.label)
+                    }
+                    DropdownMenu(
+                        expanded = fontSizeMenuExpanded,
+                        onDismissRequest = { fontSizeMenuExpanded = false },
+                    ) {
+                        HolderFontSizeOption.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = {
+                                    fontSizeMenuExpanded = false
+                                    scope.launch { HolderSettings.setFontSizeOption(context, option) }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Font")
+                    Text("The typeface used throughout the app.")
+                }
+                Box {
+                    Button(onClick = { fontFamilyMenuExpanded = true }) {
+                        Text("Aa", fontFamily = fontFamilyOption.fontFamily)
+                        Text(fontFamilyOption.label, modifier = Modifier.padding(start = 8.dp))
+                    }
+                    DropdownMenu(
+                        expanded = fontFamilyMenuExpanded,
+                        onDismissRequest = { fontFamilyMenuExpanded = false },
+                    ) {
+                        HolderFontFamilyOption.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                leadingIcon = { Text("Aa", fontFamily = option.fontFamily) },
+                                onClick = {
+                                    fontFamilyMenuExpanded = false
+                                    scope.launch { HolderSettings.setFontFamilyOption(context, option) }
                                 },
                             )
                         }

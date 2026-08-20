@@ -10,6 +10,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import team.holder.android.ui.theme.HolderFontFamilyOption
+import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "holder_settings")
@@ -20,6 +22,8 @@ object HolderSettings {
     private val GIT_BACKGROUND_SYNC_ENABLED = booleanPreferencesKey("git_background_sync_enabled")
     private val GIT_BACKGROUND_SYNC_INTERVAL_MINUTES = intPreferencesKey("git_background_sync_interval_minutes")
     private val THEME_OPTION = stringPreferencesKey("theme_option")
+    private val FONT_SIZE_OPTION = stringPreferencesKey("font_size_option")
+    private val FONT_FAMILY_OPTION = stringPreferencesKey("font_family_option")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -61,5 +65,27 @@ object HolderSettings {
 
     suspend fun setThemeOption(context: Context, option: HolderThemeOption) {
         context.settingsDataStore.edit { it[THEME_OPTION] = option.name }
+    }
+
+    fun fontSizeOption(context: Context): Flow<HolderFontSizeOption> =
+        context.settingsDataStore.data.map { prefs ->
+            prefs[FONT_SIZE_OPTION]?.let { stored ->
+                runCatching { HolderFontSizeOption.valueOf(stored) }.getOrNull()
+            } ?: HolderFontSizeOption.SYSTEM
+        }
+
+    suspend fun setFontSizeOption(context: Context, option: HolderFontSizeOption) {
+        context.settingsDataStore.edit { it[FONT_SIZE_OPTION] = option.name }
+    }
+
+    fun fontFamilyOption(context: Context): Flow<HolderFontFamilyOption> =
+        context.settingsDataStore.data.map { prefs ->
+            prefs[FONT_FAMILY_OPTION]?.let { stored ->
+                runCatching { HolderFontFamilyOption.valueOf(stored) }.getOrNull()
+            } ?: HolderFontFamilyOption.DEFAULT
+        }
+
+    suspend fun setFontFamilyOption(context: Context, option: HolderFontFamilyOption) {
+        context.settingsDataStore.edit { it[FONT_FAMILY_OPTION] = option.name }
     }
 }
