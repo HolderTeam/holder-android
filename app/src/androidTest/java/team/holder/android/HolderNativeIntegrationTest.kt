@@ -1,0 +1,123 @@
+package team.holder.android
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.util.UUID
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Representative Kotlin -> JNI -> C API -> libholder tests.
+ *
+ * These deliberately cover a small number of end-to-end round trips rather than duplicating the
+ * exhaustive holder-core C API suite. Every test uses a unique cache directory and closes the
+ * process-wide HolderNative context after each case.
+ */
+@RunWith(AndroidJUnit4::class)
+class HolderNativeIntegrationTest {
+    private lateinit var context: android.content.Context
+    private lateinit var dataDir: File
+    private lateinit var schemaSql: String
+
+    @Before
+    fun setUp() {
+        context = InstrumentationRegistry.getInstrumentation().targetContext
+        dataDir = context.cacheDir.resolve("holder-jni-test-${UUID.randomUUID()}")
+        check(dataDir.mkdirs()) { "Could not create test data directory: $dataDir" }
+        schemaSql = context.assets.open("schema.sql").bufferedReader().use { it.readText() }
+        HolderNative.close()
+    }
+
+    @After
+    fun tearDown() {
+        HolderNative.close()
+        dataDir.deleteRecursively()
+    }
+
+    @Test
+    fun nativeVersion_isAvailableThroughJni() {
+        val version = HolderNative.version()
+
+        assertFalse(version.startsWith("native load failed:"))
+        assertFalse(version.startsWith("native call failed:"))
+        assertTrue(version.isNotBlank())
+    }
+
+    @Test
+    fun initialize_bootstrapsHomeProjectAndWelcomeCard() {
+        val welcome = "# Welcome 🌍\n\nHolder is ready."
+
+        initialize(welcome)
+
+        val projects = HolderNative.listProjects()
+        assertEquals(1, projects.size)
+        assertEquals("Home", projects.single().name)
+
+        val cards = HolderNative.listCards(projects.single().projectId)
+        assertEquals(1, cards.size)
+        assertEquals("Welcome 🌍", cards.single().title)
+        assertEquals(welcome, HolderNative.getCardContent(cards.single().cardId))
+    }
+
+    @Test
+    fun projectAndCardRoundTrip_preservesUtf8AndSearchResults() {
+        initialize("# Welcome\n\nWelcome")
+
+        val project = HolderNative.createProject("Проект 🚀")
+        val title = "Café 日本語 📝"
+        val content = "# $title\n\nПривет, мир — résumé."
+        val card = HolderNative.createCard(project.projectId, title, content)
+
+        assertEquals(project.projectId, card.projectId)
+        assertEquals(title, card.title)
+        assertEquals(content, HolderNative.getCardContent(card.cardId))
+        assertEquals(card, HolderNative.listCards(project.projectId).single { it.cardId == card.cardId })
+
+        val results = HolderNative.searchCards(project.projectId, "résumé")
+        assertEquals(1, results.size)
+        assertEquals(card.cardId, results.single().cardId)
+        assertEquals(title, results.single().title)
+        assertNotNull(results.single().snippet)
+    }
+
+    @Test
+    fun closeAndReopen_preservesProjectAndCardData() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Persistent project")
+        val card = HolderNative.createCard(project.projectId, "Persistent card", "# Persistent card\n\nBody")
+
+        HolderNative.close()
+        initialize("# Welcome\n\nWelcome")
+
+        assertEquals(project, HolderNative.listProjects().single { it.projectId == project.projectId })
+        assertEquals("# Persistent card\n\nBody", HolderNative.getCardContent(card.cardId))
+    }
+
+    @Test
+    fun deletingMissingCard_returnsNativeErrorThroughKotlinBoundary() {
+        initialize("# Welcome\n\nWelcome")
+
+        val error = assertThrows(RuntimeException::class.java) {
+            HolderNative.deleteCard("card-that-does-not-exist")
+        }
+
+        assertTrue(error.message.orEmpty().isNotBlank())
+    }
+
+    private fun initialize(welcomeContent: String) {
+        HolderNative.initialize(
+            context = context,
+            dataDir = dataDir,
+            schemaSql = schemaSql,
+            welcomeContent = welcomeContent,
+        )
+    }
+}
