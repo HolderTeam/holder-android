@@ -15,17 +15,17 @@ import androidx.compose.ui.graphics.lerp
  */
 enum class HolderThemeOption(val label: String, val description: String) {
     SYSTEM("System", "Follows your device's light/dark setting."),
-    PINK("Pink", "Unapologetic pink."),
-    ROSE("Rose", "A softer, more subtle pink."),
-    RACING_GREEN("Racing Green", "British racing green, cream, and restrained gold."),
-    MAGNUS("Magnus", "Swedish-style blue and yellow, flag-flying bold."),
-    ALBION("Albion", "Red, white, and blue of the Union Flag."),
-    TERMINAL("Terminal", "Near-black with phosphor green."),
-    SUOMI("Suomi", "White and blue."),
-    PAPER("Paper", "Off-white, charcoal ink -- a plain index card."),
-    BURGUNDY("Burgundy", "Oxblood, cream, and brass."),
-    MONOCHROME("Monochrome", "Pure black, white, and grey -- deliberately austere."),
-    HIGH_CONTRAST("High Contrast", "Accessibility theme: maximum contrast, not just another look."),
+    PINK("Pink", "Make it happen"),
+    ROSE("Rose", "Subtly Strong and Refined."),
+    RACING_GREEN("Racing Green", "Pedal to the metal."),
+    MAGNUS("Magnus", "Du gamla, du fria: You Ancient, You Free."),
+    ALBION("Albion", "Rule the waves."),
+    TERMINAL("Terminal", "There is no spoon."),
+    SUOMI("Suomi", "The brave eat the soup."),
+    PAPER("Paper", "A Classic Index Card."),
+    BURGUNDY("Burgundy", "Old Money."),
+    MONOCHROME("Monochrome", "Deliberately austere."),
+    HIGH_CONTRAST("High Contrast", "Accessibility theme: maximum contrast."),
 }
 
 /** A representative color for each theme's swatch dot in the picker. Not used for rendering. */
