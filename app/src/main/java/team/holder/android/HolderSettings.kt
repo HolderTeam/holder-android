@@ -6,9 +6,11 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import team.holder.android.ui.theme.HolderThemeOption
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "holder_settings")
 
@@ -17,6 +19,7 @@ object HolderSettings {
     private val SEPARATE_TITLE_ENABLED = booleanPreferencesKey("separate_title_enabled")
     private val GIT_BACKGROUND_SYNC_ENABLED = booleanPreferencesKey("git_background_sync_enabled")
     private val GIT_BACKGROUND_SYNC_INTERVAL_MINUTES = intPreferencesKey("git_background_sync_interval_minutes")
+    private val THEME_OPTION = stringPreferencesKey("theme_option")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -47,5 +50,16 @@ object HolderSettings {
         context.settingsDataStore.edit {
             it[GIT_BACKGROUND_SYNC_INTERVAL_MINUTES] = minutes.coerceAtLeast(DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES)
         }
+    }
+
+    fun themeOption(context: Context): Flow<HolderThemeOption> =
+        context.settingsDataStore.data.map { prefs ->
+            prefs[THEME_OPTION]?.let { stored ->
+                runCatching { HolderThemeOption.valueOf(stored) }.getOrNull()
+            } ?: HolderThemeOption.SYSTEM
+        }
+
+    suspend fun setThemeOption(context: Context, option: HolderThemeOption) {
+        context.settingsDataStore.edit { it[THEME_OPTION] = option.name }
     }
 }

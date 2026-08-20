@@ -1,10 +1,13 @@
 package team.holder.android.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -27,11 +30,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
 import team.holder.android.sync.GitSyncScheduler
+import team.holder.android.ui.theme.HolderThemeOption
+import team.holder.android.ui.theme.swatchColor
 
 private val BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES = listOf(15, 30, 60, 120)
 
@@ -45,6 +51,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     val backgroundSyncIntervalMinutes by HolderSettings.gitBackgroundSyncIntervalMinutes(context)
         .collectAsState(initial = HolderSettings.DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES)
     var intervalMenuExpanded by remember { mutableStateOf(false) }
+    val themeOption by HolderSettings.themeOption(context).collectAsState(initial = HolderThemeOption.SYSTEM)
+    var themeMenuExpanded by remember { mutableStateOf(false) }
 
     // Keeps WorkManager's schedule in sync whenever either setting changes here, in addition
     // to the reconcile MainActivity does once at process start.
@@ -65,6 +73,48 @@ fun SettingsScreen(onBack: () -> Unit) {
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxWidth().padding(innerPadding).padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Theme")
+                    Text(themeOption.description)
+                }
+                Box {
+                    Button(onClick = { themeMenuExpanded = true }) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(themeOption.swatchColor()),
+                        )
+                        Text(themeOption.label, modifier = Modifier.padding(start = 8.dp))
+                    }
+                    DropdownMenu(
+                        expanded = themeMenuExpanded,
+                        onDismissRequest = { themeMenuExpanded = false },
+                    ) {
+                        HolderThemeOption.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clip(CircleShape)
+                                            .background(option.swatchColor()),
+                                    )
+                                },
+                                onClick = {
+                                    themeMenuExpanded = false
+                                    scope.launch { HolderSettings.setThemeOption(context, option) }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Separate title field")
