@@ -10,7 +10,7 @@ Usage:
   ./make.sh [command]
 
 Commands:
-  test      Run the Kotlin JVM unit tests
+  test      Run JVM unit tests and connected Compose UI tests
   help      Show this help
 
 Examples:
@@ -20,7 +20,9 @@ EOF
 }
 
 run_unit_tests() {
-  "${SCRIPT_DIR}/gradlew" --no-daemon :app:testDebugUnitTest
+  "${SCRIPT_DIR}/gradlew" --no-daemon \
+    :app:testDebugUnitTest \
+    :app:connectedDebugAndroidTest
 }
 
 case "${MODE}" in
