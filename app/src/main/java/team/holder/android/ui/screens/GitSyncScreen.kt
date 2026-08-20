@@ -48,6 +48,16 @@ private val TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("MMM d, HH:mm").withZ
 private fun formatEpochSeconds(epochSeconds: Long?): String =
     epochSeconds?.let { TIMESTAMP_FORMAT.format(Instant.ofEpochSecond(it)) } ?: "never"
 
+// A pull that hit a genuine conflict (the same card changed on both this device and the
+// remote) still reports "succeeded" -- it was resolved, not failed -- so this is the only way
+// the user finds out a "(conflicted copy)" card now exists and is worth a look.
+private fun conflictsSuffix(conflictsResolved: Int): String =
+    if (conflictsResolved > 0) {
+        " ($conflictsResolved conflict${if (conflictsResolved == 1) "" else "s"} resolved)"
+    } else {
+        ""
+    }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
@@ -187,7 +197,8 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     onClick = {
                         runAction("Pull") {
                             val result = HolderNative.pullGit(project.projectId)
-                            "Pull: ${result.status}" + (result.errorMessage?.let { " -- $it" } ?: "")
+                            "Pull: ${result.status}" + conflictsSuffix(result.conflictsResolved) +
+                                (result.errorMessage?.let { " -- $it" } ?: "")
                         }
                     },
                     modifier = Modifier.padding(start = 8.dp),
@@ -198,7 +209,8 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                         runAction("Sync") {
                             val pull = HolderNative.pullGit(project.projectId)
                             val push = HolderNative.pushGit(project.projectId)
-                            "Sync -- pull: ${pull.status}, push: ${push.status}"
+                            "Sync -- pull: ${pull.status}" + conflictsSuffix(pull.conflictsResolved) +
+                                ", push: ${push.status}"
                         }
                     },
                     modifier = Modifier.padding(start = 8.dp),

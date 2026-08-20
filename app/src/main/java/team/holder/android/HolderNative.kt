@@ -41,6 +41,7 @@ data class GitPushResult(
 data class GitPullResult(
     val status: String,
     val errorMessage: String?,
+    val conflictsResolved: Int,
 )
 
 data class GitSyncStatus(
@@ -306,6 +307,7 @@ object HolderNative {
         return GitPullResult(
             status = json.getString("status"),
             errorMessage = json.optStringOrNull("error_message"),
+            conflictsResolved = json.optInt("conflicts_resolved", 0),
         )
     }
 
