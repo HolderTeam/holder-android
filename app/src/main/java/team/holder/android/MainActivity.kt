@@ -157,14 +157,16 @@ private fun HolderNavHost() {
                             val result = runCatching {
                                 withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, content) }
                             }
-                            saving = false
-                            result.fold(
-                                onSuccess = {
-                                    cardListRefreshKey++
-                                    navController.popBackStack()
-                                },
-                                onFailure = { saveError = it.message ?: it::class.java.simpleName },
-                            )
+                            withContext(Dispatchers.Main.immediate) {
+                                saving = false
+                                result.fold(
+                                    onSuccess = {
+                                        cardListRefreshKey++
+                                        navController.popBackStack()
+                                    },
+                                    onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                                )
+                            }
                         }
                     }
                 },
@@ -213,16 +215,18 @@ private fun HolderNavHost() {
                             val result = runCatching {
                                 withContext(Dispatchers.IO) { HolderNative.updateCard(cardId, title, content) }
                             }
-                            saving = false
-                            result.fold(
-                                onSuccess = {
-                                    selectedCardTitle = title
-                                    cardViewRefreshKey++
-                                    cardListRefreshKey++
-                                    navController.popBackStack()
-                                },
-                                onFailure = { saveError = it.message ?: it::class.java.simpleName },
-                            )
+                            withContext(Dispatchers.Main.immediate) {
+                                saving = false
+                                result.fold(
+                                    onSuccess = {
+                                        selectedCardTitle = title
+                                        cardViewRefreshKey++
+                                        cardListRefreshKey++
+                                        navController.popBackStack()
+                                    },
+                                    onFailure = { saveError = it.message ?: it::class.java.simpleName },
+                                )
+                            }
                         }
                     }
                 },
