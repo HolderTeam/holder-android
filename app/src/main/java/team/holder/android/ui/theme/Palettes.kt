@@ -21,6 +21,7 @@ enum class HolderThemeOption(val label: String, val description: String) {
     TERMINAL("Terminal", "There is no spoon."),
     SUOMI("Suomi", "The brave eat the soup."),
     BURGUNDY("Burgundy", "Old Money."),
+    WALNUT("Walnut", "Rich walnut wood grain."),
     PINK("Pink", "Make it happen"),
     ROSE("Rose", "Subtly Strong and Refined."),
     RACING_GREEN("Racing Green", "Pedal to the metal."),
@@ -40,6 +41,7 @@ fun HolderThemeOption.swatchColor(): Color = when (this) {
     HolderThemeOption.SUOMI -> SuomiPrimary
     HolderThemeOption.PAPER -> PaperPrimary
     HolderThemeOption.BURGUNDY -> BurgundyPrimary
+    HolderThemeOption.WALNUT -> WalnutBase
     HolderThemeOption.MONOCHROME -> Color(0xFF000000)
     HolderThemeOption.HIGH_CONTRAST -> Color(0xFFFFD400)
 }
@@ -278,6 +280,27 @@ private val BurgundyScheme = holderColorScheme(
     outline = Color(0xFF9C6E52),
 )
 
+/** `background` is transparent on purpose: every screen's Scaffold defaults its container color
+ * to `colorScheme.background`, so leaving it transparent lets the procedural wood-grain texture
+ * drawn behind `content` in [HolderTheme] show through everywhere without touching every screen.
+ * `surface` stays a solid, opaque color (matching the grain's own base tone) since things like
+ * TopAppBar and DropdownMenu paint their own background and would otherwise be see-through too. */
+private val WalnutScheme = holderColorScheme(
+    primary = Color(0xFFC9A227),
+    onPrimary = Color(0xFF2B1B0E),
+    secondary = Color(0xFF6F4A2A),
+    onSecondary = Color(0xFFF5E9D9),
+    tertiary = Color(0xFF8C6239),
+    onTertiary = Color(0xFF2B1B0E),
+    background = Color.Transparent,
+    onBackground = Color(0xFFF5E9D9),
+    surface = WalnutBase,
+    onSurface = Color(0xFFF5E9D9),
+    surfaceVariant = Color(0xFF3B2414),
+    onSurfaceVariant = Color(0xFFD8C3A5),
+    outline = Color(0xFFC9A227),
+)
+
 private val MonochromeScheme = holderColorScheme(
     primary = Color(0xFF000000),
     onPrimary = Color(0xFFFFFFFF),
@@ -344,6 +367,7 @@ fun HolderThemeOption.fixedColorScheme(darkTheme: Boolean): ColorScheme? = when 
     HolderThemeOption.SUOMI -> SuomiScheme
     HolderThemeOption.PAPER -> PaperScheme
     HolderThemeOption.BURGUNDY -> BurgundyScheme
+    HolderThemeOption.WALNUT -> WalnutScheme
     HolderThemeOption.MONOCHROME -> MonochromeScheme
     HolderThemeOption.HIGH_CONTRAST -> if (darkTheme) HighContrastDarkScheme else HighContrastLightScheme
 }

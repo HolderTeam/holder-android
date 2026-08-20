@@ -3,6 +3,8 @@ package team.holder.android.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -11,6 +13,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import team.holder.android.HolderSettings
 
@@ -58,6 +61,16 @@ fun HolderTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
-        content = content
-    )
+    ) {
+        if (themeOption == HolderThemeOption.WALNUT) {
+            // WalnutScheme's background is transparent so every screen's Scaffold shows this
+            // through instead of painting over it -- see WalnutScheme's comment.
+            Box(modifier = Modifier.fillMaxSize()) {
+                WalnutBackground(modifier = Modifier.fillMaxSize())
+                content()
+            }
+        } else {
+            content()
+        }
+    }
 }
