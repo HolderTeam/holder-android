@@ -21,7 +21,7 @@ enum class HolderThemeOption(val label: String, val description: String) {
     TERMINAL("Terminal", "There is no spoon."),
     SUOMI("Suomi", "The brave eat the soup."),
     BURGUNDY("Burgundy", "Old Money."),
-    WALNUT("Walnut", "Rich walnut wood grain."),
+    WALNUT("Walnut", "Resolute."),
     PINK("Pink", "Make it happen"),
     ROSE("Rose", "Subtly Strong and Refined."),
     RACING_GREEN("Racing Green", "Pedal to the metal."),
