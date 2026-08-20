@@ -19,6 +19,7 @@ enum class HolderThemeOption(val label: String, val description: String) {
     ROSE("Rose", "A softer, more subtle pink."),
     RACING_GREEN("Racing Green", "British racing green, cream, and restrained gold."),
     MAGNUS("Magnus", "Swedish-style blue and yellow, flag-flying bold."),
+    ALBION("Albion", "Red, white, and blue of the Union Flag."),
     TERMINAL("Terminal", "Near-black with phosphor green."),
     SUOMI("Suomi", "White and blue."),
     PAPER("Paper", "Off-white, charcoal ink -- a plain index card."),
@@ -34,6 +35,7 @@ fun HolderThemeOption.swatchColor(): Color = when (this) {
     HolderThemeOption.ROSE -> RosePrimary
     HolderThemeOption.RACING_GREEN -> RacingGreenPrimary
     HolderThemeOption.MAGNUS -> MagnusBlue
+    HolderThemeOption.ALBION -> AlbionRed
     HolderThemeOption.TERMINAL -> TerminalPrimary
     HolderThemeOption.SUOMI -> SuomiPrimary
     HolderThemeOption.PAPER -> PaperPrimary
@@ -47,6 +49,8 @@ private val RosePrimary = Color(0xFFB76E79)
 private val RacingGreenPrimary = Color(0xFF01411C)
 private val MagnusBlue = Color(0xFF0058A3)
 private val MagnusYellow = Color(0xFFFFDB00)
+private val AlbionRed = Color(0xFFC8102E)
+private val AlbionBlue = Color(0xFF012169)
 private val TerminalPrimary = Color(0xFF39FF14)
 private val SuomiPrimary = Color(0xFF003580)
 private val PaperPrimary = Color(0xFF2B2926)
@@ -192,6 +196,24 @@ private val MagnusScheme = holderColorScheme(
     onPrimaryContainer = Color(0xFF001E3C),
 )
 
+private val AlbionScheme = holderColorScheme(
+    primary = AlbionRed,
+    onPrimary = Color(0xFFFFFFFF),
+    secondary = Color(0xFFFFFFFF),
+    onSecondary = AlbionBlue,
+    tertiary = AlbionBlue,
+    onTertiary = Color(0xFFFFFFFF),
+    background = AlbionBlue,
+    onBackground = Color(0xFFFFFFFF),
+    surface = Color(0xFF001B4D),
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF001333),
+    onSurfaceVariant = Color(0xFFCBD6EA),
+    outline = AlbionRed,
+    primaryContainer = AlbionRed,
+    onPrimaryContainer = Color(0xFFFFFFFF),
+)
+
 private val TerminalScheme = holderColorScheme(
     primary = TerminalPrimary,
     onPrimary = Color(0xFF001A00),
@@ -317,6 +339,7 @@ fun HolderThemeOption.fixedColorScheme(darkTheme: Boolean): ColorScheme? = when 
     HolderThemeOption.ROSE -> RoseScheme
     HolderThemeOption.RACING_GREEN -> RacingGreenScheme
     HolderThemeOption.MAGNUS -> MagnusScheme
+    HolderThemeOption.ALBION -> AlbionScheme
     HolderThemeOption.TERMINAL -> TerminalScheme
     HolderThemeOption.SUOMI -> SuomiScheme
     HolderThemeOption.PAPER -> PaperScheme
