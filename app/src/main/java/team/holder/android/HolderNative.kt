@@ -17,6 +17,7 @@ data class HolderCard(
     val projectId: String,
     val title: String,
     val parentCardId: String?,
+    val deletedAt: Long? = null,
 )
 
 data class HolderSearchResult(
@@ -143,6 +144,9 @@ object HolderNative {
         title: String?,
     ): String
     private external fun nativeCardDelete(contextHandle: Long, cardId: String)
+    private external fun nativeCardListTrashed(contextHandle: Long, projectId: String): String
+    private external fun nativeCardRestore(contextHandle: Long, cardId: String): String
+    private external fun nativeCardPurge(contextHandle: Long, cardId: String)
     private external fun nativeCardSearch(
         contextHandle: Long,
         projectId: String,
@@ -263,8 +267,23 @@ object HolderNative {
     fun updateCard(cardId: String, title: String, content: String): HolderCard =
         parseCard(JSONObject(nativeCardUpdateContent(requireContext(), cardId, content, title)))
 
+    /** Soft-deletes (trashes) a card; it stops appearing in listCards until restored or purged. */
     fun deleteCard(cardId: String) {
         nativeCardDelete(requireContext(), cardId)
+    }
+
+    fun listTrashedCards(projectId: String): List<HolderCard> {
+        val cards = JSONArray(nativeCardListTrashed(requireContext(), projectId))
+        return List(cards.length()) { index -> parseCard(cards.getJSONObject(index)) }
+    }
+
+    /** Restores a trashed card so it reappears in listCards. Fails if cardId isn't trashed. */
+    fun restoreCard(cardId: String): HolderCard =
+        parseCard(JSONObject(nativeCardRestore(requireContext(), cardId)))
+
+    /** Permanently deletes a trashed card. Irreversible. Fails if cardId isn't trashed. */
+    fun purgeCard(cardId: String) {
+        nativeCardPurge(requireContext(), cardId)
     }
 
     fun searchCards(projectId: String, query: String, limit: Int = 50): List<HolderSearchResult> {
@@ -424,6 +443,7 @@ object HolderNative {
         projectId = json.getString("project_id"),
         title = json.getString("title"),
         parentCardId = json.optStringOrNull("parent_card_id"),
+        deletedAt = json.optLongOrNull("deleted_at"),
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? =

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,6 +58,7 @@ fun CardListScreen(
     refreshKey: Any,
     onCardClick: (cardId: String, title: String) -> Unit,
     onCreateCard: () -> Unit,
+    onTrashClick: () -> Unit,
     onBack: () -> Unit,
 ) {
     var cardsState by remember(projectId) { mutableStateOf<LoadState<List<HolderCard>>>(LoadState.Loading) }
@@ -104,6 +106,11 @@ fun CardListScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onTrashClick) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Trash")
                     }
                 },
             )

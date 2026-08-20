@@ -34,6 +34,7 @@ import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.SettingsScreen
+import team.holder.android.ui.screens.TrashScreen
 import team.holder.android.ui.theme.HolderTheme
 import java.io.File
 
@@ -135,7 +136,20 @@ private fun HolderNavHost() {
                     saveError = null
                     navController.navigate("projects/$projectId/cards/new")
                 },
+                onTrashClick = { navController.navigate("projects/$projectId/trash") },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/trash") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            TrashScreen(
+                projectId = projectId,
+                onBack = {
+                    // A restore in the trash screen doesn't refresh the card list behind it on
+                    // its own -- bump this so the restored card reappears without a manual pull.
+                    cardListRefreshKey++
+                    navController.popBackStack()
+                },
             )
         }
         composable("projects/{projectId}/cards/new") { backStackEntry ->

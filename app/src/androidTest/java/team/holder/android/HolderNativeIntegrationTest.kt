@@ -112,6 +112,31 @@ class HolderNativeIntegrationTest {
         assertTrue(error.message.orEmpty().isNotBlank())
     }
 
+    @Test
+    fun trashRestorePurge_roundTripsThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Trash test project")
+        val card = HolderNative.createCard(project.projectId, "Doomed", "original content")
+
+        HolderNative.deleteCard(card.cardId)
+
+        assertTrue(HolderNative.listCards(project.projectId).none { it.cardId == card.cardId })
+        val trashed = HolderNative.listTrashedCards(project.projectId).single { it.cardId == card.cardId }
+        assertNotNull(trashed.deletedAt)
+
+        val restored = HolderNative.restoreCard(card.cardId)
+        assertEquals(card.cardId, restored.cardId)
+        assertEquals("original content", HolderNative.getCardContent(card.cardId))
+        assertEquals(1, HolderNative.listCards(project.projectId).count { it.cardId == card.cardId })
+        assertTrue(HolderNative.listTrashedCards(project.projectId).none { it.cardId == card.cardId })
+
+        HolderNative.deleteCard(card.cardId)
+        HolderNative.purgeCard(card.cardId)
+
+        assertTrue(HolderNative.listTrashedCards(project.projectId).none { it.cardId == card.cardId })
+        assertThrows(RuntimeException::class.java) { HolderNative.getCardContent(card.cardId) }
+    }
+
     private fun initialize(welcomeContent: String) {
         HolderNative.initialize(
             context = context,
