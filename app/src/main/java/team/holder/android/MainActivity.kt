@@ -17,12 +17,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.CardListScreen
@@ -44,6 +47,16 @@ class MainActivity : ComponentActivity() {
                 welcomeContent = assets.open("WELCOME.md").bufferedReader().use { it.readText() },
             )
         }.exceptionOrNull()
+
+        // Restores the background-sync schedule on every process start: a fresh process has
+        // no memory of a periodic work request enqueued in a past one, only what WorkManager
+        // itself persisted -- re-deriving it from settings here keeps the two in sync even if
+        // e.g. the app was reinstalled or the setting changed while the process was dead.
+        lifecycleScope.launch {
+            val enabled = HolderSettings.gitBackgroundSyncEnabled(applicationContext).first()
+            val intervalMinutes = HolderSettings.gitBackgroundSyncIntervalMinutes(applicationContext).first()
+            GitSyncScheduler.reconcile(applicationContext, enabled, intervalMinutes)
+        }
 
         enableEdgeToEdge()
         setContent {

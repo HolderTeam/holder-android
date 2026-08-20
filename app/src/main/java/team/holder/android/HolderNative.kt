@@ -51,6 +51,13 @@ data class GitSyncStatus(
     val lastSyncError: String?,
 )
 
+data class GitSyncIfDueResult(
+    val pullAttempted: Boolean,
+    val pullStatus: String?,
+    val pushAttempted: Boolean,
+    val pushStatus: String?,
+)
+
 /**
  * Kotlin -> JNI -> C ABI -> libholder boundary. Opens a single native
  * holder_context on first use (see initialize) and keeps it open for the
@@ -122,6 +129,12 @@ object HolderNative {
     ): String
     private external fun nativeGitPull(contextHandle: Long, projectId: String): String
     private external fun nativeGitSyncStatus(contextHandle: Long, projectId: String): String
+    private external fun nativeGitSyncIfDue(
+        contextHandle: Long,
+        projectId: String,
+        pushIntervalSeconds: Int,
+        pullIntervalSeconds: Int,
+    ): String
 
     fun version(): String {
         loadError?.let {
@@ -254,6 +267,30 @@ object HolderNative {
             lastPushStatus = sync.optStringOrNull("last_push_status"),
             lastPullStatus = sync.optStringOrNull("last_pull_status"),
             lastSyncError = sync.optStringOrNull("last_sync_error"),
+        )
+    }
+
+    /**
+     * Pulls and/or pushes only if enough time has passed since the last attempt of each,
+     * per the same cadence policy holder-daemon's background worker uses -- intended for a
+     * periodic background job (see GitSyncWorker) to call on a tighter schedule than the
+     * desired sync interval, without over-syncing. A no-op if the project has no remote
+     * configured, or if neither is due yet. intervalSeconds <= 0 uses the built-in default
+     * (1200s push / 300s pull).
+     */
+    fun gitSyncIfDue(
+        projectId: String,
+        pushIntervalSeconds: Int = 0,
+        pullIntervalSeconds: Int = 0,
+    ): GitSyncIfDueResult {
+        val json = JSONObject(
+            nativeGitSyncIfDue(requireContext(), projectId, pushIntervalSeconds, pullIntervalSeconds),
+        )
+        return GitSyncIfDueResult(
+            pullAttempted = json.getBoolean("pull_attempted"),
+            pullStatus = json.optStringOrNull("pull_status"),
+            pushAttempted = json.getBoolean("push_attempted"),
+            pushStatus = json.optStringOrNull("push_status"),
         )
     }
 
