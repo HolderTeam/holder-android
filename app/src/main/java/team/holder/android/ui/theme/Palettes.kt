@@ -15,17 +15,17 @@ import androidx.compose.ui.graphics.lerp
  */
 enum class HolderThemeOption(val label: String, val description: String) {
     SYSTEM("System", "Follows your device's light/dark setting."),
+    HIGH_CONTRAST("High Contrast", "Accessibility theme: maximum contrast."),
+    MONOCHROME("Monochrome", "Deliberately austere."),
+    PAPER("Paper", "A Classic Index Card."),
+    TERMINAL("Terminal", "There is no spoon."),
+    SUOMI("Suomi", "The brave eat the soup."),
+    BURGUNDY("Burgundy", "Old Money."),
     PINK("Pink", "Make it happen"),
     ROSE("Rose", "Subtly Strong and Refined."),
     RACING_GREEN("Racing Green", "Pedal to the metal."),
-    MAGNUS("Magnus", "Du gamla, du fria: You Ancient, You Free."),
+    MAGNUS("Magnus", "You Ancient, You Free."),
     ALBION("Albion", "Rule the waves."),
-    TERMINAL("Terminal", "There is no spoon."),
-    SUOMI("Suomi", "The brave eat the soup."),
-    PAPER("Paper", "A Classic Index Card."),
-    BURGUNDY("Burgundy", "Old Money."),
-    MONOCHROME("Monochrome", "Deliberately austere."),
-    HIGH_CONTRAST("High Contrast", "Accessibility theme: maximum contrast."),
 }
 
 /** A representative color for each theme's swatch dot in the picker. Not used for rendering. */
