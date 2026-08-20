@@ -18,7 +18,7 @@ enum class HolderThemeOption(val label: String, val description: String) {
     PINK("Pink", "Unapologetic pink."),
     ROSE("Rose", "A softer, more subtle pink."),
     RACING_GREEN("Racing Green", "British racing green, cream, and restrained gold."),
-    MAGNUS("Magnus", "Swedish-style blue and gold."),
+    MAGNUS("Magnus", "Swedish-style blue and yellow, flag-flying bold."),
     TERMINAL("Terminal", "Near-black with phosphor green."),
     SUOMI("Suomi", "White and blue."),
     PAPER("Paper", "Off-white, charcoal ink -- a plain index card."),
@@ -33,7 +33,7 @@ fun HolderThemeOption.swatchColor(): Color = when (this) {
     HolderThemeOption.PINK -> PinkPrimary
     HolderThemeOption.ROSE -> RosePrimary
     HolderThemeOption.RACING_GREEN -> RacingGreenPrimary
-    HolderThemeOption.MAGNUS -> MagnusPrimary
+    HolderThemeOption.MAGNUS -> MagnusBlue
     HolderThemeOption.TERMINAL -> TerminalPrimary
     HolderThemeOption.SUOMI -> SuomiPrimary
     HolderThemeOption.PAPER -> PaperPrimary
@@ -45,7 +45,8 @@ fun HolderThemeOption.swatchColor(): Color = when (this) {
 private val PinkPrimary = Color(0xFFE4007C)
 private val RosePrimary = Color(0xFFB76E79)
 private val RacingGreenPrimary = Color(0xFF01411C)
-private val MagnusPrimary = Color(0xFF006AA7)
+private val MagnusBlue = Color(0xFF0058A3)
+private val MagnusYellow = Color(0xFFFFDB00)
 private val TerminalPrimary = Color(0xFF39FF14)
 private val SuomiPrimary = Color(0xFF003580)
 private val PaperPrimary = Color(0xFF2B2926)
@@ -77,13 +78,19 @@ private fun holderColorScheme(
     outline: Color,
     error: Color = Color(0xFFB00020),
     onError: Color = Color(0xFFFFFFFF),
+    // A blend toward `surface` reads as a muddy grey when the accent and surface sit at
+    // near-complementary hues (e.g. Magnus's blue surface with a yellow accent) -- RGB lerp
+    // trends toward grey at the midpoint of complementary colors. Themes that hit this can pass
+    // the container/on-container colors directly instead of relying on the computed blend.
+    primaryContainer: Color? = null,
+    onPrimaryContainer: Color? = null,
 ): ColorScheme {
     fun container(accent: Color) = lerp(surface, accent, 0.28f)
     return lightColorScheme(
         primary = primary,
         onPrimary = onPrimary,
-        primaryContainer = container(primary),
-        onPrimaryContainer = onSurface,
+        primaryContainer = primaryContainer ?: container(primary),
+        onPrimaryContainer = onPrimaryContainer ?: onSurface,
         inversePrimary = primary,
         secondary = secondary,
         onSecondary = onSecondary,
@@ -168,19 +175,21 @@ private val RacingGreenScheme = holderColorScheme(
 )
 
 private val MagnusScheme = holderColorScheme(
-    primary = MagnusPrimary,
-    onPrimary = Color(0xFFFFFFFF),
-    secondary = Color(0xFFFECC02),
-    onSecondary = Color(0xFF2A2000),
-    tertiary = Color(0xFF4F82C4),
-    onTertiary = Color(0xFFFFFFFF),
-    background = Color(0xFFF5FAFF),
-    onBackground = Color(0xFF0B2239),
-    surface = Color(0xFFF5FAFF),
-    onSurface = Color(0xFF0B2239),
-    surfaceVariant = Color(0xFFD6E6F5),
-    onSurfaceVariant = Color(0xFF163752),
-    outline = Color(0xFF5C87AC),
+    primary = MagnusYellow,
+    onPrimary = Color(0xFF001E3C),
+    secondary = MagnusBlue,
+    onSecondary = Color(0xFFFFFFFF),
+    tertiary = MagnusYellow,
+    onTertiary = Color(0xFF001E3C),
+    background = MagnusBlue,
+    onBackground = Color(0xFFFFFFFF),
+    surface = Color(0xFF004C8C),
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF003D73),
+    onSurfaceVariant = Color(0xFFCFE3F5),
+    outline = MagnusYellow,
+    primaryContainer = MagnusYellow,
+    onPrimaryContainer = Color(0xFF001E3C),
 )
 
 private val TerminalScheme = holderColorScheme(
