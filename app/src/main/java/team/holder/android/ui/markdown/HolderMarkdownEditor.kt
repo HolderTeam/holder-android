@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
@@ -235,6 +236,7 @@ fun HolderMarkdownEditor(
             state = state,
             modifier = Modifier.fillMaxSize(),
             textStyle = LocalTextStyle.current.copy(color = colorScheme.onSurface),
+            cursorBrush = SolidColor(colorScheme.primary),
             inputTransformation = ListContinuation,
             outputTransformation = highlighter,
         )
