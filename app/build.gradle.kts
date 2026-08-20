@@ -1,3 +1,4 @@
+import com.android.build.api.dsl.ManagedVirtualDevice
 import java.io.File
 import java.util.Properties
 
@@ -92,6 +93,27 @@ android {
         getByName("main") {
             assets.directories.add(holderCoreDir.resolve("schema").absolutePath)
             assets.directories.add(holderCoreDir.resolve("resources").absolutePath)
+        }
+    }
+    testOptions {
+        managedDevices {
+            val pixel2Api28 = localDevices.create("pixel2Api28") {
+                device = "Pixel 2"
+                apiLevel = 28
+                systemImageSource = "aosp"
+                require64Bit = true
+            }
+            val pixel2Api37 = localDevices.create("pixel2Api37") {
+                device = "Pixel 2"
+                apiLevel = 37
+                systemImageSource = "aosp"
+                require64Bit = true
+                pageAlignment = ManagedVirtualDevice.PageAlignment.FORCE_4KB_PAGES
+            }
+            groups.create("ciPhones") {
+                targetDevices.add(pixel2Api28)
+                targetDevices.add(pixel2Api37)
+            }
         }
     }
 }

@@ -47,9 +47,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .vcpkg-binary-cache
-          key: vcpkg-android-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+          key: vcpkg-android-arm64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
           restore-keys: |
-            vcpkg-android-${{ runner.os }}-
+            vcpkg-android-arm64-${{ runner.os }}-
 
       - name: Install vcpkg build dependencies
         run: |
@@ -73,7 +73,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .vcpkg-binary-cache
-          key: vcpkg-android-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+          key: vcpkg-android-arm64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -82,3 +82,85 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+  managed-device-tests:
+    runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
+
+    steps:
+      - name: Check out holder-android
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null
+
+      - name: Install Android emulator and NDK
+        run: |
+          sdkmanager "emulator" "platform-tools" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Restore x86_64 vcpkg binary package cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vcpkg-binary-cache
+          key: vcpkg-android-x86_64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-android-x86_64-${{ runner.os }}-
+
+      - name: Install vcpkg build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Run API 28 and API 37 managed-device tests
+        run: >-
+          ./gradlew :app:ciPhonesGroupDebugAndroidTest
+          -Pholder.android.abis=x86_64
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Upload managed-device test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: holder-android-managed-device-test-reports
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Save x86_64 vcpkg binary package cache
+        if: success() && github.event_name != 'pull_request' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vcpkg-binary-cache
+          key: vcpkg-android-x86_64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
