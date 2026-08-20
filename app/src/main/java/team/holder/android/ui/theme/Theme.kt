@@ -72,7 +72,7 @@ fun HolderTheme(
     CompositionLocalProvider(LocalDensity provides density) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography.withFontFamily(fontFamilyOption.fontFamily),
+            typography = Typography.withFontFamilyOption(fontFamilyOption),
         ) {
             if (themeOption == HolderThemeOption.WALNUT) {
                 // WalnutScheme's background is transparent so every screen's Scaffold shows this
