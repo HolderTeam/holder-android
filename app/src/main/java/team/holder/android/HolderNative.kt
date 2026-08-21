@@ -49,6 +49,11 @@ data class HolderCardLinks(
     val children: List<HolderCardRef>,
 )
 
+data class HolderTagCount(
+    val tag: String,
+    val count: Int,
+)
+
 data class HolderSearchResult(
     val cardId: String,
     val title: String,
@@ -190,6 +195,9 @@ object HolderNative {
         toCardId: String,
         kind: String,
     )
+    private external fun nativeCardListTags(contextHandle: Long, cardId: String): String
+    private external fun nativeCardsWithTag(contextHandle: Long, projectId: String, tag: String): String
+    private external fun nativeProjectListTags(contextHandle: Long, projectId: String): String
     private external fun nativeCardSearch(
         contextHandle: Long,
         projectId: String,
@@ -352,6 +360,28 @@ object HolderNative {
 
     fun removeCardLink(fromCardId: String, toCardId: String, kind: String) {
         nativeCardLinkRemove(requireContext(), fromCardId, toCardId, kind)
+    }
+
+    /** cardId's #tags, as extracted from its body -- not editable directly, edit the #tag text
+     * in the body instead. */
+    fun listCardTags(cardId: String): List<String> {
+        val tags = JSONArray(nativeCardListTags(requireContext(), cardId))
+        return List(tags.length()) { index -> tags.getString(index) }
+    }
+
+    /** Cards in projectId carrying tag (case-insensitive). */
+    fun cardsWithTag(projectId: String, tag: String): List<HolderCardRef> {
+        val cards = JSONArray(nativeCardsWithTag(requireContext(), projectId, tag))
+        return List(cards.length()) { index -> parseCardRef(cards.getJSONObject(index)) }
+    }
+
+    /** Every distinct tag in projectId with how many cards carry it, most-used first. */
+    fun listProjectTags(projectId: String): List<HolderTagCount> {
+        val tags = JSONArray(nativeProjectListTags(requireContext(), projectId))
+        return List(tags.length()) { index ->
+            val entry = tags.getJSONObject(index)
+            HolderTagCount(tag = entry.getString("tag"), count = entry.getInt("count"))
+        }
     }
 
     fun searchCards(projectId: String, query: String, limit: Int = 50): List<HolderSearchResult> {

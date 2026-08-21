@@ -49,6 +49,7 @@ fun CardViewScreen(
     refreshKey: Any,
     onEdit: (content: String) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
+    onNavigateToTag: (tag: String) -> Unit,
     onConnectionsClick: () -> Unit,
     onCreateChildCard: () -> Unit,
     onDeleted: () -> Unit,
@@ -122,7 +123,9 @@ fun CardViewScreen(
                 HolderMarkdownViewer(
                     markdown = displayed,
                     projectId = projectId,
+                    cardId = cardId,
                     onNavigateToCard = onNavigateToCard,
+                    onNavigateToTag = onNavigateToTag,
                     modifier = Modifier
                         .padding(innerPadding)
                         .padding(16.dp)

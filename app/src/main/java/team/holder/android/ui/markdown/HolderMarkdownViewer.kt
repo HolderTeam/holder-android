@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -124,13 +125,29 @@ private fun resolveWikilink(target: String, cards: List<HolderCard>): HolderCard
 fun HolderMarkdownViewer(
     markdown: String,
     projectId: String,
+    cardId: String?,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
+    onNavigateToTag: (tag: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pendingWikilink by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
+
+    // The card's real extracted tags, fetched once, are the source of truth for which #word
+    // spans are actually clickable -- cheaper and more robust than re-deriving the backend's
+    // full matching rules (boundary chars, hex-color exclusion) a second time in Kotlin.
+    var cardTags by remember(cardId) { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(cardId) {
+        cardTags = if (cardId == null) {
+            emptySet()
+        } else {
+            runCatching {
+                withContext(Dispatchers.IO) { HolderNative.listCardTags(cardId) }
+            }.getOrDefault(emptyList()).toSet()
+        }
+    }
 
     val document = remember(markdown) {
         val parser = Parser.builder()
@@ -167,7 +184,7 @@ fun HolderMarkdownViewer(
 
     Column(modifier = modifier) {
         for (node in document.children()) {
-            MarkdownBlock(node, onWikilinkClick, onUrlClick)
+            MarkdownBlock(node, onWikilinkClick, onUrlClick, cardTags, onNavigateToTag)
         }
     }
 
@@ -204,6 +221,8 @@ private fun MarkdownBlock(
     node: Node,
     onWikilinkClick: (String) -> Unit,
     onUrlClick: (String) -> Unit,
+    cardTags: Set<String>,
+    onTagClick: (String) -> Unit,
 ) {
     val linkColor = MaterialTheme.colorScheme.primary
     when (node) {
@@ -216,13 +235,13 @@ private fun MarkdownBlock(
                 else -> MaterialTheme.typography.titleSmall
             }
             Text(
-                text = inlineText(node, onWikilinkClick, onUrlClick, linkColor),
+                text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
                 style = style,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
         is Paragraph -> Text(
-            text = inlineText(node, onWikilinkClick, onUrlClick, linkColor),
+            text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
             modifier = Modifier.padding(vertical = 4.dp),
         )
         is BulletList -> Column(modifier = Modifier.padding(start = 16.dp)) {
@@ -236,7 +255,9 @@ private fun MarkdownBlock(
                             Text("•  ", modifier = Modifier.padding(top = 4.dp))
                         }
                         Column {
-                            for (child in item.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+                            for (child in item.children()) {
+                                MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                            }
                         }
                     }
                 }
@@ -250,7 +271,9 @@ private fun MarkdownBlock(
                         Row(modifier = Modifier.padding(vertical = 2.dp)) {
                             Text("${number++}.  ", modifier = Modifier.padding(top = 4.dp))
                             Column {
-                                for (child in item.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+                                for (child in item.children()) {
+                                    MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                                }
                             }
                         }
                     }
@@ -263,7 +286,7 @@ private fun MarkdownBlock(
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(8.dp),
         ) {
-            for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+            for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
         }
         is Alert -> {
             val alertColor = ALERT_COLORS[node.type] ?: MaterialTheme.colorScheme.primary
@@ -277,7 +300,9 @@ private fun MarkdownBlock(
                 Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(alertColor))
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text(label, color = alertColor, fontWeight = FontWeight.Bold)
-                    for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+                    for (child in node.children()) {
+                        MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                    }
                 }
             }
         }
@@ -314,7 +339,14 @@ private fun MarkdownBlock(
                                             .padding(8.dp),
                                     ) {
                                         Text(
-                                            text = inlineText(cell, onWikilinkClick, onUrlClick, linkColor),
+                                            text = inlineText(
+                                                cell,
+                                                onWikilinkClick,
+                                                onUrlClick,
+                                                cardTags,
+                                                onTagClick,
+                                                linkColor,
+                                            ),
                                             fontWeight = if (cell.isHeader) FontWeight.Bold else FontWeight.Normal,
                                             textAlign = when (cell.alignment) {
                                                 TableCell.Alignment.CENTER -> TextAlign.Center
@@ -331,7 +363,7 @@ private fun MarkdownBlock(
                 }
             }
         }
-        else -> for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick)
+        else -> for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
     }
 }
 
@@ -340,9 +372,53 @@ private fun inlineText(
     node: Node,
     onWikilinkClick: (String) -> Unit,
     onUrlClick: (String) -> Unit,
+    cardTags: Set<String>,
+    onTagClick: (String) -> Unit,
     linkColor: Color,
-): AnnotatedString = remember(node, onWikilinkClick, onUrlClick, linkColor) {
-    buildAnnotatedString { appendInline(node, this, onWikilinkClick, onUrlClick, linkColor) }
+): AnnotatedString = remember(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor) {
+    buildAnnotatedString {
+        appendInline(node, this, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor)
+    }
+}
+
+// Finds #word-shaped candidate spans; cardTags (the card's real extracted tags, already
+// lowercase) decides which candidates are actually clickable, not this regex -- see the
+// cardTags fetch in HolderMarkdownViewer for why that's the source of truth.
+private val TAG_CANDIDATE_REGEX = Regex("#[A-Za-z][A-Za-z0-9_/-]*")
+
+private fun appendTaggedText(
+    text: String,
+    builder: AnnotatedString.Builder,
+    cardTags: Set<String>,
+    onTagClick: (String) -> Unit,
+    linkColor: Color,
+) {
+    if (cardTags.isEmpty()) {
+        builder.append(text)
+        return
+    }
+    var last = 0
+    for (match in TAG_CANDIDATE_REGEX.findAll(text)) {
+        val tag = match.value.removePrefix("#").lowercase()
+        if (tag !in cardTags) continue
+        builder.append(text, last, match.range.first)
+        val start = builder.length
+        builder.append(match.value)
+        val end = builder.length
+        builder.addLink(
+            LinkAnnotation.Clickable(
+                tag = "tag",
+                styles = TextLinkStyles(SpanStyle(color = linkColor, fontWeight = FontWeight.Medium)),
+                linkInteractionListener = object : LinkInteractionListener {
+                    override fun onClick(link: LinkAnnotation) = onTagClick(tag)
+                },
+            ),
+            start,
+            end,
+        )
+        last = match.range.last + 1
+    }
+    builder.append(text, last, text.length)
 }
 
 private fun appendInline(
@@ -350,25 +426,32 @@ private fun appendInline(
     builder: AnnotatedString.Builder,
     onWikilinkClick: (String) -> Unit,
     onUrlClick: (String) -> Unit,
+    cardTags: Set<String>,
+    onTagClick: (String) -> Unit,
     linkColor: Color,
+    insideLink: Boolean = false,
 ) {
     var child = node.firstChild
     while (child != null) {
         when (child) {
-            is MdText -> builder.append(child.literal)
+            is MdText -> if (insideLink) {
+                builder.append(child.literal)
+            } else {
+                appendTaggedText(child.literal, builder, cardTags, onTagClick, linkColor)
+            }
             is Emphasis -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
                 builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, builder.length)
             }
             is StrongEmphasis -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
                 builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, builder.length)
             }
             is Strikethrough -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, builder.length)
             }
             is Code -> {
@@ -379,7 +462,7 @@ private fun appendInline(
             is Link -> {
                 val destination = child.destination.orEmpty()
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink = true)
                 val end = builder.length
                 if (destination.startsWith(HOLDER_LINK_SCHEME)) {
                     val target = URLDecoder.decode(destination.removePrefix(HOLDER_LINK_SCHEME), "UTF-8")
@@ -410,7 +493,7 @@ private fun appendInline(
             }
             is SoftLineBreak -> builder.append(" ")
             is HardLineBreak -> builder.append("\n")
-            else -> appendInline(child, builder, onWikilinkClick, onUrlClick, linkColor)
+            else -> appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
         }
         child = child.next
     }

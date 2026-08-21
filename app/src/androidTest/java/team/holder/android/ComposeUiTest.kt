@@ -26,7 +26,9 @@ class ComposeUiTest {
             HolderMarkdownViewer(
                 markdown = "# Heading\n\nA paragraph.\n\n- First item\n- Second item\n\n[[Another card]]",
                 projectId = "project-1",
+                cardId = null,
                 onNavigateToCard = { _, _ -> },
+                onNavigateToTag = {},
             )
         }
 

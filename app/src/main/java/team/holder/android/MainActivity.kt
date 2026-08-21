@@ -36,9 +36,12 @@ import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.SettingsScreen
+import team.holder.android.ui.screens.TagResultsScreen
 import team.holder.android.ui.screens.TrashScreen
 import team.holder.android.ui.theme.HolderTheme
 import java.io.File
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,6 +217,9 @@ private fun HolderNavHost() {
                     cardListRefreshKey++
                     navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
+                onNavigateToTag = { tag ->
+                    navController.navigate("projects/$projectId/tags/${URLEncoder.encode(tag, "UTF-8")}")
+                },
                 onConnectionsClick = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections")
                 },
@@ -225,6 +231,20 @@ private fun HolderNavHost() {
                 onDeleted = {
                     cardListRefreshKey++
                     navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/tags/{tag}") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val tag = URLDecoder.decode(backStackEntry.arguments?.getString("tag").orEmpty(), "UTF-8")
+            TagResultsScreen(
+                projectId = projectId,
+                tag = tag,
+                onNavigateToCard = { targetCardId, title ->
+                    selectedCardTitle = title
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
                 onBack = { navController.popBackStack() },
             )

@@ -181,6 +181,27 @@ class HolderNativeIntegrationTest {
         assertTrue(childLinks.children.isEmpty())
     }
 
+    @Test
+    fun tags_roundTripThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Tags test project")
+        val card = HolderNative.createCard(project.projectId, "Tagged", "Body mentioning #TODO and #android.")
+
+        assertEquals(listOf("android", "todo"), HolderNative.listCardTags(card.cardId))
+
+        val withTodo = HolderNative.cardsWithTag(project.projectId, "TODO")
+        assertEquals(1, withTodo.size)
+        assertEquals(card.cardId, withTodo.single().cardId)
+
+        val projectTags = HolderNative.listProjectTags(project.projectId)
+        assertEquals(2, projectTags.size)
+        assertTrue(projectTags.all { it.count == 1 })
+
+        HolderNative.updateCard(card.cardId, "Tagged", "Only #urgent now.")
+        assertEquals(listOf("urgent"), HolderNative.listCardTags(card.cardId))
+        assertTrue(HolderNative.cardsWithTag(project.projectId, "todo").isEmpty())
+    }
+
     private fun initialize(welcomeContent: String) {
         HolderNative.initialize(
             context = context,
