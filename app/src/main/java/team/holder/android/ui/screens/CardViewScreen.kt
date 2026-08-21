@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +64,10 @@ fun CardViewScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     // Guards delete against double-tap, same rationale as CardListScreen's isSubmitting.
     var isDeleting by remember { mutableStateOf(false) }
+    var focusMode by remember { mutableStateOf(false) }
+
+    // Back exits focus mode instead of leaving the card, mirroring a video player's fullscreen.
+    BackHandler(enabled = focusMode) { focusMode = false }
 
     LaunchedEffect(cardId, refreshKey) {
         state = runCatching {
@@ -74,36 +80,43 @@ fun CardViewScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(cardTitle.ifEmpty { "Card" }) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    val loaded = state as? LoadState.Success
-                    IconButton(onClick = onConnectionsClick) {
-                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
-                    }
-                    IconButton(
-                        onClick = { showDeleteDialog = true },
-                        enabled = loaded != null,
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                    }
-                    IconButton(
-                        onClick = { loaded?.let { onEdit(it.value) } },
-                        enabled = loaded != null,
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit")
-                    }
-                },
-            )
+            if (!focusMode) {
+                TopAppBar(
+                    title = { Text(cardTitle.ifEmpty { "Card" }) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        val loaded = state as? LoadState.Success
+                        IconButton(onClick = { focusMode = true }) {
+                            Icon(Icons.Filled.Fullscreen, contentDescription = "Focus mode")
+                        }
+                        IconButton(onClick = onConnectionsClick) {
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
+                        }
+                        IconButton(
+                            onClick = { showDeleteDialog = true },
+                            enabled = loaded != null,
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                        }
+                        IconButton(
+                            onClick = { loaded?.let { onEdit(it.value) } },
+                            enabled = loaded != null,
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onCreateChildCard) {
-                Icon(Icons.Filled.Add, contentDescription = "New child card")
+            if (!focusMode) {
+                FloatingActionButton(onClick = onCreateChildCard) {
+                    Icon(Icons.Filled.Add, contentDescription = "New child card")
+                }
             }
         },
     ) { innerPadding ->
@@ -115,7 +128,9 @@ fun CardViewScreen(
                 Text("Failed to load card: ${current.message}")
             }
             is LoadState.Success -> {
-                val displayed = if (separateTitle) {
+                // Focus mode behaves as if separate-title were off, so the title stays visible
+                // in the content even though the app bar (which would normally show it) is gone.
+                val displayed = if (separateTitle && !focusMode) {
                     splitLeadingHeading(current.value) ?: current.value
                 } else {
                     current.value
