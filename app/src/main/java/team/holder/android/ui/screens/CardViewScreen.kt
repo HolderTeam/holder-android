@@ -2,8 +2,11 @@ package team.holder.android.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -143,23 +146,41 @@ fun CardViewScreen(
                 } else {
                     current.value
                 }
-                Column(
+                // BoxWithConstraints + heightIn(min = ...) + SpaceBetween: when the card is
+                // shorter than the screen, this pushes the connections summary down to the
+                // bottom of the visible area instead of leaving it stranded right under a short
+                // card. When the card is long enough to need scrolling, there's no leftover
+                // space to distribute, so the summary just falls back to sitting directly after
+                // the content, same as before.
+                BoxWithConstraints(
                     modifier = Modifier
                         .padding(innerPadding)
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .padding(16.dp),
                 ) {
-                    HolderMarkdownViewer(
-                        markdown = displayed,
-                        projectId = projectId,
-                        cardId = cardId,
-                        onNavigateToCard = onNavigateToCard,
-                        onNavigateToTag = onNavigateToTag,
-                    )
-                    // Hidden in focus mode along with the rest of the chrome -- focus mode means
-                    // just the card content, nothing else.
-                    if (!focusMode) {
-                        ConnectionsSummary(cardId = cardId, refreshKey = refreshKey, onNavigateToCard = onNavigateToCard)
+                    val minHeight = maxHeight
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = minHeight)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        HolderMarkdownViewer(
+                            markdown = displayed,
+                            projectId = projectId,
+                            cardId = cardId,
+                            onNavigateToCard = onNavigateToCard,
+                            onNavigateToTag = onNavigateToTag,
+                        )
+                        // Hidden in focus mode along with the rest of the chrome -- focus mode
+                        // means just the card content, nothing else.
+                        if (!focusMode) {
+                            ConnectionsSummary(
+                                cardId = cardId,
+                                refreshKey = refreshKey,
+                                onNavigateToCard = onNavigateToCard,
+                            )
+                        }
                     }
                 }
             }
