@@ -159,3 +159,45 @@ Not scoped yet. Likely needs its own design pass for what a
 "whole-project view" should look like on a phone screen rather than a
 straight port of desktop's graph/board widgets — noting it here so it
 isn't lost.
+
+### Step 9: fenced code blocks in the editor
+
+The editor's live Markdown highlighter (`HolderMarkdownEditor.kt`) re-scans
+the buffer on every keystroke with a regex per token type, but has no
+concept of a fenced (` ``` `) code block today — only single-line inline
+code. Two things fall out of fixing that:
+
+- A correctness bug: bold/italic/etc. regexes currently fire *inside*
+  fenced blocks (e.g. `some_function_name` renders as italic), since
+  nothing suppresses them there.
+- A prerequisite for spell-check (Step 10) to skip code content.
+
+Language-aware syntax highlighting *inside* fences (e.g. Python keywords/
+strings/comments) is a further, separate step worth doing at some point —
+not scoped yet. Lean toward a small hand-rolled regex-per-language-token
+table in the same style as the existing Markdown highlighter, rather than
+a tree-sitter dependency (real grammar parsing would mean a new native
+dependency, JNI bindings, and packaging a grammar per language — a much
+bigger lift than anything else in this app). Worth skimming existing small
+Compose syntax highlighters for technique, without taking them on as a
+dependency.
+
+### Step 10: spell-check in the editor
+
+Android already gets IME autosuggest for free; this is about surfacing
+*existing* misspellings, not just suggesting as you type.
+
+- Hook `TextServicesManager`/`SpellCheckerSession` (via
+  `getSentenceSuggestions`, not the older per-word API) into the same
+  `OutputTransformation` pass the Markdown highlighter already uses,
+  decorating flagged ranges with a plain underline (not a true squiggle —
+  Compose has no built-in wavy-underline decoration, and a real one would
+  need custom canvas drawing per flagged word; not worth it for a first
+  version).
+- Tap a flagged word to see replacement suggestions.
+- Skip spellcheck inside code spans/fenced blocks (Step 9) and link
+  destinations, but *do* check a Markdown link's visible text and a
+  wikilink's page name — both are real prose/titles, not syntax.
+- Needs debouncing, same idea as the existing card-search debounce
+  elsewhere in the app — spell-check queries are async and shouldn't fire
+  on every keystroke.
