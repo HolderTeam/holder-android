@@ -295,8 +295,8 @@ object HolderNative {
         nativeProjectDelete(requireContext(), projectId)
     }
 
-    fun createCard(projectId: String, title: String, content: String): HolderCard =
-        parseCard(JSONObject(nativeCardCreate(requireContext(), projectId, title, content, null)))
+    fun createCard(projectId: String, title: String, content: String, parentCardId: String? = null): HolderCard =
+        parseCard(JSONObject(nativeCardCreate(requireContext(), projectId, title, content, parentCardId)))
 
     fun updateCard(cardId: String, title: String, content: String): HolderCard =
         parseCard(JSONObject(nativeCardUpdateContent(requireContext(), cardId, content, title)))

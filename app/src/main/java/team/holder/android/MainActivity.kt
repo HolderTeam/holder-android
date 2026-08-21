@@ -96,6 +96,9 @@ private fun HolderNavHost() {
     var cardListRefreshKey by remember { mutableIntStateOf(0) }
     var cardViewRefreshKey by remember { mutableIntStateOf(0) }
     var connectionsRefreshKey by remember { mutableIntStateOf(0) }
+    // Non-null only while navigating from a card's own "+" to create a child of it; the
+    // plain card-list "+" leaves this null so the new card lands at the project root.
+    var pendingParentCardId by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
 
@@ -137,6 +140,7 @@ private fun HolderNavHost() {
                 },
                 onCreateCard = {
                     saveError = null
+                    pendingParentCardId = null
                     navController.navigate("projects/$projectId/cards/new")
                 },
                 onTrashClick = { navController.navigate("projects/$projectId/trash") },
@@ -172,7 +176,9 @@ private fun HolderNavHost() {
                         saveError = null
                         scope.launch {
                             val result = runCatching {
-                                withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, content) }
+                                withContext(Dispatchers.IO) {
+                                    HolderNative.createCard(projectId, title, content, pendingParentCardId)
+                                }
                             }
                             withContext(Dispatchers.Main.immediate) {
                                 saving = false
@@ -210,6 +216,11 @@ private fun HolderNavHost() {
                 },
                 onConnectionsClick = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections")
+                },
+                onCreateChildCard = {
+                    saveError = null
+                    pendingParentCardId = cardId
+                    navController.navigate("projects/$projectId/cards/new")
                 },
                 onDeleted = {
                     cardListRefreshKey++
