@@ -44,7 +44,7 @@ import team.holder.android.ui.LoadState
 
 private const val SEARCH_DEBOUNCE_MS = 300L
 private val DEFAULT_KINDS = listOf("ref", "depends_on", "example_of", "blocks", "related_to")
-private const val CUSTOM_KIND_CHIP = "Custom"
+private const val OTHER_KIND_CHIP = "Other"
 
 /** Picks a target card (by search, since there's no card_id to browse from on this screen) plus
  * a relationship kind and optional label, then calls HolderNative.addCardLink. */
@@ -89,7 +89,7 @@ fun AddConnectionScreen(
         )
     }
 
-    val kind = if (selectedKind == CUSTOM_KIND_CHIP) customKind.trim() else selectedKind
+    val kind = if (selectedKind == OTHER_KIND_CHIP) customKind.trim() else selectedKind
     val canAdd = target != null && kind.isNotEmpty() && !saving
 
     // Suggests built-in kinds as the user types a custom one, so they don't reinvent
@@ -168,7 +168,7 @@ fun AddConnectionScreen(
 
             Text("Relationship", modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (DEFAULT_KINDS + CUSTOM_KIND_CHIP).forEach { option ->
+                (DEFAULT_KINDS + OTHER_KIND_CHIP).forEach { option ->
                     FilterChip(
                         selected = selectedKind == option,
                         onClick = { selectedKind = option },
@@ -176,7 +176,7 @@ fun AddConnectionScreen(
                     )
                 }
             }
-            if (selectedKind == CUSTOM_KIND_CHIP) {
+            if (selectedKind == OTHER_KIND_CHIP) {
                 OutlinedTextField(
                     value = customKind,
                     onValueChange = { customKind = it },
