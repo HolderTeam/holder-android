@@ -223,11 +223,9 @@ private fun ConnectionsSummary(
                 onNavigateToCard(parent.cardId, parent.title)
             }
         }
-        if (links.children.isNotEmpty()) {
-            ConnectionSummarySection("Children") {
-                links.children.forEach { child ->
-                    ConnectionSummaryRow(child.title) { onNavigateToCard(child.cardId, child.title) }
-                }
+        links.children.forEach { child ->
+            ConnectionSummaryLinkRow(label = "Parent of", title = child.title) {
+                onNavigateToCard(child.cardId, child.title)
             }
         }
         links.outgoing.forEach { link ->
@@ -245,32 +243,9 @@ private fun ConnectionsSummary(
     }
 }
 
-@Composable
-private fun ConnectionSummarySection(title: String, content: @Composable () -> Unit) {
-    Text(
-        title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
-    )
-    content()
-}
-
-@Composable
-private fun ConnectionSummaryRow(title: String, onClick: () -> Unit) {
-    Text(
-        title,
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-    )
-}
-
-/** An outgoing/backlink row, self-describing its relationship kind (e.g. "Depends on: Finish
- * The holder-core Split") since these aren't grouped under a section header the way Parent/
- * Children are -- each link can carry a different kind. */
+/** A connections-summary row, self-describing its relationship (e.g. "Depends on: Finish
+ * The holder-core Split", "Parent of: Sub Card") rather than grouping same-relationship rows
+ * under a shared section header. */
 @Composable
 private fun ConnectionSummaryLinkRow(label: String, title: String, onClick: () -> Unit) {
     Text(
