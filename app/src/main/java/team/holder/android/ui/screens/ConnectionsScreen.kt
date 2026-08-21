@@ -59,6 +59,7 @@ import team.holder.android.ui.LoadState
 @Composable
 fun ConnectionsScreen(
     cardId: String,
+    cardTitle: String,
     refreshKey: Any,
     onAddConnection: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
@@ -98,7 +99,16 @@ fun ConnectionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Connections") },
+                title = {
+                    Column {
+                        Text(cardTitle.ifEmpty { "Card" })
+                        Text(
+                            "Connections",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -161,6 +171,7 @@ fun ConnectionsScreen(
                                                         title = link.toTitle ?: link.toCardId,
                                                         label = link.label,
                                                         primary = MaterialTheme.colorScheme.primary,
+                                                        muted = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     ),
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
@@ -197,6 +208,7 @@ fun ConnectionsScreen(
                                                     title = link.fromTitle ?: link.fromCardId,
                                                     label = link.label,
                                                     primary = MaterialTheme.colorScheme.primary,
+                                                    muted = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 ),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
@@ -237,17 +249,22 @@ private fun SectionHeader(title: String) {
     }
 }
 
-/** "Depends on: My New Card" or, with a custom label, "Depends on: My New Card — waiting on
+/** "Depends on: My New Card" or, with a custom label, "Depends on: My New Card · waiting on
  * review" -- kept to one line (see the Text callers' maxLines) rather than splitting the
  * relationship onto its own line below the title, which reads as if it were describing the
- * linked card itself rather than the relationship to it. */
-private fun connectionHeadline(kindLabel: String, title: String, label: String?, primary: Color) =
+ * linked card itself rather than the relationship to it. The custom label gets a muted color
+ * (distinct from both the default title black and the primary-colored kind) so it reads as an
+ * annotation rather than a continuation of the title -- a plain separator alone (dash, colon)
+ * doesn't achieve that since both sides would still be the same color. */
+private fun connectionHeadline(kindLabel: String, title: String, label: String?, primary: Color, muted: Color) =
     buildAnnotatedString {
         withStyle(SpanStyle(color = primary)) { append(kindLabel) }
         append(": ")
         append(title)
         if (!label.isNullOrBlank()) {
-            append(" — ")
-            append(label)
+            withStyle(SpanStyle(color = muted)) {
+                append(" · ")
+                append(label)
+            }
         }
     }
