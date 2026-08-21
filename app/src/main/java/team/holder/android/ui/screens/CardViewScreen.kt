@@ -1,6 +1,9 @@
 package team.holder.android.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,8 +17,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.HolderCardLinks
 import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
 import team.holder.android.R
@@ -134,17 +140,25 @@ fun CardViewScreen(
                 } else {
                     current.value
                 }
-                HolderMarkdownViewer(
-                    markdown = displayed,
-                    projectId = projectId,
-                    cardId = cardId,
-                    onNavigateToCard = onNavigateToCard,
-                    onNavigateToTag = onNavigateToTag,
+                Column(
                     modifier = Modifier
                         .padding(innerPadding)
                         .padding(16.dp)
                         .verticalScroll(rememberScrollState()),
-                )
+                ) {
+                    HolderMarkdownViewer(
+                        markdown = displayed,
+                        projectId = projectId,
+                        cardId = cardId,
+                        onNavigateToCard = onNavigateToCard,
+                        onNavigateToTag = onNavigateToTag,
+                    )
+                    // Hidden in focus mode along with the rest of the chrome -- focus mode means
+                    // just the card content, nothing else.
+                    if (!focusMode) {
+                        ConnectionsSummary(cardId = cardId, refreshKey = refreshKey, onNavigateToCard = onNavigateToCard)
+                    }
+                }
             }
         }
     }
@@ -171,4 +185,88 @@ fun CardViewScreen(
             },
         )
     }
+}
+
+/**
+ * A concise, read-only glance at cardId's connections, appended below the card content -- the
+ * full editable graph lives in ConnectionsScreen, reached via the top bar's Connections icon.
+ */
+@Composable
+private fun ConnectionsSummary(
+    cardId: String,
+    refreshKey: Any,
+    onNavigateToCard: (cardId: String, title: String) -> Unit,
+) {
+    var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
+
+    LaunchedEffect(cardId, refreshKey) {
+        state = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCardLinks(cardId) }
+        }.fold(
+            onSuccess = { LoadState.Success(it) },
+            onFailure = { LoadState.Error(it.message ?: it::class.java.simpleName) },
+        )
+    }
+
+    val links = (state as? LoadState.Success)?.value ?: return
+    val isEmpty = links.parent == null && links.children.isEmpty() &&
+        links.outgoing.isEmpty() && links.backlinks.isEmpty()
+    if (isEmpty) return
+
+    Column(modifier = Modifier.padding(top = 24.dp)) {
+        HorizontalDivider()
+        links.parent?.let { parent ->
+            ConnectionSummarySection("Parent") {
+                ConnectionSummaryRow(parent.title) { onNavigateToCard(parent.cardId, parent.title) }
+            }
+        }
+        if (links.children.isNotEmpty()) {
+            ConnectionSummarySection("Children") {
+                links.children.forEach { child ->
+                    ConnectionSummaryRow(child.title) { onNavigateToCard(child.cardId, child.title) }
+                }
+            }
+        }
+        if (links.outgoing.isNotEmpty()) {
+            ConnectionSummarySection("Linked") {
+                links.outgoing.forEach { link ->
+                    ConnectionSummaryRow(link.toTitle ?: link.toCardId) {
+                        onNavigateToCard(link.toCardId, link.toTitle ?: "")
+                    }
+                }
+            }
+        }
+        if (links.backlinks.isNotEmpty()) {
+            ConnectionSummarySection("Backlinks") {
+                links.backlinks.forEach { link ->
+                    ConnectionSummaryRow(link.fromTitle ?: link.fromCardId) {
+                        onNavigateToCard(link.fromCardId, link.fromTitle ?: "")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionSummarySection(title: String, content: @Composable () -> Unit) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+    )
+    content()
+}
+
+@Composable
+private fun ConnectionSummaryRow(title: String, onClick: () -> Unit) {
+    Text(
+        title,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    )
 }

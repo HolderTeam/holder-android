@@ -264,7 +264,13 @@ private fun HolderNavHost() {
                     cardListRefreshKey++
                     navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    // Refreshes CardViewScreen's connections summary in case a connection was
+                    // added or removed here -- it doesn't otherwise notice since it stays on
+                    // the back stack rather than recomposing from scratch.
+                    cardViewRefreshKey++
+                    navController.popBackStack()
+                },
             )
         }
         composable("projects/{projectId}/cards/{cardId}/connections/add") { backStackEntry ->
