@@ -33,6 +33,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -149,13 +154,16 @@ fun ConnectionsScreen(
                                 items(links.outgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
                                     Box {
                                         ListItem(
-                                            headlineContent = { Text(link.toTitle ?: link.toCardId) },
-                                            supportingContent = {
+                                            headlineContent = {
                                                 Text(
-                                                    connectionSubtitle(
-                                                        HolderNative.linkKindLabel(link.kind, forward = true),
-                                                        link.label,
-                                                    )
+                                                    connectionHeadline(
+                                                        kindLabel = HolderNative.linkKindLabel(link.kind, forward = true),
+                                                        title = link.toTitle ?: link.toCardId,
+                                                        label = link.label,
+                                                        primary = MaterialTheme.colorScheme.primary,
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
                                                 )
                                             },
                                             modifier = Modifier.combinedClickable(
@@ -182,13 +190,16 @@ fun ConnectionsScreen(
                                 item { SectionHeader("Backlinks") }
                                 items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
                                     ListItem(
-                                        headlineContent = { Text(link.fromTitle ?: link.fromCardId) },
-                                        supportingContent = {
+                                        headlineContent = {
                                             Text(
-                                                connectionSubtitle(
-                                                    HolderNative.linkKindLabel(link.kind, forward = false),
-                                                    link.label,
-                                                )
+                                                connectionHeadline(
+                                                    kindLabel = HolderNative.linkKindLabel(link.kind, forward = false),
+                                                    title = link.fromTitle ?: link.fromCardId,
+                                                    label = link.label,
+                                                    primary = MaterialTheme.colorScheme.primary,
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                         },
                                         modifier = Modifier.combinedClickable(
@@ -226,5 +237,17 @@ private fun SectionHeader(title: String) {
     }
 }
 
-private fun connectionSubtitle(kindLabel: String, label: String?): String =
-    if (label.isNullOrBlank()) kindLabel else "$kindLabel — $label"
+/** "Depends on: My New Card" or, with a custom label, "Depends on: My New Card — waiting on
+ * review" -- kept to one line (see the Text callers' maxLines) rather than splitting the
+ * relationship onto its own line below the title, which reads as if it were describing the
+ * linked card itself rather than the relationship to it. */
+private fun connectionHeadline(kindLabel: String, title: String, label: String?, primary: Color) =
+    buildAnnotatedString {
+        withStyle(SpanStyle(color = primary)) { append(kindLabel) }
+        append(": ")
+        append(title)
+        if (!label.isNullOrBlank()) {
+            append(" — ")
+            append(label)
+        }
+    }
