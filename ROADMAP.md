@@ -160,27 +160,32 @@ Not scoped yet. Likely needs its own design pass for what a
 straight port of desktop's graph/board widgets — noting it here so it
 isn't lost.
 
-### Step 9: fenced code blocks in the editor
+### Step 9: fenced code blocks
 
 The editor's live Markdown highlighter (`HolderMarkdownEditor.kt`) re-scans
-the buffer on every keystroke with a regex per token type, but has no
-concept of a fenced (` ``` `) code block today — only single-line inline
-code. Two things fall out of fixing that:
+the buffer on every keystroke with a regex per token type, but had no
+concept of a fenced (` ``` `) code block until this landed -- only
+single-line inline code. Fixed a correctness bug (bold/italic/etc. regexes
+firing *inside* fenced blocks -- `some_function_name` rendering as
+italic, since nothing suppressed them there) and gives spell-check
+(Step 10) an exclusion zone for code content. No visual styling of its
+own in the editor yet, purely an exclusion zone.
 
-- A correctness bug: bold/italic/etc. regexes currently fire *inside*
-  fenced blocks (e.g. `some_function_name` renders as italic), since
-  nothing suppresses them there.
-- A prerequisite for spell-check (Step 10) to skip code content.
-
-Language-aware syntax highlighting *inside* fences (e.g. Python keywords/
-strings/comments) is a further, separate step worth doing at some point —
-not scoped yet. Lean toward a small hand-rolled regex-per-language-token
-table in the same style as the existing Markdown highlighter, rather than
-a tree-sitter dependency (real grammar parsing would mean a new native
-dependency, JNI bindings, and packaging a grammar per language — a much
-bigger lift than anything else in this app). Worth skimming existing small
-Compose syntax highlighters for technique, without taking them on as a
-dependency.
+Language-aware syntax highlighting (Python keywords/strings/comments etc.)
+is a further, separate step worth doing at some point -- not scoped yet.
+Belongs in the **viewer** (`HolderMarkdownViewer.kt`), not the editor: the
+viewer already has the fenced block as a fixed, parsed string
+(`FencedCodeBlock.literal` + `.info` for the language tag) at render time,
+so it's a static string-to-colored-spans transform with no live-editing
+constraints -- a much simpler problem than doing the same thing
+incrementally against a live, cursor-editable buffer through Compose's
+`OutputTransformation`, and one far more off-the-shelf tooling actually
+targets. Lean toward a small hand-rolled regex-per-language-token table in
+that same static-transform style rather than a tree-sitter dependency
+(real grammar parsing would mean a new native dependency, JNI bindings,
+and packaging a grammar per language -- a much bigger lift than anything
+else in this app). Worth skimming existing small Compose syntax
+highlighters for technique, without taking them on as a dependency.
 
 ### Step 10: spell-check in the editor
 
