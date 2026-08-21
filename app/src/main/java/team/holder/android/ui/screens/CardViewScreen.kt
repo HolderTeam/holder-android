@@ -36,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -227,23 +230,17 @@ private fun ConnectionsSummary(
                 }
             }
         }
-        if (links.outgoing.isNotEmpty()) {
-            ConnectionSummarySection("Linked") {
-                links.outgoing.forEach { link ->
-                    ConnectionSummaryRow(link.toTitle ?: link.toCardId) {
-                        onNavigateToCard(link.toCardId, link.toTitle ?: "")
-                    }
-                }
-            }
+        links.outgoing.forEach { link ->
+            ConnectionSummaryLinkRow(
+                label = HolderNative.linkKindLabel(link.kind, forward = true),
+                title = link.toTitle ?: link.toCardId,
+            ) { onNavigateToCard(link.toCardId, link.toTitle ?: "") }
         }
-        if (links.backlinks.isNotEmpty()) {
-            ConnectionSummarySection("Backlinks") {
-                links.backlinks.forEach { link ->
-                    ConnectionSummaryRow(link.fromTitle ?: link.fromCardId) {
-                        onNavigateToCard(link.fromCardId, link.fromTitle ?: "")
-                    }
-                }
-            }
+        links.backlinks.forEach { link ->
+            ConnectionSummaryLinkRow(
+                label = HolderNative.linkKindLabel(link.kind, forward = false),
+                title = link.fromTitle ?: link.fromCardId,
+            ) { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") }
         }
     }
 }
@@ -263,6 +260,25 @@ private fun ConnectionSummarySection(title: String, content: @Composable () -> U
 private fun ConnectionSummaryRow(title: String, onClick: () -> Unit) {
     Text(
         title,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    )
+}
+
+/** An outgoing/backlink row, self-describing its relationship kind (e.g. "Depends on: Finish
+ * The holder-core Split") since these aren't grouped under a section header the way Parent/
+ * Children are -- each link can carry a different kind. */
+@Composable
+private fun ConnectionSummaryLinkRow(label: String, title: String, onClick: () -> Unit) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(label) }
+            append(": ")
+            append(title)
+        },
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier
             .fillMaxWidth()

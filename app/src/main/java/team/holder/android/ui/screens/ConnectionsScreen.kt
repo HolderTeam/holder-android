@@ -150,7 +150,14 @@ fun ConnectionsScreen(
                                     Box {
                                         ListItem(
                                             headlineContent = { Text(link.toTitle ?: link.toCardId) },
-                                            supportingContent = { Text(connectionSubtitle(link.kind, link.label)) },
+                                            supportingContent = {
+                                                Text(
+                                                    connectionSubtitle(
+                                                        HolderNative.linkKindLabel(link.kind, forward = true),
+                                                        link.label,
+                                                    )
+                                                )
+                                            },
                                             modifier = Modifier.combinedClickable(
                                                 onClick = { onNavigateToCard(link.toCardId, link.toTitle ?: "") },
                                                 onLongClick = { menuOpenFor = "${link.toCardId}:${link.kind}" },
@@ -176,7 +183,14 @@ fun ConnectionsScreen(
                                 items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
                                     ListItem(
                                         headlineContent = { Text(link.fromTitle ?: link.fromCardId) },
-                                        supportingContent = { Text(connectionSubtitle(link.kind, link.label)) },
+                                        supportingContent = {
+                                            Text(
+                                                connectionSubtitle(
+                                                    HolderNative.linkKindLabel(link.kind, forward = false),
+                                                    link.label,
+                                                )
+                                            )
+                                        },
                                         modifier = Modifier.combinedClickable(
                                             onClick = { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") },
                                             onLongClick = {},
@@ -212,5 +226,5 @@ private fun SectionHeader(title: String) {
     }
 }
 
-private fun connectionSubtitle(kind: String, label: String?): String =
-    if (label.isNullOrBlank()) kind else "$kind — $label"
+private fun connectionSubtitle(kindLabel: String, label: String?): String =
+    if (label.isNullOrBlank()) kindLabel else "$kindLabel — $label"

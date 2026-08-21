@@ -532,6 +532,18 @@ Java_team_holder_android_HolderNative_nativeCardListLinks(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeListLinkKinds(JNIEnv* env, jobject /* thiz */) {
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_link_kind_list(&json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardLinkAdd(
     JNIEnv* env,
     jobject /* thiz */,

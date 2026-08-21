@@ -54,6 +54,12 @@ data class HolderTagCount(
     val count: Int,
 )
 
+data class HolderLinkKind(
+    val id: String,
+    val forward: String,
+    val reverse: String,
+)
+
 data class HolderSearchResult(
     val cardId: String,
     val title: String,
@@ -195,6 +201,7 @@ object HolderNative {
         toCardId: String,
         kind: String,
     )
+    private external fun nativeListLinkKinds(): String
     private external fun nativeCardListTags(contextHandle: Long, cardId: String): String
     private external fun nativeCardsWithTag(contextHandle: Long, projectId: String, tag: String): String
     private external fun nativeProjectListTags(contextHandle: Long, projectId: String): String
@@ -360,6 +367,37 @@ object HolderNative {
 
     fun removeCardLink(fromCardId: String, toCardId: String, kind: String) {
         nativeCardLinkRemove(requireContext(), fromCardId, toCardId, kind)
+    }
+
+    @Volatile
+    private var linkKindCatalog: List<HolderLinkKind>? = null
+
+    /** Holder's built-in vocabulary of card_links.kind values with curated English labels.
+     * Fetched once and cached -- static reference data, independent of which project/context
+     * is open. */
+    fun listLinkKinds(): List<HolderLinkKind> {
+        linkKindCatalog?.let { return it }
+        val kinds = JSONArray(nativeListLinkKinds())
+        val parsed = List(kinds.length()) { index ->
+            val entry = kinds.getJSONObject(index)
+            HolderLinkKind(
+                id = entry.getString("id"),
+                forward = entry.getString("forward"),
+                reverse = entry.getString("reverse"),
+            )
+        }
+        linkKindCatalog = parsed
+        return parsed
+    }
+
+    /** Resolves kind to a display label: the catalog's forward/reverse label if it's one of
+     * Holder's built-in link kinds, otherwise a humanized (snake_case -> "Snake case") fallback
+     * shown the same regardless of direction, since an arbitrary custom kind has no known
+     * reverse. */
+    fun linkKindLabel(kind: String, forward: Boolean): String {
+        val entry = listLinkKinds().firstOrNull { it.id == kind }
+        if (entry != null) return if (forward) entry.forward else entry.reverse
+        return kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
     }
 
     /** cardId's #tags, as extracted from its body -- not editable directly, edit the #tag text
