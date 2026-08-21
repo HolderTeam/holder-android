@@ -163,6 +163,24 @@ class HolderNativeIntegrationTest {
         assertTrue(HolderNative.listCardLinks(blocking.cardId).backlinks.isEmpty())
     }
 
+    @Test
+    fun cardLinks_reflectParentChildHierarchyThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Hierarchy test project")
+        val parent = HolderNative.createCard(project.projectId, "Parent card", "content")
+        val child = HolderNative.createCard(project.projectId, "Child card", "content", parent.cardId)
+
+        val parentLinks = HolderNative.listCardLinks(parent.cardId)
+        assertEquals(null, parentLinks.parent)
+        assertEquals(1, parentLinks.children.size)
+        assertEquals(child.cardId, parentLinks.children.single().cardId)
+
+        val childLinks = HolderNative.listCardLinks(child.cardId)
+        assertEquals(parent.cardId, childLinks.parent?.cardId)
+        assertEquals("Parent card", childLinks.parent?.title)
+        assertTrue(childLinks.children.isEmpty())
+    }
+
     private fun initialize(welcomeContent: String) {
         HolderNative.initialize(
             context = context,

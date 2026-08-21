@@ -45,9 +45,10 @@ import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 
 /**
- * Shows cardId's explicit connections (front-matter "links", not hierarchy or inline
- * [[wikilinks]]) with add/remove for outgoing connections. Backlinks are read-only here since
- * removing one means editing the *other* card's front matter, not this one's.
+ * Shows cardId's connections: hierarchy (parent/children, shown automatically like desktop
+ * Holder's Connections tool) plus explicit front-matter links, with add/remove for outgoing
+ * links. Parent/children and backlinks are read-only here -- hierarchy moves through
+ * parent_card_id (not this screen), and a backlink's own from-card owns that connection.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -113,10 +114,36 @@ fun ConnectionsScreen(
                     CenteredMessage(Modifier.fillMaxSize()) { Text("Failed to load connections: ${state.message}") }
                 is LoadState.Success -> {
                     val links = state.value
-                    if (links.outgoing.isEmpty() && links.backlinks.isEmpty()) {
+                    val isEmpty = links.parent == null && links.children.isEmpty() &&
+                        links.outgoing.isEmpty() && links.backlinks.isEmpty()
+                    if (isEmpty) {
                         CenteredMessage(Modifier.fillMaxSize()) { Text("No connections yet") }
                     } else {
                         LazyColumn(modifier = Modifier.padding(innerPadding)) {
+                            links.parent?.let { parent ->
+                                item { SectionHeader("Parent") }
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text(parent.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(parent.cardId, parent.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
+                            if (links.children.isNotEmpty()) {
+                                item { SectionHeader("Children") }
+                                items(links.children, key = { "child:${it.cardId}" }) { child ->
+                                    ListItem(
+                                        headlineContent = { Text(child.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(child.cardId, child.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
                             if (links.outgoing.isNotEmpty()) {
                                 item { SectionHeader("Outgoing") }
                                 items(links.outgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->

@@ -35,9 +35,18 @@ data class HolderBacklink(
     val fromTitle: String?,
 )
 
+data class HolderCardRef(
+    val cardId: String,
+    val title: String,
+)
+
 data class HolderCardLinks(
     val outgoing: List<HolderOutgoingLink>,
     val backlinks: List<HolderBacklink>,
+    /** Hierarchy (parent_card_id), shown automatically -- not editable through
+     * addCardLink/removeCardLink. Null at the root of a project. */
+    val parent: HolderCardRef?,
+    val children: List<HolderCardRef>,
 )
 
 data class HolderSearchResult(
@@ -325,9 +334,12 @@ object HolderNative {
         val json = JSONObject(nativeCardListLinks(requireContext(), cardId))
         val outgoing = json.getJSONArray("outgoing")
         val backlinks = json.getJSONArray("backlinks")
+        val children = json.getJSONArray("children")
         return HolderCardLinks(
             outgoing = List(outgoing.length()) { index -> parseOutgoingLink(outgoing.getJSONObject(index)) },
             backlinks = List(backlinks.length()) { index -> parseBacklink(backlinks.getJSONObject(index)) },
+            parent = json.optJSONObject("parent")?.let { parseCardRef(it) },
+            children = List(children.length()) { index -> parseCardRef(children.getJSONObject(index)) },
         )
     }
 
@@ -515,6 +527,11 @@ object HolderNative {
         kind = json.getString("kind"),
         label = json.optStringOrNull("label"),
         fromTitle = json.optStringOrNull("from_title"),
+    )
+
+    private fun parseCardRef(json: JSONObject) = HolderCardRef(
+        cardId = json.getString("card_id"),
+        title = json.getString("title"),
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? =
