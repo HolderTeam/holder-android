@@ -103,11 +103,8 @@ fun CardViewScreen(
                         ) {
                             Icon(Icons.Filled.Delete, contentDescription = "Delete")
                         }
-                        IconButton(
-                            onClick = { loaded?.let { onEdit(it.value) } },
-                            enabled = loaded != null,
-                        ) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                        IconButton(onClick = onCreateChildCard) {
+                            Icon(Icons.Filled.Add, contentDescription = "New child card")
                         }
                     },
                 )
@@ -115,8 +112,9 @@ fun CardViewScreen(
         },
         floatingActionButton = {
             if (!focusMode) {
-                FloatingActionButton(onClick = onCreateChildCard) {
-                    Icon(Icons.Filled.Add, contentDescription = "New child card")
+                val loaded = state as? LoadState.Success
+                FloatingActionButton(onClick = { loaded?.let { onEdit(it.value) } }) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit")
                 }
             }
         },
