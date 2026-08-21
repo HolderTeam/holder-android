@@ -1,6 +1,6 @@
 # Holder
 
-Holder is a new card management application designed to let users follow their own workflow rather than imposing one methodology. It can support Zettelkasten, wiki-style note systems, the Snowflake Method, personal knowledge management, research projects, family/shared projects through Git sync, and other card-based workflows. 
+Holder is a new card management application designed to let users follow their own workflow rather than imposing one methodology. It can support Zettelkasten, wiki-style note systems, the Snowflake Method, personal knowledge management, research projects, family/shared projects through Git sync, and other card-based workflows.
 
 It's an ecosystem with a cross-platform GTK desktop backend. As well as a Beast-powered HTTP API backend and a command line tool (holderctl) for advanced users who want to access it through their own tools.
 
@@ -34,20 +34,20 @@ Build the essential navigation and card workflow:
 
 #### 2.1
 
-* Project list
-* Card list for a project
-* Card view
+- Project list
+- Card list for a project
+- Card view
 
 #### 2.2
 
-* Card create/edit
-* Basic project creation/rename/delete
-* Basic card creation/delete
+- Card create/edit
+- Basic project creation/rename/delete
+- Basic card creation/delete
 
 #### 2.3
 
-* Persistent/global search bar where appropriate
-* Search results
+- Persistent/global search bar where appropriate
+- Search results
 
 At the end of this step, someone should be able to use the Android app **without owning a desktop computer** to write cards. It is already a legitimate Holder client, just without all the advanced features.
 
@@ -55,12 +55,12 @@ At the end of this step, someone should be able to use the Android app **without
 
 Add Git-backed project synchronisation:
 
-* Configure a remote repository
-* Authentication/secret storage
-* Encryption/recovery-key setup where applicable
-* Pull/push/sync status
-* Conflict/error handling
-* Recovery/reset workflow
+- Configure a remote repository
+- Authentication/secret storage
+- Encryption/recovery-key setup where applicable
+- Pull/push/sync status
+- Conflict/error handling
+- Recovery/reset workflow
 
 We should be able to write cards on the desktop, then see them on the phone,
 and vice-versa.
@@ -69,15 +69,16 @@ and vice-versa.
 
 Add the less frequently used but still core project-management functionality:
 
-* Trash bin and restore/permanent-delete workflow
-* Connections editor
-* View and edit card relationships
-* Project resources
-* Resource viewing/opening
-* Appropriate project settings
+- Trash bin and restore/permanent-delete workflow
+- Connections editor
+- View and edit card relationships
 
 This is where Android starts representing the same underlying Holder world as desktop rather than only cards and projects.
 
+Dedicated "project settings" turned out to be mostly already covered by
+existing screens (rename/delete on the project list, remote/encryption/
+recovery on Git Sync) rather than a real gap — skipped for now rather than
+building a settings screen with nothing new to put in it.
 
 ### Step five - desktop-created extended content
 
@@ -133,3 +134,28 @@ Project appears
 
 We explicitly keep **local AI generation, model downloads, llama.cpp and Gemini Nano out of this roadmap for the first Android release**.
 They can become a later `libholder-ai` project once the thing that materially improves Holder — having your cards in your pocket — is shipped.
+
+### Step 7: support project Resources
+
+This requires some wider cross-repo work to make resources a useful thing, so let's so this last.
+
+- Project resources
+- Resource viewing/opening
+
+### Step 8: project-level views
+
+Android is now close to desktop parity for working with a single card, but
+desktop gives the user many different ways to see a *whole project* at once
+that Android has no equivalent of yet:
+
+- Flowboard — the hierarchical card-tree/board view, and how parent/child
+  and next/previous ordering actually get edited on desktop (Android's
+  Connections screen only shows hierarchy read-only right now).
+- Connections graph — desktop's project-wide connections tool is a graph
+  you navigate visually; Android only has the card-scoped list view built
+  in Step four.
+
+Not scoped yet. Likely needs its own design pass for what a
+"whole-project view" should look like on a phone screen rather than a
+straight port of desktop's graph/board widgets — noting it here so it
+isn't lost.
