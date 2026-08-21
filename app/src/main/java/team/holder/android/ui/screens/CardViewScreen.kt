@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -253,12 +254,14 @@ private fun ConnectionsSummary(
             ConnectionSummaryLinkRow(
                 label = HolderNative.linkKindLabel(link.kind, forward = true),
                 title = link.toTitle ?: link.toCardId,
+                linkLabel = link.label,
             ) { onNavigateToCard(link.toCardId, link.toTitle ?: "") }
         }
         links.backlinks.forEach { link ->
             ConnectionSummaryLinkRow(
                 label = HolderNative.linkKindLabel(link.kind, forward = false),
                 title = link.fromTitle ?: link.fromCardId,
+                linkLabel = link.label,
             ) { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") }
         }
     }
@@ -266,16 +269,28 @@ private fun ConnectionsSummary(
 
 /** A connections-summary row, self-describing its relationship (e.g. "Depends on: Finish
  * The holder-core Split", "Parent of: Sub Card") rather than grouping same-relationship rows
- * under a shared section header. */
+ * under a shared section header. linkLabel is the link's own free-text annotation (distinct
+ * from label, the kind's display word) -- muted and middle-dot-separated so it reads as a note
+ * about the connection rather than a continuation of the title, matching ConnectionsScreen.
+ * Ellipsized rather than wrapped: this summary is meant to stay glanceable even when kind +
+ * title + linkLabel together would otherwise run past one line. */
 @Composable
-private fun ConnectionSummaryLinkRow(label: String, title: String, onClick: () -> Unit) {
+private fun ConnectionSummaryLinkRow(label: String, title: String, linkLabel: String? = null, onClick: () -> Unit) {
     Text(
         buildAnnotatedString {
             withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(label) }
             append(": ")
             append(title)
+            if (!linkLabel.isNullOrBlank()) {
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
+                    append(" · ")
+                    append(linkLabel)
+                }
+            }
         },
         style = MaterialTheme.typography.bodyMedium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
