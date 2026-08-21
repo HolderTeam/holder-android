@@ -219,8 +219,8 @@ private fun ConnectionsSummary(
     Column(modifier = Modifier.padding(top = 24.dp)) {
         HorizontalDivider()
         links.parent?.let { parent ->
-            ConnectionSummarySection("Parent") {
-                ConnectionSummaryRow(parent.title) { onNavigateToCard(parent.cardId, parent.title) }
+            ConnectionSummaryLinkRow(label = "Child of", title = parent.title) {
+                onNavigateToCard(parent.cardId, parent.title)
             }
         }
         if (links.children.isNotEmpty()) {
