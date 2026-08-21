@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.HolderLinkKind
 import team.holder.android.HolderNative
 import team.holder.android.HolderSearchResult
 import team.holder.android.ui.CenteredMessage
@@ -63,7 +64,14 @@ fun AddConnectionScreen(
     var label by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var linkKinds by remember { mutableStateOf<List<HolderLinkKind>>(emptyList()) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        linkKinds = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listLinkKinds() }
+        }.getOrDefault(emptyList())
+    }
 
     LaunchedEffect(query) {
         val trimmed = query.trim()
@@ -83,6 +91,23 @@ fun AddConnectionScreen(
 
     val kind = if (selectedKind == CUSTOM_KIND_CHIP) customKind.trim() else selectedKind
     val canAdd = target != null && kind.isNotEmpty() && !saving
+
+    // Suggests built-in kinds as the user types a custom one, so they don't reinvent
+    // "depends_on" as "requires_completion_of" without knowing the catalog already has a
+    // curated forward/reverse label for it. Hides once the field exactly matches a suggestion
+    // -- nothing left to suggest at that point.
+    val customKindTrimmed = customKind.trim()
+    val kindSuggestions = if (customKindTrimmed.isEmpty()) {
+        emptyList()
+    } else {
+        linkKinds.filter { candidate ->
+            candidate.id != customKindTrimmed &&
+                (
+                    candidate.id.contains(customKindTrimmed, ignoreCase = true) ||
+                        candidate.forward.contains(customKindTrimmed, ignoreCase = true)
+                    )
+        }.take(6)
+    }
 
     Scaffold(
         topBar = {
@@ -159,6 +184,13 @@ fun AddConnectionScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
+                kindSuggestions.forEach { suggestion ->
+                    ListItem(
+                        headlineContent = { Text(suggestion.forward) },
+                        supportingContent = { Text(suggestion.id) },
+                        modifier = Modifier.fillMaxWidth().clickable { customKind = suggestion.id },
+                    )
+                }
             }
 
             OutlinedTextField(
