@@ -137,6 +137,32 @@ class HolderNativeIntegrationTest {
         assertThrows(RuntimeException::class.java) { HolderNative.getCardContent(card.cardId) }
     }
 
+    @Test
+    fun cardLinks_roundTripThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Connections test project")
+        val blocked = HolderNative.createCard(project.projectId, "Blocked task", "content")
+        val blocking = HolderNative.createCard(project.projectId, "Blocking task", "content")
+
+        val empty = HolderNative.listCardLinks(blocked.cardId)
+        assertTrue(empty.outgoing.isEmpty())
+        assertTrue(empty.backlinks.isEmpty())
+
+        val outgoing = HolderNative.addCardLink(blocked.cardId, blocking.cardId, "blocked_by", "waiting")
+        assertEquals(1, outgoing.size)
+        assertEquals(blocking.cardId, outgoing.single().toCardId)
+        assertEquals("Blocking task", outgoing.single().toTitle)
+
+        val blockingLinks = HolderNative.listCardLinks(blocking.cardId)
+        assertEquals(1, blockingLinks.backlinks.size)
+        assertEquals(blocked.cardId, blockingLinks.backlinks.single().fromCardId)
+        assertEquals("Blocked task", blockingLinks.backlinks.single().fromTitle)
+
+        HolderNative.removeCardLink(blocked.cardId, blocking.cardId, "blocked_by")
+        assertTrue(HolderNative.listCardLinks(blocked.cardId).outgoing.isEmpty())
+        assertTrue(HolderNative.listCardLinks(blocking.cardId).backlinks.isEmpty())
+    }
+
     private fun initialize(welcomeContent: String) {
         HolderNative.initialize(
             context = context,

@@ -27,7 +27,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.screens.AddConnectionScreen
 import team.holder.android.ui.screens.CardEditScreen
+import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.GitSyncScreen
@@ -93,6 +95,7 @@ private fun HolderNavHost() {
     var selectedCardContent by remember { mutableStateOf("") }
     var cardListRefreshKey by remember { mutableIntStateOf(0) }
     var cardViewRefreshKey by remember { mutableIntStateOf(0) }
+    var connectionsRefreshKey by remember { mutableIntStateOf(0) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
 
@@ -205,11 +208,45 @@ private fun HolderNavHost() {
                     cardListRefreshKey++
                     navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
+                onConnectionsClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/connections")
+                },
                 onDeleted = {
                     cardListRefreshKey++
                     navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/connections") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            ConnectionsScreen(
+                cardId = cardId,
+                refreshKey = connectionsRefreshKey,
+                onAddConnection = {
+                    navController.navigate("projects/$projectId/cards/$cardId/connections/add")
+                },
+                onNavigateToCard = { targetCardId, title ->
+                    selectedCardTitle = title
+                    cardViewRefreshKey++
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$targetCardId")
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/connections/add") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            AddConnectionScreen(
+                fromCardId = cardId,
+                projectId = projectId,
+                onAdded = {
+                    connectionsRefreshKey++
+                    navController.popBackStack()
+                },
+                onCancel = { navController.popBackStack() },
             )
         }
         composable("cards/{cardId}/edit") { backStackEntry ->

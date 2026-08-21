@@ -504,6 +504,109 @@ Java_team_holder_android_HolderNative_nativeCardPurge(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardListLinks(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_list_links(context, card_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardLinkAdd(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring from_card_id,
+    jstring to_card_id,
+    jstring kind,
+    jstring label
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars from_card_id_chars(env, from_card_id);
+  UtfChars to_card_id_chars(env, to_card_id);
+  UtfChars kind_chars(env, kind);
+  UtfChars label_chars(env, label);
+  if (from_card_id_chars.get() == nullptr || to_card_id_chars.get() == nullptr ||
+      kind_chars.get() == nullptr) {
+    throw_runtime(env, "from_card_id, to_card_id, and kind must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_link_add(
+      context,
+      from_card_id_chars.get(),
+      to_card_id_chars.get(),
+      kind_chars.get(),
+      label_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_team_holder_android_HolderNative_nativeCardLinkRemove(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring from_card_id,
+    jstring to_card_id,
+    jstring kind
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return;
+  }
+
+  UtfChars from_card_id_chars(env, from_card_id);
+  UtfChars to_card_id_chars(env, to_card_id);
+  UtfChars kind_chars(env, kind);
+  if (from_card_id_chars.get() == nullptr || to_card_id_chars.get() == nullptr ||
+      kind_chars.get() == nullptr) {
+    throw_runtime(env, "from_card_id, to_card_id, and kind must not be null");
+    return;
+  }
+
+  holder_error* error = nullptr;
+  const int rc = holder_card_link_remove(
+      context, from_card_id_chars.get(), to_card_id_chars.get(), kind_chars.get(), &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+  }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardSearch(
     JNIEnv* env,
     jobject /* thiz */,

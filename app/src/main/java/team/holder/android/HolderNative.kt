@@ -20,6 +20,26 @@ data class HolderCard(
     val deletedAt: Long? = null,
 )
 
+data class HolderOutgoingLink(
+    val toCardId: String,
+    val toType: String,
+    val kind: String,
+    val label: String?,
+    val toTitle: String?,
+)
+
+data class HolderBacklink(
+    val fromCardId: String,
+    val kind: String,
+    val label: String?,
+    val fromTitle: String?,
+)
+
+data class HolderCardLinks(
+    val outgoing: List<HolderOutgoingLink>,
+    val backlinks: List<HolderBacklink>,
+)
+
 data class HolderSearchResult(
     val cardId: String,
     val title: String,
@@ -147,6 +167,20 @@ object HolderNative {
     private external fun nativeCardListTrashed(contextHandle: Long, projectId: String): String
     private external fun nativeCardRestore(contextHandle: Long, cardId: String): String
     private external fun nativeCardPurge(contextHandle: Long, cardId: String)
+    private external fun nativeCardListLinks(contextHandle: Long, cardId: String): String
+    private external fun nativeCardLinkAdd(
+        contextHandle: Long,
+        fromCardId: String,
+        toCardId: String,
+        kind: String,
+        label: String?,
+    ): String
+    private external fun nativeCardLinkRemove(
+        contextHandle: Long,
+        fromCardId: String,
+        toCardId: String,
+        kind: String,
+    )
     private external fun nativeCardSearch(
         contextHandle: Long,
         projectId: String,
@@ -284,6 +318,28 @@ object HolderNative {
     /** Permanently deletes a trashed card. Irreversible. Fails if cardId isn't trashed. */
     fun purgeCard(cardId: String) {
         nativeCardPurge(requireContext(), cardId)
+    }
+
+    /** Explicit connections only -- not hierarchy (parent/child) or inline [[wikilinks]]. */
+    fun listCardLinks(cardId: String): HolderCardLinks {
+        val json = JSONObject(nativeCardListLinks(requireContext(), cardId))
+        val outgoing = json.getJSONArray("outgoing")
+        val backlinks = json.getJSONArray("backlinks")
+        return HolderCardLinks(
+            outgoing = List(outgoing.length()) { index -> parseOutgoingLink(outgoing.getJSONObject(index)) },
+            backlinks = List(backlinks.length()) { index -> parseBacklink(backlinks.getJSONObject(index)) },
+        )
+    }
+
+    /** Adds (or updates, if fromCardId/toCardId/kind already matches) an explicit outgoing
+     * connection. Returns fromCardId's updated outgoing connection list. */
+    fun addCardLink(fromCardId: String, toCardId: String, kind: String, label: String? = null): List<HolderOutgoingLink> {
+        val outgoing = JSONArray(nativeCardLinkAdd(requireContext(), fromCardId, toCardId, kind, label))
+        return List(outgoing.length()) { index -> parseOutgoingLink(outgoing.getJSONObject(index)) }
+    }
+
+    fun removeCardLink(fromCardId: String, toCardId: String, kind: String) {
+        nativeCardLinkRemove(requireContext(), fromCardId, toCardId, kind)
     }
 
     fun searchCards(projectId: String, query: String, limit: Int = 50): List<HolderSearchResult> {
@@ -444,6 +500,21 @@ object HolderNative {
         title = json.getString("title"),
         parentCardId = json.optStringOrNull("parent_card_id"),
         deletedAt = json.optLongOrNull("deleted_at"),
+    )
+
+    private fun parseOutgoingLink(json: JSONObject) = HolderOutgoingLink(
+        toCardId = json.getString("to_card_id"),
+        toType = json.getString("to_type"),
+        kind = json.getString("kind"),
+        label = json.optStringOrNull("label"),
+        toTitle = json.optStringOrNull("to_title"),
+    )
+
+    private fun parseBacklink(json: JSONObject) = HolderBacklink(
+        fromCardId = json.getString("from_card_id"),
+        kind = json.getString("kind"),
+        label = json.optStringOrNull("label"),
+        fromTitle = json.optStringOrNull("from_title"),
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? =

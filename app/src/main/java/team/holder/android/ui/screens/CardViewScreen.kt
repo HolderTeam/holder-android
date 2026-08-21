@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
@@ -46,6 +47,7 @@ fun CardViewScreen(
     refreshKey: Any,
     onEdit: (content: String) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
+    onConnectionsClick: () -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -77,6 +79,9 @@ fun CardViewScreen(
                 },
                 actions = {
                     val loaded = state as? LoadState.Success
+                    IconButton(onClick = onConnectionsClick) {
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
+                    }
                     IconButton(
                         onClick = { showDeleteDialog = true },
                         enabled = loaded != null,
