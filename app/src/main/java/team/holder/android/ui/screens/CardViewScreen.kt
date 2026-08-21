@@ -10,7 +10,6 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,12 +30,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
+import team.holder.android.R
 import team.holder.android.splitLeadingHeading
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
@@ -91,7 +92,7 @@ fun CardViewScreen(
                     actions = {
                         val loaded = state as? LoadState.Success
                         IconButton(onClick = { focusMode = true }) {
-                            Icon(Icons.Filled.Fullscreen, contentDescription = "Focus mode")
+                            Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
                         }
                         IconButton(onClick = onConnectionsClick) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
