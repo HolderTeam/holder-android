@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,31 +35,41 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderBacklink
+import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
 import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 
+private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
+private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
+
 /**
- * Shows cardId's connections: hierarchy (parent/children, shown automatically like desktop
- * Holder's Connections tool) plus explicit front-matter links, with add/remove for outgoing
- * links. Parent/children and backlinks are read-only here -- hierarchy moves through
- * parent_card_id (not this screen), and a backlink's own from-card owns that connection.
+ * "About this card": its own created/updated timestamps, plus its connections -- hierarchy
+ * (parent/children, shown automatically like desktop Holder's Connections tool) and explicit
+ * front-matter links, with add/remove for outgoing links. Parent/children and backlinks are
+ * read-only here -- hierarchy moves through parent_card_id (not this screen), and a backlink's
+ * own from-card owns that connection.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConnectionsScreen(
     cardId: String,
+    projectId: String,
     cardTitle: String,
     refreshKey: Any,
     onAddConnection: () -> Unit,
@@ -66,6 +77,7 @@ fun ConnectionsScreen(
     onBack: () -> Unit,
 ) {
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
+    var card by remember(cardId) { mutableStateOf<HolderCard?>(null) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     // Guards remove against double-tap, same rationale as other screens' isSubmitting.
@@ -82,6 +94,15 @@ fun ConnectionsScreen(
     }
 
     LaunchedEffect(cardId, refreshKey) { refresh() }
+
+    // There's no single-card fetch, so this piggybacks on the project's full list -- same
+    // approach CardViewScreen's Next/Previous/Follows/Precedes already use. Failing or not
+    // finding the card just leaves the dates off rather than blocking the rest of the screen.
+    LaunchedEffect(cardId, projectId, refreshKey) {
+        card = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCards(projectId).find { it.cardId == cardId } }
+        }.getOrNull()
+    }
 
     fun remove(link: HolderOutgoingLink) {
         if (isSubmitting) return
@@ -103,7 +124,7 @@ fun ConnectionsScreen(
                     Column {
                         Text(cardTitle.ifEmpty { "Card" })
                         Text(
-                            "Connections",
+                            "About this card",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -129,12 +150,20 @@ fun ConnectionsScreen(
                     CenteredMessage(Modifier.fillMaxSize()) { Text("Failed to load connections: ${state.message}") }
                 is LoadState.Success -> {
                     val links = state.value
-                    val isEmpty = links.parent == null && links.children.isEmpty() &&
+                    val noConnections = links.parent == null && links.children.isEmpty() &&
                         links.outgoing.isEmpty() && links.backlinks.isEmpty()
-                    if (isEmpty) {
-                        CenteredMessage(Modifier.fillMaxSize()) { Text("No connections yet") }
-                    } else {
-                        LazyColumn(modifier = Modifier.padding(innerPadding)) {
+                    LazyColumn(modifier = Modifier.padding(innerPadding)) {
+                        card?.let { CardDates(it) }
+                        if (noConnections) {
+                            item {
+                                Text(
+                                    "No connections yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                            }
+                        } else {
                             links.parent?.let { parent ->
                                 item { SectionHeader("Parent") }
                                 item {
@@ -242,6 +271,31 @@ fun ConnectionsScreen(
     }
 }
 
+/** Created always shows; Updated only shows once it actually diverges from Created -- a
+ * never-edited card would otherwise display the same instant twice. */
+private fun LazyListScope.CardDates(card: HolderCard) {
+    item { DateRow(label = "Created", epochSeconds = card.createdAt) }
+    if (card.updatedAt != card.createdAt) {
+        item { DateRow(label = "Updated", epochSeconds = card.updatedAt) }
+    }
+}
+
+@Composable
+private fun DateRow(label: String, epochSeconds: Long) {
+    ListItem(
+        headlineContent = {
+            Text(
+                dateHeadline(
+                    label = label,
+                    epochSeconds = epochSeconds,
+                    primary = MaterialTheme.colorScheme.primary,
+                    muted = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        },
+    )
+}
+
 @Composable
 private fun SectionHeader(title: String) {
     Column(modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp)) {
@@ -268,3 +322,19 @@ private fun connectionHeadline(kindLabel: String, title: String, label: String?,
             }
         }
     }
+
+/** "Created Mar 4, 2025 · 14:34:07" -- the date carries the same weight as a connection's
+ * title, with the time tacked on muted since the exact second rarely matters, but is there
+ * for the rare case (a field note, a timestamped observation) where it does. */
+private fun dateHeadline(label: String, epochSeconds: Long, primary: Color, muted: Color): AnnotatedString {
+    val instant = Instant.ofEpochSecond(epochSeconds)
+    return buildAnnotatedString {
+        withStyle(SpanStyle(color = primary)) { append(label) }
+        append(" ")
+        append(CARD_DATE_FORMAT.format(instant))
+        withStyle(SpanStyle(color = muted)) {
+            append(" · ")
+            append(CARD_TIME_FORMAT.format(instant))
+        }
+    }
+}

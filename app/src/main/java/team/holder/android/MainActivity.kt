@@ -254,6 +254,7 @@ private fun HolderNavHost() {
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
             ConnectionsScreen(
                 cardId = cardId,
+                projectId = projectId,
                 cardTitle = selectedCardTitle,
                 refreshKey = connectionsRefreshKey,
                 onAddConnection = {

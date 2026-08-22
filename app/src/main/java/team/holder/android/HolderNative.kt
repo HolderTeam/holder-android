@@ -17,6 +17,13 @@ data class HolderCard(
     val projectId: String,
     val title: String,
     val parentCardId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    /** Manual sibling order set by Flowboard's drag-to-reorder on desktop; defaults to
+     * creation order (each new card gets a higher sort_key than its existing siblings)
+     * until someone explicitly rearranges them. Scoped to cards sharing the same
+     * parentCardId -- not comparable across siblings of different parents. */
+    val sortKey: Double,
     val deletedAt: Long? = null,
 )
 
@@ -579,6 +586,9 @@ object HolderNative {
         projectId = json.getString("project_id"),
         title = json.getString("title"),
         parentCardId = json.optStringOrNull("parent_card_id"),
+        createdAt = json.getLong("created_at"),
+        updatedAt = json.getLong("updated_at"),
+        sortKey = json.getDouble("sort_key"),
         deletedAt = json.optLongOrNull("deleted_at"),
     )
 

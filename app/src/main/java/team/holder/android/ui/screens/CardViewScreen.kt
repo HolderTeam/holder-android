@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
 import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
@@ -79,6 +81,7 @@ fun CardViewScreen(
     // Guards delete against double-tap, same rationale as CardListScreen's isSubmitting.
     var isDeleting by remember { mutableStateOf(false) }
     var focusMode by remember { mutableStateOf(false) }
+    var cardMeta by remember(cardId, refreshKey) { mutableStateOf<HolderCard?>(null) }
 
     // Back exits focus mode instead of leaving the card, mirroring a video player's fullscreen.
     BackHandler(enabled = focusMode) { focusMode = false }
@@ -92,11 +95,30 @@ fun CardViewScreen(
         )
     }
 
+    // There's no single-card fetch, so this piggybacks on the project's full list -- same
+    // approach ConnectionsSummary's Next/Previous/Follows/Precedes already use.
+    LaunchedEffect(cardId, projectId, refreshKey) {
+        cardMeta = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCards(projectId).find { it.cardId == cardId } }
+        }.getOrNull()
+    }
+
     Scaffold(
         topBar = {
             if (!focusMode) {
                 TopAppBar(
-                    title = { Text(cardTitle.ifEmpty { "Card" }) },
+                    title = {
+                        Column {
+                            Text(cardTitle.ifEmpty { "Card" })
+                            cardMeta?.let { meta ->
+                                Text(
+                                    lastEditedSummary(meta),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -178,6 +200,7 @@ fun CardViewScreen(
                         if (!focusMode) {
                             ConnectionsSummary(
                                 cardId = cardId,
+                                projectId = projectId,
                                 refreshKey = refreshKey,
                                 onNavigateToCard = onNavigateToCard,
                             )
@@ -212,6 +235,18 @@ fun CardViewScreen(
     }
 }
 
+/** "Last edited: 9 days ago", or "Created 9 days ago" for a card that's never been touched
+ * since -- otherwise a never-edited card would misleadingly claim an edit that didn't happen. */
+private fun lastEditedSummary(card: HolderCard): String {
+    val neverEdited = card.updatedAt == card.createdAt
+    val relative = DateUtils.getRelativeTimeSpanString(
+        (if (neverEdited) card.createdAt else card.updatedAt) * 1000,
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+    )
+    return if (neverEdited) "Created $relative" else "Last edited: $relative"
+}
+
 /**
  * A concise, read-only glance at cardId's connections, appended below the card content -- the
  * full editable graph lives in ConnectionsScreen, reached via the top bar's Connections icon.
@@ -219,10 +254,12 @@ fun CardViewScreen(
 @Composable
 private fun ConnectionsSummary(
     cardId: String,
+    projectId: String,
     refreshKey: Any,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
 ) {
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
+    var allCards by remember(cardId, refreshKey) { mutableStateOf<List<HolderCard>>(emptyList()) }
 
     LaunchedEffect(cardId, refreshKey) {
         state = runCatching {
@@ -233,13 +270,64 @@ private fun ConnectionsSummary(
         )
     }
 
-    val links = (state as? LoadState.Success)?.value ?: return
+    LaunchedEffect(cardId, projectId, refreshKey) {
+        allCards = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
+        }.getOrDefault(emptyList())
+    }
+
+    val links = (state as? LoadState.Success)?.value
+
+    // Newest-first: "next" steps toward index 0, "previous" steps away from it -- the same
+    // last-modified ordering the card list uses, just walked one card at a time.
+    val byRecency = allCards.sortedByDescending { it.updatedAt }
+    val recencyIndex = byRecency.indexOfFirst { it.cardId == cardId }
+    val nextCard = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it - 1) }
+    val previousCard = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it + 1) }
+
+    // sort_key is Flowboard's manual sibling order on desktop, defaulting to creation order
+    // until someone drags cards around. Only surface it once it actually diverges from creation
+    // order within this sibling group -- otherwise it's just restating "next/previous" above
+    // with extra steps for the common case where nobody has touched Flowboard.
+    val siblings = allCards.filter { it.parentCardId == links?.parent?.cardId }
+    val bySortKey = siblings.sortedWith(compareBy<HolderCard> { it.sortKey }.thenByDescending { it.updatedAt })
+    val byCreation = siblings.sortedBy { it.createdAt }
+    val manuallyOrdered = siblings.size > 1 && bySortKey.map { it.cardId } != byCreation.map { it.cardId }
+    val sortKeyIndex = bySortKey.indexOfFirst { it.cardId == cardId }
+    val followingSibling = (if (manuallyOrdered) sortKeyIndex else -1)
+        .takeIf { it >= 0 }?.let { bySortKey.getOrNull(it + 1) }
+    val precedingSibling = (if (manuallyOrdered) sortKeyIndex else -1)
+        .takeIf { it >= 0 }?.let { bySortKey.getOrNull(it - 1) }
+
+    if (links == null) return
     val isEmpty = links.parent == null && links.children.isEmpty() &&
-        links.outgoing.isEmpty() && links.backlinks.isEmpty()
+        links.outgoing.isEmpty() && links.backlinks.isEmpty() &&
+        nextCard == null && previousCard == null &&
+        followingSibling == null && precedingSibling == null
     if (isEmpty) return
 
     Column(modifier = Modifier.padding(top = 24.dp)) {
         HorizontalDivider()
+        nextCard?.let { next ->
+            ConnectionSummaryLinkRow(label = "Next", title = next.title) {
+                onNavigateToCard(next.cardId, next.title)
+            }
+        }
+        previousCard?.let { previous ->
+            ConnectionSummaryLinkRow(label = "Previous", title = previous.title) {
+                onNavigateToCard(previous.cardId, previous.title)
+            }
+        }
+        followingSibling?.let { following ->
+            ConnectionSummaryLinkRow(label = "Precedes", title = following.title) {
+                onNavigateToCard(following.cardId, following.title)
+            }
+        }
+        precedingSibling?.let { preceding ->
+            ConnectionSummaryLinkRow(label = "Follows", title = preceding.title) {
+                onNavigateToCard(preceding.cardId, preceding.title)
+            }
+        }
         links.parent?.let { parent ->
             ConnectionSummaryLinkRow(label = "Child of", title = parent.title) {
                 onNavigateToCard(parent.cardId, parent.title)
