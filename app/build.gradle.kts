@@ -103,16 +103,16 @@ android {
                 systemImageSource = "aosp"
                 require64Bit = true
             }
-            val pixel2Api37 = localDevices.create("pixel2Api37") {
+            val pixel2Api36 = localDevices.create("pixel2Api36") {
                 device = "Pixel 2"
-                apiLevel = 37
+                apiLevel = 36
                 systemImageSource = "aosp"
                 require64Bit = true
                 pageAlignment = ManagedVirtualDevice.PageAlignment.FORCE_4KB_PAGES
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
-                targetDevices.add(pixel2Api37)
+                targetDevices.add(pixel2Api36)
             }
         }
     }

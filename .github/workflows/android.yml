@@ -141,7 +141,7 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
-      - name: Run API 28 and API 37 managed-device tests
+      - name: Run API 28 and API 36 managed-device tests
         run: >-
           ./gradlew :app:ciPhonesGroupDebugAndroidTest
           -Pholder.android.abis=x86_64
