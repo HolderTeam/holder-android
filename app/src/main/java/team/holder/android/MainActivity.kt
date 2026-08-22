@@ -232,7 +232,11 @@ private fun HolderNavHost() {
                     cardListRefreshKey++
                     navController.popBackStack()
                 },
-                onBack = { navController.popBackStack() },
+                // "Up" to the project's card list in one tap, however many connection/tag hops
+                // got here -- CardViewScreen is the only screen that chains into itself, so it's
+                // the only back arrow that needs to jump rather than pop one level. The system
+                // back gesture still retraces those hops one at a time on its own.
+                onBack = { navController.popBackStack("projects/$projectId/cards", inclusive = false) },
             )
         }
         composable("projects/{projectId}/tags/{tag}") { backStackEntry ->
