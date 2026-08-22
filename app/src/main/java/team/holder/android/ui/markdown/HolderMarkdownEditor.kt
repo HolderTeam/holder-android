@@ -2,6 +2,8 @@ package team.holder.android.ui.markdown
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,23 +15,38 @@ import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 private val HEADING_REGEX = Regex("(?m)^#{1,6}[ \t].*$")
 private val BOLD_REGEX = Regex("\\*\\*[^*\n]+\\*\\*|__[^_\n]+__")
@@ -45,6 +62,20 @@ private val MD_LINK_REGEX = Regex("\\[[^\\]\n]*\\]\\([^)\n]*\\)")
 // Cosmetic only -- just flags bare URLs while typing to match what autolink will pick up in
 // view mode; the actual link boundary is decided by the real autolink parser, not this.
 private val BARE_URL_REGEX = Regex("\\bhttps?://[^\\s<>\"]+")
+// Just the (destination) part of [text](destination) -- the visible text is real prose and
+// should still be spellchecked, only the URL itself shouldn't be.
+private val MD_LINK_DEST_REGEX = Regex("\\[[^\\]\n]*\\]\\(([^)\n]*)\\)")
+
+/** Ranges spell-check shouldn't touch: code (inline and fenced) and link destinations. Not
+ * wikilink page names or a Markdown link's visible text -- both are real prose someone reads. */
+private fun computeSpellCheckExclusions(text: CharSequence): List<IntRange> {
+    val ranges = mutableListOf<IntRange>()
+    FENCED_CODE_BLOCK_REGEX.findAll(text).forEach { ranges += it.range }
+    INLINE_CODE_REGEX.findAll(text).forEach { ranges += it.range }
+    BARE_URL_REGEX.findAll(text).forEach { ranges += it.range }
+    MD_LINK_DEST_REGEX.findAll(text).forEach { match -> match.groups[1]?.let { ranges += it.range } }
+    return ranges
+}
 
 /**
  * Colors the raw Markdown source without touching the underlying text -- what's stored is
@@ -55,6 +86,8 @@ private class HolderMarkdownHighlighter(
     private val headingColor: Color,
     private val linkColor: Color,
     private val codeColor: Color,
+    private val misspelledColor: Color,
+    private val misspelledRanges: List<IntRange>,
 ) : OutputTransformation {
     override fun TextFieldBuffer.transformOutput() {
         val text = asCharSequence()
@@ -96,6 +129,11 @@ private class HolderMarkdownHighlighter(
         for (match in WIKILINK_REGEX.findAll(text)) {
             if (insideFence(match.range)) continue
             addStyle(SpanStyle(color = linkColor, fontWeight = FontWeight.Medium), match.range.first, match.range.last + 1)
+        }
+        // Plain colored underline, not a true squiggle -- SpanStyle has no wavy-underline
+        // decoration; a real one needs custom canvas drawing per flagged word, not worth it yet.
+        for (range in misspelledRanges) {
+            addStyle(SpanStyle(color = misspelledColor, textDecoration = TextDecoration.Underline), range.first, range.last + 1)
         }
     }
 }
@@ -224,10 +262,13 @@ fun MarkdownFormattingToolbar(state: TextFieldState, modifier: Modifier = Modifi
     }
 }
 
+private const val SPELL_CHECK_DEBOUNCE_MS = 500L
+
 /**
  * Source editor for a card's raw Markdown text. Tapping only places the cursor -- links are
  * never followed here, only in [HolderMarkdownViewer].
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HolderMarkdownEditor(
     state: TextFieldState,
@@ -235,15 +276,49 @@ fun HolderMarkdownEditor(
     placeholder: String = "Write in Markdown…",
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val highlighter = remember(colorScheme) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+
+    val spellChecker = remember { MarkdownSpellChecker(context) }
+    DisposableEffect(Unit) { onDispose { spellChecker.close() } }
+
+    var misspelledSpans by remember { mutableStateOf<List<MisspelledSpan>>(emptyList()) }
+    val bodyText = state.text.toString()
+    LaunchedEffect(bodyText) {
+        delay(SPELL_CHECK_DEBOUNCE_MS)
+        val masked = maskExcludedRanges(bodyText, computeSpellCheckExclusions(bodyText))
+        spellChecker.check(masked) { spans -> misspelledSpans = spans }
+    }
+
+    val highlighter = remember(colorScheme, misspelledSpans) {
         HolderMarkdownHighlighter(
             headingColor = colorScheme.primary,
             linkColor = colorScheme.tertiary,
             codeColor = colorScheme.secondary,
+            misspelledColor = colorScheme.error,
+            misspelledRanges = misspelledSpans.map { it.range },
         )
     }
 
-    Box(modifier = modifier) {
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var activeSuggestion by remember { mutableStateOf<MisspelledSpan?>(null) }
+    var suggestionAnchorPx by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            // Observes the first down of each gesture on the Initial pass without consuming it,
+            // so the field underneath still gets the same tap for its own cursor placement --
+            // this only decides whether to *also* pop up suggestions for a flagged word.
+            awaitEachGesture {
+                val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                val layout = textLayoutResult ?: return@awaitEachGesture
+                val offset = layout.getOffsetForPosition(down.position)
+                val hit = misspelledSpans.firstOrNull { offset in it.range } ?: return@awaitEachGesture
+                activeSuggestion = hit
+                suggestionAnchorPx = down.position
+            }
+        },
+    ) {
         if (state.text.isEmpty()) {
             Text(text = placeholder, color = colorScheme.onSurfaceVariant, style = LocalTextStyle.current)
         }
@@ -254,6 +329,28 @@ fun HolderMarkdownEditor(
             cursorBrush = SolidColor(colorScheme.primary),
             inputTransformation = ListContinuation,
             outputTransformation = highlighter,
+            onTextLayout = { getResult -> textLayoutResult = getResult() },
         )
+
+        activeSuggestion?.let { suggestion ->
+            DropdownMenu(
+                expanded = true,
+                onDismissRequest = { activeSuggestion = null },
+                offset = with(density) { DpOffset(suggestionAnchorPx.x.toDp(), suggestionAnchorPx.y.toDp()) },
+            ) {
+                if (suggestion.suggestions.isEmpty()) {
+                    DropdownMenuItem(text = { Text("No suggestions") }, onClick = { activeSuggestion = null })
+                }
+                suggestion.suggestions.forEach { word ->
+                    DropdownMenuItem(
+                        text = { Text(word) },
+                        onClick = {
+                            state.edit { replace(suggestion.range.first, suggestion.range.last + 1, word) }
+                            activeSuggestion = null
+                        },
+                    )
+                }
+            }
+        }
     }
 }
