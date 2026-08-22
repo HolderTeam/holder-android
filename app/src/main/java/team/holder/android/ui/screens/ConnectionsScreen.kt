@@ -169,125 +169,55 @@ fun ConnectionsScreen(
                                 )
                             }
                         } else {
+                            item { SectionHeader("Connections") }
                             sequence.next?.let { next ->
-                                item { SectionHeader("Next") }
                                 item {
-                                    ListItem(
-                                        headlineContent = { Text(next.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(next.cardId, next.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            sequence.previous?.let { previous ->
-                                item { SectionHeader("Previous") }
-                                item {
-                                    ListItem(
-                                        headlineContent = { Text(previous.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(previous.cardId, previous.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            sequence.follows?.let { follows ->
-                                item { SectionHeader("Follows") }
-                                item {
-                                    ListItem(
-                                        headlineContent = { Text(follows.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(follows.cardId, follows.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            sequence.precedes?.let { precedes ->
-                                item { SectionHeader("Precedes") }
-                                item {
-                                    ListItem(
-                                        headlineContent = { Text(precedes.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(precedes.cardId, precedes.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            links.parent?.let { parent ->
-                                item { SectionHeader("Parent") }
-                                item {
-                                    ListItem(
-                                        headlineContent = { Text(parent.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(parent.cardId, parent.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            if (links.children.isNotEmpty()) {
-                                item { SectionHeader("Children") }
-                                items(links.children, key = { "child:${it.cardId}" }) { child ->
-                                    ListItem(
-                                        headlineContent = { Text(child.title) },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(child.cardId, child.title) },
-                                            onLongClick = {},
-                                        ),
-                                    )
-                                }
-                            }
-                            if (links.outgoing.isNotEmpty()) {
-                                item { SectionHeader("Outgoing") }
-                                items(links.outgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
-                                    Box {
-                                        ListItem(
-                                            headlineContent = {
-                                                Text(
-                                                    connectionHeadline(
-                                                        kindLabel = HolderNative.linkKindLabel(link.kind, forward = true),
-                                                        title = link.toTitle ?: link.toCardId,
-                                                        label = link.label,
-                                                        primary = MaterialTheme.colorScheme.primary,
-                                                        muted = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    ),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
-                                            modifier = Modifier.combinedClickable(
-                                                onClick = { onNavigateToCard(link.toCardId, link.toTitle ?: "") },
-                                                onLongClick = { menuOpenFor = "${link.toCardId}:${link.kind}" },
-                                            ),
-                                        )
-                                        DropdownMenu(
-                                            expanded = menuOpenFor == "${link.toCardId}:${link.kind}",
-                                            onDismissRequest = { menuOpenFor = null },
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("Remove") },
-                                                onClick = {
-                                                    menuOpenFor = null
-                                                    pendingRemove = link
-                                                },
-                                            )
-                                        }
+                                    ConnectionRow(label = "Next", title = next.title) {
+                                        onNavigateToCard(next.cardId, next.title)
                                     }
                                 }
                             }
-                            if (links.backlinks.isNotEmpty()) {
-                                item { SectionHeader("Backlinks") }
-                                items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
+                            sequence.previous?.let { previous ->
+                                item {
+                                    ConnectionRow(label = "Previous", title = previous.title) {
+                                        onNavigateToCard(previous.cardId, previous.title)
+                                    }
+                                }
+                            }
+                            sequence.follows?.let { follows ->
+                                item {
+                                    ConnectionRow(label = "Follows", title = follows.title) {
+                                        onNavigateToCard(follows.cardId, follows.title)
+                                    }
+                                }
+                            }
+                            sequence.precedes?.let { precedes ->
+                                item {
+                                    ConnectionRow(label = "Precedes", title = precedes.title) {
+                                        onNavigateToCard(precedes.cardId, precedes.title)
+                                    }
+                                }
+                            }
+                            links.parent?.let { parent ->
+                                item {
+                                    ConnectionRow(label = "Child of", title = parent.title) {
+                                        onNavigateToCard(parent.cardId, parent.title)
+                                    }
+                                }
+                            }
+                            items(links.children, key = { "child:${it.cardId}" }) { child ->
+                                ConnectionRow(label = "Parent of", title = child.title) {
+                                    onNavigateToCard(child.cardId, child.title)
+                                }
+                            }
+                            items(links.outgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
+                                Box {
                                     ListItem(
                                         headlineContent = {
                                             Text(
                                                 connectionHeadline(
-                                                    kindLabel = HolderNative.linkKindLabel(link.kind, forward = false),
-                                                    title = link.fromTitle ?: link.fromCardId,
+                                                    kindLabel = HolderNative.linkKindLabel(link.kind, forward = true),
+                                                    title = link.toTitle ?: link.toCardId,
                                                     label = link.label,
                                                     primary = MaterialTheme.colorScheme.primary,
                                                     muted = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -297,11 +227,44 @@ fun ConnectionsScreen(
                                             )
                                         },
                                         modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") },
-                                            onLongClick = {},
+                                            onClick = { onNavigateToCard(link.toCardId, link.toTitle ?: "") },
+                                            onLongClick = { menuOpenFor = "${link.toCardId}:${link.kind}" },
                                         ),
                                     )
+                                    DropdownMenu(
+                                        expanded = menuOpenFor == "${link.toCardId}:${link.kind}",
+                                        onDismissRequest = { menuOpenFor = null },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Remove") },
+                                            onClick = {
+                                                menuOpenFor = null
+                                                pendingRemove = link
+                                            },
+                                        )
+                                    }
                                 }
+                            }
+                            items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            connectionHeadline(
+                                                kindLabel = HolderNative.linkKindLabel(link.kind, forward = false),
+                                                title = link.fromTitle ?: link.fromCardId,
+                                                label = link.label,
+                                                primary = MaterialTheme.colorScheme.primary,
+                                                muted = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") },
+                                        onLongClick = {},
+                                    ),
+                                )
                             }
                         }
                     }
@@ -335,17 +298,38 @@ private fun LazyListScope.CardDates(card: HolderCard) {
 
 @Composable
 private fun DateRow(label: String, epochSeconds: Long) {
+    Text(
+        dateHeadline(
+            label = label,
+            epochSeconds = epochSeconds,
+            primary = MaterialTheme.colorScheme.primary,
+            muted = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}
+
+/** A single-line "Label: Title" row (e.g. "Next: Finish The Split") for connections that carry
+ * no extra annotation -- Next/Previous/Follows/Precedes and the hierarchy links. Outgoing and
+ * backlinks use connectionHeadline directly instead, since they can carry a custom label. */
+@Composable
+private fun ConnectionRow(label: String, title: String, onClick: () -> Unit) {
     ListItem(
         headlineContent = {
             Text(
-                dateHeadline(
-                    label = label,
-                    epochSeconds = epochSeconds,
+                connectionHeadline(
+                    kindLabel = label,
+                    title = title,
+                    label = null,
                     primary = MaterialTheme.colorScheme.primary,
                     muted = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = {}),
     )
 }
 
