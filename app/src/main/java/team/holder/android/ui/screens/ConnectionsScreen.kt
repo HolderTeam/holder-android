@@ -54,6 +54,7 @@ import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
+import team.holder.android.ui.cardSequenceLinks
 
 private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
 private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -77,7 +78,7 @@ fun ConnectionsScreen(
     onBack: () -> Unit,
 ) {
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
-    var card by remember(cardId) { mutableStateOf<HolderCard?>(null) }
+    var allCards by remember(cardId) { mutableStateOf<List<HolderCard>>(emptyList()) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     // Guards remove against double-tap, same rationale as other screens' isSubmitting.
@@ -95,13 +96,14 @@ fun ConnectionsScreen(
 
     LaunchedEffect(cardId, refreshKey) { refresh() }
 
-    // There's no single-card fetch, so this piggybacks on the project's full list -- same
-    // approach CardViewScreen's Next/Previous/Follows/Precedes already use. Failing or not
-    // finding the card just leaves the dates off rather than blocking the rest of the screen.
+    // There's no single-card fetch, so the dates and the Next/Previous/Follows/Precedes rows
+    // below all piggyback on the project's full list -- same approach CardViewScreen's
+    // ConnectionsSummary uses. Failing just leaves those rows off rather than blocking the
+    // rest of the screen.
     LaunchedEffect(cardId, projectId, refreshKey) {
-        card = runCatching {
-            withContext(Dispatchers.IO) { HolderNative.listCards(projectId).find { it.cardId == cardId } }
-        }.getOrNull()
+        allCards = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
+        }.getOrDefault(emptyList())
     }
 
     fun remove(link: HolderOutgoingLink) {
@@ -150,10 +152,13 @@ fun ConnectionsScreen(
                     CenteredMessage(Modifier.fillMaxSize()) { Text("Failed to load connections: ${state.message}") }
                 is LoadState.Success -> {
                     val links = state.value
+                    val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
                     val noConnections = links.parent == null && links.children.isEmpty() &&
-                        links.outgoing.isEmpty() && links.backlinks.isEmpty()
+                        links.outgoing.isEmpty() && links.backlinks.isEmpty() &&
+                        sequence.next == null && sequence.previous == null &&
+                        sequence.follows == null && sequence.precedes == null
                     LazyColumn(modifier = Modifier.padding(innerPadding)) {
-                        card?.let { CardDates(it) }
+                        allCards.find { it.cardId == cardId }?.let { CardDates(it) }
                         if (noConnections) {
                             item {
                                 Text(
@@ -164,6 +169,54 @@ fun ConnectionsScreen(
                                 )
                             }
                         } else {
+                            sequence.next?.let { next ->
+                                item { SectionHeader("Next") }
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text(next.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(next.cardId, next.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
+                            sequence.previous?.let { previous ->
+                                item { SectionHeader("Previous") }
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text(previous.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(previous.cardId, previous.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
+                            sequence.follows?.let { follows ->
+                                item { SectionHeader("Follows") }
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text(follows.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(follows.cardId, follows.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
+                            sequence.precedes?.let { precedes ->
+                                item { SectionHeader("Precedes") }
+                                item {
+                                    ListItem(
+                                        headlineContent = { Text(precedes.title) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onNavigateToCard(precedes.cardId, precedes.title) },
+                                            onLongClick = {},
+                                        ),
+                                    )
+                                }
+                            }
                             links.parent?.let { parent ->
                                 item { SectionHeader("Parent") }
                                 item {

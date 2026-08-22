@@ -56,6 +56,7 @@ import team.holder.android.R
 import team.holder.android.splitLeadingHeading
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
+import team.holder.android.ui.cardSequenceLinks
 import team.holder.android.ui.markdown.HolderMarkdownViewer
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -278,54 +279,34 @@ private fun ConnectionsSummary(
 
     val links = (state as? LoadState.Success)?.value
 
-    // Newest-first: "next" steps toward index 0, "previous" steps away from it -- the same
-    // last-modified ordering the card list uses, just walked one card at a time.
-    val byRecency = allCards.sortedByDescending { it.updatedAt }
-    val recencyIndex = byRecency.indexOfFirst { it.cardId == cardId }
-    val nextCard = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it - 1) }
-    val previousCard = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it + 1) }
-
-    // sort_key is Flowboard's manual sibling order on desktop, defaulting to creation order
-    // until someone drags cards around. Only surface it once it actually diverges from creation
-    // order within this sibling group -- otherwise it's just restating "next/previous" above
-    // with extra steps for the common case where nobody has touched Flowboard.
-    val siblings = allCards.filter { it.parentCardId == links?.parent?.cardId }
-    val bySortKey = siblings.sortedWith(compareBy<HolderCard> { it.sortKey }.thenByDescending { it.updatedAt })
-    val byCreation = siblings.sortedBy { it.createdAt }
-    val manuallyOrdered = siblings.size > 1 && bySortKey.map { it.cardId } != byCreation.map { it.cardId }
-    val sortKeyIndex = bySortKey.indexOfFirst { it.cardId == cardId }
-    val followingSibling = (if (manuallyOrdered) sortKeyIndex else -1)
-        .takeIf { it >= 0 }?.let { bySortKey.getOrNull(it + 1) }
-    val precedingSibling = (if (manuallyOrdered) sortKeyIndex else -1)
-        .takeIf { it >= 0 }?.let { bySortKey.getOrNull(it - 1) }
-
     if (links == null) return
+    val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
     val isEmpty = links.parent == null && links.children.isEmpty() &&
         links.outgoing.isEmpty() && links.backlinks.isEmpty() &&
-        nextCard == null && previousCard == null &&
-        followingSibling == null && precedingSibling == null
+        sequence.next == null && sequence.previous == null &&
+        sequence.follows == null && sequence.precedes == null
     if (isEmpty) return
 
     Column(modifier = Modifier.padding(top = 24.dp)) {
         HorizontalDivider()
-        nextCard?.let { next ->
+        sequence.next?.let { next ->
             ConnectionSummaryLinkRow(label = "Next", title = next.title) {
                 onNavigateToCard(next.cardId, next.title)
             }
         }
-        previousCard?.let { previous ->
+        sequence.previous?.let { previous ->
             ConnectionSummaryLinkRow(label = "Previous", title = previous.title) {
                 onNavigateToCard(previous.cardId, previous.title)
             }
         }
-        followingSibling?.let { following ->
-            ConnectionSummaryLinkRow(label = "Precedes", title = following.title) {
-                onNavigateToCard(following.cardId, following.title)
+        sequence.follows?.let { follows ->
+            ConnectionSummaryLinkRow(label = "Follows", title = follows.title) {
+                onNavigateToCard(follows.cardId, follows.title)
             }
         }
-        precedingSibling?.let { preceding ->
-            ConnectionSummaryLinkRow(label = "Follows", title = preceding.title) {
-                onNavigateToCard(preceding.cardId, preceding.title)
+        sequence.precedes?.let { precedes ->
+            ConnectionSummaryLinkRow(label = "Precedes", title = precedes.title) {
+                onNavigateToCard(precedes.cardId, precedes.title)
             }
         }
         links.parent?.let { parent ->
