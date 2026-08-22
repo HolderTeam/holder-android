@@ -66,16 +66,28 @@ private val BARE_URL_REGEX = Regex("\\bhttps?://[^\\s<>\"]+")
 // should still be spellchecked, only the URL itself shouldn't be.
 private val MD_LINK_DEST_REGEX = Regex("\\[[^\\]\n]*\\]\\(([^)\n]*)\\)")
 
-/** Ranges spell-check shouldn't touch: code (inline and fenced) and link destinations. Not
- * wikilink page names or a Markdown link's visible text -- both are real prose someone reads. */
+/** Ranges excluded from the main spell-check pass: code (inline and fenced), link destinations,
+ * and wikilinks -- not because wikilink names shouldn't be checked (they should, they're real
+ * titles someone reads), but because they're checked separately, word by word, via
+ * [wikilinkWordChecks] instead; checking them here too would double-flag them. A Markdown link's
+ * visible text is still checked here as ordinary prose. */
 private fun computeSpellCheckExclusions(text: CharSequence): List<IntRange> {
     val ranges = mutableListOf<IntRange>()
     FENCED_CODE_BLOCK_REGEX.findAll(text).forEach { ranges += it.range }
     INLINE_CODE_REGEX.findAll(text).forEach { ranges += it.range }
     BARE_URL_REGEX.findAll(text).forEach { ranges += it.range }
     MD_LINK_DEST_REGEX.findAll(text).forEach { match -> match.groups[1]?.let { ranges += it.range } }
+    WIKILINK_REGEX.findAll(text).forEach { ranges += it.range }
     return ranges
 }
+
+/** A wikilink's page name split into individually-checkable words (see [splitIntoWords]) --
+ * "MySecondCard" gets checked as My/Second/Card, not flagged whole as one unknown word. */
+private fun wikilinkWordChecks(text: CharSequence): List<CheckableText> =
+    WIKILINK_REGEX.findAll(text).flatMap { match ->
+        val inner = match.value.substring(2, match.value.length - 2)
+        splitIntoWords(inner, match.range.first + 2).map { (range, word) -> CheckableText(word, range.first) }
+    }.toList()
 
 /**
  * Colors the raw Markdown source without touching the underlying text -- what's stored is
@@ -287,7 +299,8 @@ fun HolderMarkdownEditor(
     LaunchedEffect(bodyText) {
         delay(SPELL_CHECK_DEBOUNCE_MS)
         val masked = maskExcludedRanges(bodyText, computeSpellCheckExclusions(bodyText))
-        spellChecker.check(masked) { spans -> misspelledSpans = spans }
+        val items = listOf(CheckableText(masked, 0)) + wikilinkWordChecks(bodyText)
+        spellChecker.check(items) { spans -> misspelledSpans = spans }
     }
 
     val highlighter = remember(colorScheme, misspelledSpans) {
