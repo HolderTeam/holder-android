@@ -218,11 +218,18 @@ fun AddMilestoneScreen(
                                 )
                             }
                         }
-                        saving = false
-                        result.fold(
-                            onSuccess = { onAdded() },
-                            onFailure = { errorMessage = it.message ?: it::class.java.simpleName },
-                        )
+                        // Explicitly back on the main thread before onAdded() -- which navigates
+                        // -- rather than relying on withContext(IO) to resume there on its own:
+                        // navigation touches NavBackStackEntry's LifecycleRegistry, which asserts
+                        // the calling thread is main and isn't always guaranteed under every
+                        // coroutine dispatcher/test-harness combination.
+                        withContext(Dispatchers.Main.immediate) {
+                            saving = false
+                            result.fold(
+                                onSuccess = { onAdded() },
+                                onFailure = { errorMessage = it.message ?: it::class.java.simpleName },
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),

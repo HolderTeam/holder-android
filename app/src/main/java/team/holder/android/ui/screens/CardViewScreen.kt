@@ -222,9 +222,14 @@ fun CardViewScreen(
                         isDeleting = true
                         scope.launch {
                             runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(cardId) } }
-                            isDeleting = false
-                            showDeleteDialog = false
-                            onDeleted()
+                            // Explicitly back on the main thread before onDeleted() -- which
+                            // navigates -- rather than relying on withContext(IO) to resume there
+                            // on its own; see AddMilestoneScreen for why.
+                            withContext(Dispatchers.Main.immediate) {
+                                isDeleting = false
+                                showDeleteDialog = false
+                                onDeleted()
+                            }
                         }
                     }
                 }) { Text("Delete") }

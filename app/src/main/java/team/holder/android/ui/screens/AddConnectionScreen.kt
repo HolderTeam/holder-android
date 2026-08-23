@@ -215,11 +215,16 @@ fun AddConnectionScreen(
                                 HolderNative.addCardLink(fromCardId, toCardId, kind, label.trim().ifEmpty { null })
                             }
                         }
-                        saving = false
-                        result.fold(
-                            onSuccess = { onAdded() },
-                            onFailure = { errorMessage = it.message ?: it::class.java.simpleName },
-                        )
+                        // Explicitly back on the main thread before onAdded() -- which navigates
+                        // -- rather than relying on withContext(IO) to resume there on its own;
+                        // see AddMilestoneScreen for why.
+                        withContext(Dispatchers.Main.immediate) {
+                            saving = false
+                            result.fold(
+                                onSuccess = { onAdded() },
+                                onFailure = { errorMessage = it.message ?: it::class.java.simpleName },
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
