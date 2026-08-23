@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.AddConnectionScreen
+import team.holder.android.ui.screens.AddMilestoneScreen
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
@@ -264,6 +265,9 @@ private fun HolderNavHost() {
                 onAddConnection = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections/add")
                 },
+                onAddMilestone = {
+                    navController.navigate("projects/$projectId/cards/$cardId/milestones/add")
+                },
                 onNavigateToCard = { targetCardId, title ->
                     selectedCardTitle = title
                     cardViewRefreshKey++
@@ -285,6 +289,17 @@ private fun HolderNavHost() {
             AddConnectionScreen(
                 fromCardId = cardId,
                 projectId = projectId,
+                onAdded = {
+                    connectionsRefreshKey++
+                    navController.popBackStack()
+                },
+                onCancel = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/milestones/add") { backStackEntry ->
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            AddMilestoneScreen(
+                cardId = cardId,
                 onAdded = {
                     connectionsRefreshKey++
                     navController.popBackStack()

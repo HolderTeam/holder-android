@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -50,6 +51,7 @@ import kotlinx.coroutines.withContext
 import team.holder.android.HolderBacklink
 import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
+import team.holder.android.HolderMilestone
 import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
 import team.holder.android.ui.CenteredMessage
@@ -58,6 +60,8 @@ import team.holder.android.ui.cardSequenceLinks
 
 private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
 private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
+private val MILESTONE_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
+private val MILESTONE_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
 /**
  * "About this card": its own created/updated timestamps, plus its connections -- hierarchy
@@ -74,13 +78,17 @@ fun ConnectionsScreen(
     cardTitle: String,
     refreshKey: Any,
     onAddConnection: () -> Unit,
+    onAddMilestone: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
 ) {
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
     var allCards by remember(cardId) { mutableStateOf<List<HolderCard>>(emptyList()) }
+    var milestones by remember(cardId) { mutableStateOf<List<HolderMilestone>>(emptyList()) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
+    var milestoneMenuOpenFor by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<HolderOutgoingLink?>(null) }
+    var pendingRemoveMilestone by remember { mutableStateOf<HolderMilestone?>(null) }
     // Guards remove against double-tap, same rationale as other screens' isSubmitting.
     var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -94,7 +102,14 @@ fun ConnectionsScreen(
         )
     }
 
+    suspend fun refreshMilestones() {
+        milestones = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCardMilestones(cardId) }
+        }.getOrDefault(emptyList())
+    }
+
     LaunchedEffect(cardId, refreshKey) { refresh() }
+    LaunchedEffect(cardId, refreshKey) { refreshMilestones() }
 
     // There's no single-card fetch, so the dates and the Next/Previous/Follows/Precedes rows
     // below all piggyback on the project's full list -- same approach CardViewScreen's
@@ -119,6 +134,21 @@ fun ConnectionsScreen(
         }
     }
 
+    fun removeMilestone(milestone: HolderMilestone) {
+        if (isSubmitting) return
+        isSubmitting = true
+        pendingRemoveMilestone = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    HolderNative.removeCardMilestone(cardId, milestone.milestoneId)
+                }
+            }
+            isSubmitting = false
+            refreshMilestones()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -135,6 +165,11 @@ fun ConnectionsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onAddMilestone) {
+                        Icon(Icons.Filled.DateRange, contentDescription = "Add milestone")
                     }
                 },
             )
@@ -159,6 +194,42 @@ fun ConnectionsScreen(
                         sequence.follows == null && sequence.precedes == null
                     LazyColumn(modifier = Modifier.padding(innerPadding)) {
                         allCards.find { it.cardId == cardId }?.let { CardDates(it) }
+                        if (milestones.isNotEmpty()) {
+                            item { SectionHeader("Milestones") }
+                            items(milestones, key = { "milestone:${it.milestoneId}" }) { milestone ->
+                                Box {
+                                    ListItem(
+                                        headlineContent = {
+                                            Text(
+                                                milestoneHeadline(
+                                                    milestone = milestone,
+                                                    primary = MaterialTheme.colorScheme.primary,
+                                                    muted = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = {},
+                                            onLongClick = { milestoneMenuOpenFor = milestone.milestoneId },
+                                        ),
+                                    )
+                                    DropdownMenu(
+                                        expanded = milestoneMenuOpenFor == milestone.milestoneId,
+                                        onDismissRequest = { milestoneMenuOpenFor = null },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Remove") },
+                                            onClick = {
+                                                milestoneMenuOpenFor = null
+                                                pendingRemoveMilestone = milestone
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         if (noConnections) {
                             item {
                                 Text(
@@ -285,6 +356,19 @@ fun ConnectionsScreen(
             },
         )
     }
+
+    pendingRemoveMilestone?.let { milestone ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoveMilestone = null },
+            title = { Text("Remove this milestone?") },
+            confirmButton = {
+                TextButton(onClick = { removeMilestone(milestone) }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoveMilestone = null }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 /** Created always shows; Updated only shows once it actually diverges from Created -- a
@@ -375,3 +459,38 @@ private fun dateHeadline(label: String, epochSeconds: Long, primary: Color, mute
         }
     }
 }
+
+/** "Sep 25, 2026" for an all-day milestone, "Sep 25, 2026 09:30" otherwise; with an end, appends
+ * just the end time when it's the same day ("09:30 - 11:00") or the full end date otherwise. */
+private fun formatMilestoneWhen(milestone: HolderMilestone): String {
+    val start = Instant.ofEpochSecond(milestone.startAt)
+    val startDate = MILESTONE_DATE_FORMAT.format(start)
+    val startText = if (milestone.allDay) startDate else "$startDate ${MILESTONE_TIME_FORMAT.format(start)}"
+    val endAt = milestone.endAt ?: return startText
+    val end = Instant.ofEpochSecond(endAt)
+    val endDate = MILESTONE_DATE_FORMAT.format(end)
+    return if (milestone.allDay) {
+        if (endDate == startDate) startDate else "$startDate - $endDate"
+    } else {
+        val endTime = MILESTONE_TIME_FORMAT.format(end)
+        if (endDate == startDate) "$startText - $endTime" else "$startText - $endDate $endTime"
+    }
+}
+
+/** "Renewal: Sep 25, 2026 · Car insurance renewal" -- same label/value/muted-annotation grammar
+ * as connectionHeadline, with kind as the label (falling back to a generic "Milestone" when
+ * unset) and the formatted date/time as the value. */
+private fun milestoneHeadline(milestone: HolderMilestone, primary: Color, muted: Color) =
+    buildAnnotatedString {
+        withStyle(SpanStyle(color = primary)) {
+            append(milestone.kind?.takeIf { it.isNotBlank() } ?: "Milestone")
+        }
+        append(": ")
+        append(formatMilestoneWhen(milestone))
+        if (!milestone.description.isNullOrBlank()) {
+            withStyle(SpanStyle(color = muted)) {
+                append(" · ")
+                append(milestone.description)
+            }
+        }
+    }
