@@ -29,6 +29,7 @@ import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.AddConnectionScreen
 import team.holder.android.ui.screens.AddMilestoneScreen
+import team.holder.android.ui.screens.CalendarScreen
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
@@ -148,6 +149,22 @@ private fun HolderNavHost() {
                     navController.navigate("projects/$projectId/cards/new")
                 },
                 onTrashClick = { navController.navigate("projects/$projectId/trash") },
+                onCalendarClick = { navController.navigate("projects/$projectId/calendar") },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/calendar") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            CalendarScreen(
+                projectId = projectId,
+                // Bumped whenever AddMilestoneScreen saves -- the main way this screen's data
+                // goes stale from elsewhere; its own remove flow refreshes itself directly.
+                refreshKey = connectionsRefreshKey,
+                onNavigateToCard = { cardId, title ->
+                    selectedCardTitle = title
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$cardId")
+                },
                 onBack = { navController.popBackStack() },
             )
         }

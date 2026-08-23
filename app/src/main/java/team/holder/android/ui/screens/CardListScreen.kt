@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -59,6 +60,7 @@ fun CardListScreen(
     onCardClick: (cardId: String, title: String) -> Unit,
     onCreateCard: () -> Unit,
     onTrashClick: () -> Unit,
+    onCalendarClick: () -> Unit,
     onBack: () -> Unit,
 ) {
     var cardsState by remember(projectId) { mutableStateOf<LoadState<List<HolderCard>>>(LoadState.Loading) }
@@ -109,6 +111,9 @@ fun CardListScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onCalendarClick) {
+                        Icon(Icons.Filled.DateRange, contentDescription = "Calendar")
+                    }
                     IconButton(onClick = onTrashClick) {
                         Icon(Icons.Filled.Delete, contentDescription = "Trash")
                     }
