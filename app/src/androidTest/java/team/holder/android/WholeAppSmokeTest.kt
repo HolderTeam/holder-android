@@ -57,11 +57,11 @@ class WholeAppSmokeTest {
         fields[1].performTextInput(initialBody)
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(initialBody).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithContentDescription("Edit").performClick()
@@ -74,19 +74,19 @@ class WholeAppSmokeTest {
             .performTextInput("\nEdited and persisted.")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
 
         composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()

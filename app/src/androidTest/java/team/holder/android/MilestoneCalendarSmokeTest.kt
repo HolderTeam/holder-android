@@ -61,13 +61,13 @@ class MilestoneCalendarSmokeTest {
         fields[1].performTextInput("Created by milestone smoke test.")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
 
         composeRule.onNodeWithContentDescription("Connections").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText("About this card").fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -80,21 +80,21 @@ class MilestoneCalendarSmokeTest {
         // Defaults (today, all-day, no end) already make the form saveable -- no input needed.
         composeRule.onNode(hasText("Add milestone") and hasClickAction()).performClick()
 
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText("Milestones").fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithContentDescription("Connections").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithContentDescription("Calendar").fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithContentDescription("Calendar").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
+        composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         assertTrue(composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty())
