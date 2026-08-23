@@ -706,6 +706,146 @@ Java_team_holder_android_HolderNative_nativeProjectListTags(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardListMilestones(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_list_milestones(context, card_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardMilestoneAdd(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jlong start_at,
+    jboolean has_end_at,
+    jlong end_at,
+    jboolean all_day,
+    jstring kind,
+    jstring description
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return nullptr;
+  }
+  UtfChars kind_chars(env, kind);
+  UtfChars description_chars(env, description);
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_milestone_add(
+      context,
+      card_id_chars.get(),
+      static_cast<long long>(start_at),
+      static_cast<int>(has_end_at),
+      static_cast<long long>(end_at),
+      static_cast<int>(all_day),
+      kind_chars.get(),
+      description_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_team_holder_android_HolderNative_nativeCardMilestoneRemove(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jstring milestone_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  UtfChars milestone_id_chars(env, milestone_id);
+  if (card_id_chars.get() == nullptr || milestone_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id and milestone_id must not be null");
+    return;
+  }
+
+  holder_error* error = nullptr;
+  const int rc =
+      holder_card_milestone_remove(context, card_id_chars.get(), milestone_id_chars.get(), &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+  }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeProjectListMilestonesInRange(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jlong from,
+    jlong to
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_project_list_milestones_in_range(
+      context,
+      project_id_chars.get(),
+      static_cast<long long>(from),
+      static_cast<long long>(to),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardSearch(
     JNIEnv* env,
     jobject /* thiz */,

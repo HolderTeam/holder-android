@@ -73,6 +73,21 @@ data class HolderSearchResult(
     val snippet: String,
 )
 
+data class HolderMilestone(
+    val milestoneId: String,
+    val cardId: String,
+    val startAt: Long,
+    val endAt: Long?,
+    val allDay: Boolean,
+    val kind: String?,
+    val description: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    /** Only populated by listMilestonesInRange (the Calendar query) -- null from
+     * listCardMilestones, where the caller already knows which card this is. */
+    val cardTitle: String? = null,
+)
+
 data class GitTestRemoteResult(
     val status: String,
     val remoteHasHead: Boolean,
@@ -212,6 +227,24 @@ object HolderNative {
     private external fun nativeCardListTags(contextHandle: Long, cardId: String): String
     private external fun nativeCardsWithTag(contextHandle: Long, projectId: String, tag: String): String
     private external fun nativeProjectListTags(contextHandle: Long, projectId: String): String
+    private external fun nativeCardListMilestones(contextHandle: Long, cardId: String): String
+    private external fun nativeCardMilestoneAdd(
+        contextHandle: Long,
+        cardId: String,
+        startAt: Long,
+        hasEndAt: Boolean,
+        endAt: Long,
+        allDay: Boolean,
+        kind: String?,
+        description: String?,
+    ): String
+    private external fun nativeCardMilestoneRemove(contextHandle: Long, cardId: String, milestoneId: String)
+    private external fun nativeProjectListMilestonesInRange(
+        contextHandle: Long,
+        projectId: String,
+        from: Long,
+        to: Long,
+    ): String
     private external fun nativeCardSearch(
         contextHandle: Long,
         projectId: String,
@@ -429,6 +462,51 @@ object HolderNative {
         }
     }
 
+    /** cardId's milestones, ordered by start (soonest first). */
+    fun listCardMilestones(cardId: String): List<HolderMilestone> {
+        val milestones = JSONArray(nativeCardListMilestones(requireContext(), cardId))
+        return List(milestones.length()) { index -> parseMilestone(milestones.getJSONObject(index)) }
+    }
+
+    /** Adds a milestone to cardId. endAt null means a point in time rather than a span (as
+     * opposed to end_at genuinely being 0, which native distinguishes via a separate has_end_at
+     * flag, not by treating 0 as absent). Returns cardId's updated milestone list. */
+    fun addCardMilestone(
+        cardId: String,
+        startAt: Long,
+        endAt: Long? = null,
+        allDay: Boolean = false,
+        kind: String? = null,
+        description: String? = null,
+    ): List<HolderMilestone> {
+        val milestones = JSONArray(
+            nativeCardMilestoneAdd(
+                requireContext(),
+                cardId,
+                startAt,
+                endAt != null,
+                endAt ?: 0L,
+                allDay,
+                kind,
+                description,
+            )
+        )
+        return List(milestones.length()) { index -> parseMilestone(milestones.getJSONObject(index)) }
+    }
+
+    /** A no-op, not an error, if milestoneId doesn't exist or belongs to a different card. */
+    fun removeCardMilestone(cardId: String, milestoneId: String) {
+        nativeCardMilestoneRemove(requireContext(), cardId, milestoneId)
+    }
+
+    /** Every milestone in projectId whose start falls within [from, to] (inclusive), ordered by
+     * start -- the Calendar's primary query. Never includes a trashed card's milestones. */
+    fun listMilestonesInRange(projectId: String, from: Long, to: Long): List<HolderMilestone> {
+        val milestones =
+            JSONArray(nativeProjectListMilestonesInRange(requireContext(), projectId, from, to))
+        return List(milestones.length()) { index -> parseMilestone(milestones.getJSONObject(index)) }
+    }
+
     fun searchCards(projectId: String, query: String, limit: Int = 50): List<HolderSearchResult> {
         val results = JSONArray(nativeCardSearch(requireContext(), projectId, query, limit, 0))
         return List(results.length()) { index ->
@@ -610,6 +688,19 @@ object HolderNative {
     private fun parseCardRef(json: JSONObject) = HolderCardRef(
         cardId = json.getString("card_id"),
         title = json.getString("title"),
+    )
+
+    private fun parseMilestone(json: JSONObject) = HolderMilestone(
+        milestoneId = json.getString("milestone_id"),
+        cardId = json.getString("card_id"),
+        startAt = json.getLong("start_at"),
+        endAt = json.optLongOrNull("end_at"),
+        allDay = json.getBoolean("all_day"),
+        kind = json.optStringOrNull("kind"),
+        description = json.optStringOrNull("description"),
+        createdAt = json.getLong("created_at"),
+        updatedAt = json.getLong("updated_at"),
+        cardTitle = json.optStringOrNull("card_title"),
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? =
