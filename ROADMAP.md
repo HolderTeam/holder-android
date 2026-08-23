@@ -104,7 +104,7 @@ So Android users still benefit from desktop AI without us taking on Android mode
 
 ### Step six — make device setup effortless
 
-Once manual Git configuration works reliably, automate provisioning between Holder installations.
+Once manual Git configuration works reliably, automate provisioning between Holder installations. See `DEVICE_SETUP_PLAN.md` for the detailed plan — what's already built and reusable (the recovery-token mechanism), the actual remaining gap (Git authentication, not the QR/scan UI), and a phased breakdown for both directions.
 
 **Desktop → phone:** desktop generates a QR code containing the configuration required to add a project to the phone. The Android app scans it, validates it, stores the required secrets securely, and adds the project.
 
