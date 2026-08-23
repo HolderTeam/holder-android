@@ -1,22 +1,23 @@
 # Device Setup Plan (ROADMAP Step Six)
 
 This is the real plan behind ROADMAP.md's "Step six — make device setup
-effortless," covering both directions it describes:
+effortless." **MVP scope is Desktop → phone only:** scan a QR code,
+project appears. That's the direction that actually matches the story
+this feature exists for — a user who has already been walked through
+Git sync on desktop by its wizard now wants their cards on their phone,
+without learning anything about Git, SSH, or encryption to get there.
 
-- **Desktop → phone:** scan a QR code, project appears — the primary
-  case, since a user who has already been walked through Git sync on
-  desktop by its wizard now wants their cards on their phone, without
-  learning anything about Git, SSH, or encryption to get there.
-- **Phone → desktop:** share a setup file/link (email, share sheet,
-  file), import on desktop — the same problem with the devices' roles
-  reversed, for whichever device the user set Holder up on first.
-
-The two are close to mirror images of each other, and — as the next
-section shows — most of the underlying machinery for *both* is already
-built and shared between them. The main asymmetry is the transport:
-phone-to-desktop can't assume desktop has a camera, so it carries the
-same payload a different way (see "Phone → desktop" below) rather than
-via QR.
+The reverse direction, Phone → desktop (share a setup file/link, import
+on desktop, for whichever device the user set Holder up on first), is
+designed in full below but explicitly **deferred, not MVP** — kept in
+this document because the design work is done and the two share most of
+their underlying machinery, not because it's scheduled. Worth noting for
+the record: it's actually the *cheaper* direction to build (see its
+section below — zero new dependencies, pure UI wiring of calls that
+already exist), so "easiest to implement" alone would point at doing it
+first. It's cut from MVP anyway because it doesn't serve the actual
+motivating case — a phone-first MVP would help someone whose *first*
+device was their phone, which isn't the story Step six was written for.
 
 Per `holder-daemon/docs/PRIVACY.md`, shielding non-technical users from
 Git's power is already the whole point of Holder's encryption model:
@@ -256,7 +257,8 @@ being explicit about rather than glossing over:
   Device Flow login on Android from scratch, calling GitHub's REST API
   directly (`POST /repos/{owner}/{repo}/keys`) to register desktop's
   key. That's a materially bigger, separate feature — Phone → desktop
-  stays on the Option B manual-paste experience (6.0) for MVP, full stop.
+  stays on the Option B manual-paste experience (6.4) whenever it's
+  eventually built; it isn't part of MVP at all, per the scoping above.
 - *A transported key isn't the same guarantee as a device-generated one.*
   `GitIdentity.kt`'s existing model is a non-exportable AndroidKeyStore
   key — the private key material never exists outside secure hardware,
@@ -314,7 +316,12 @@ rationale screen deserves real copy explaining *why* — "to scan a setup
 code from your desktop, nothing else" — rather than the OS's generic
 prompt alone.
 
-## Phone → desktop
+## Phone → desktop (deferred — not MVP)
+
+Designed for completeness and because it shares almost all of its
+machinery with the Desktop → phone direction above, but not scheduled —
+see the note in the intro for why it's cut from MVP despite being the
+cheaper build.
 
 Same payload, same two-step shape (import project + key material, then
 clear the Git-auth "one more step") — just carried differently, since a
@@ -352,31 +359,25 @@ just built on the desktop side of `git_sync_tool_view.vala` instead of
 Android's `GitSyncScreen`.
 
 Unlike Desktop → phone, this direction stays manual-paste even for
-GitHub in the MVP — the full-automation trick under "Git authentication"
-below works because desktop can shell out to an already-authenticated
-`gh` CLI; Android has no equivalent GitHub session to call the API with.
-Automating this side too is 6.4, not part of MVP scope.
+GitHub — the full-automation trick under "Git authentication" above
+works because desktop can shell out to an already-authenticated `gh`
+CLI; Android has no equivalent GitHub session to call the API with.
+Automating this side too is 6.5, further out than this direction's own
+base implementation (6.4) — and this whole direction is deferred, not
+MVP, regardless.
 
 **What this direction does *not* need:** no QR generation on desktop, no
 barcode scanning on Android, no new dependency on either side — it's
 pure UI wiring `RecoveryController`, `exportRecoveryToken`, and
 `generate_ssh_key`/`GitIdentity` calls that already exist end-to-end.
-That makes it, if anything, a cheaper first slice than the QR direction
-— worth sequencing first if 6.1/6.2's new camera and QR dependencies
-turn out to need more lead time than expected.
+That's what makes it cheaper than the MVP direction on pure build cost —
+noted in the intro as the reason it's worth revisiting once MVP ships,
+not a reason to build it first.
 
 ## Phased implementation
 
-**6.0 — Phone → desktop (cheapest slice, no new dependencies).** Android:
-"Pair a desktop" action that generates a pairing PIN, calls the existing
-`exportRecoveryToken(projectId, pin)`, and hands the token to the share
-sheet. Desktop: a paste-token + PIN field wired to the already-built
-`RecoveryController.import_recovery_token`, followed by desktop's own
-version of the 6.3 device-authorization screen (below), built against
-`generate_ssh_key`/desktop's existing SSH identity instead of Android's.
-All calls already exist on both sides; this phase is UI only. Given
-that, and that it needs neither a QR library nor a camera permission,
-consider shipping it before 6.1–6.3 rather than after.
+MVP is 6.1–6.3. 6.4 and 6.5 are deferred — real, designed, and worth
+tracking, but not part of the first release.
 
 **6.1 — Desktop: "Pair a phone" screen.** New action in Git Sync tooling:
 generates a one-time pairing PIN. If the project's remote is a
@@ -413,17 +414,25 @@ failed because this device isn't trusted yet" case specifically
 screen reusing `GitIdentity.sshPublicKeyLine()` plus a host-recognition
 table for deep links (start with github.com, gitlab.com; anything else
 gets the plain copyable key). Ends with a retry that re-attempts the
-pull. This is also exactly what 6.0's Phone → desktop direction needs on
-the desktop side, per the note there.
+pull. **6.1–6.3 is the whole MVP.**
 
-**6.4 — Stretch, not required for first release.** Extend Option C-style
-full automation to the Phone → desktop direction. Needs a GitHub OAuth
-Device Flow login on Android (nothing like it exists in the app today)
-so the phone can call `POST /repos/{owner}/{repo}/keys` directly, since
-there's no `gh` CLI equivalent to shell out to on Android. Track
-separately; don't let it hold up 6.0–6.3, and don't build it at all
-unless GitHub-remote Phone → desktop pairing turns out to be common
-enough that Option B's manual paste is a real friction point there too.
+**6.4 — Deferred. Phone → desktop**, the full direction designed above:
+Android "Pair a desktop" (pairing PIN, `exportRecoveryToken`, share
+sheet) plus desktop's paste-token/PIN screen wired to the already-built
+`RecoveryController.import_recovery_token`, plus desktop's own version
+of 6.3's device-authorization screen built against `generate_ssh_key`.
+Every call on both sides already exists; this phase is UI only, and
+technically the cheapest of everything in this document — deferred
+purely because it doesn't serve MVP's Desktop-wizard-first story, not
+because anything about it is unresolved or hard.
+
+**6.5 — Deferred, further out than 6.4.** Extend Option C-style full
+automation to the Phone → desktop direction from 6.4. Needs a GitHub
+OAuth Device Flow login on Android (nothing like it exists in the app
+today) so the phone can call `POST /repos/{owner}/{repo}/keys` directly,
+since there's no `gh` CLI equivalent to shell out to on Android. Don't
+build this at all unless GitHub-remote Phone → desktop pairing turns out
+to be common enough that 6.4's manual paste is a real friction point.
 
 ## Security notes
 
