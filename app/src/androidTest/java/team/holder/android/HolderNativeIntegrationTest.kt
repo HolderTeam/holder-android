@@ -8,6 +8,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -200,6 +201,65 @@ class HolderNativeIntegrationTest {
         HolderNative.updateCard(card.cardId, "Tagged", "Only #urgent now.")
         assertEquals(listOf("urgent"), HolderNative.listCardTags(card.cardId))
         assertTrue(HolderNative.cardsWithTag(project.projectId, "todo").isEmpty())
+    }
+
+    @Test
+    fun milestones_roundTripThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Milestones test project")
+        val card = HolderNative.createCard(project.projectId, "Renewal", "content")
+
+        assertTrue(HolderNative.listCardMilestones(card.cardId).isEmpty())
+
+        val start = 1_800_000_000L
+        val afterAdd = HolderNative.addCardMilestone(
+            cardId = card.cardId,
+            startAt = start,
+            endAt = null,
+            allDay = true,
+            kind = "Renewal",
+            description = "Car insurance",
+        )
+        assertEquals(1, afterAdd.size)
+        val added = afterAdd.single()
+        assertEquals(card.cardId, added.cardId)
+        assertEquals(start, added.startAt)
+        assertNull(added.endAt)
+        assertTrue(added.allDay)
+        assertEquals("Renewal", added.kind)
+        assertEquals("Car insurance", added.description)
+
+        assertEquals(added, HolderNative.listCardMilestones(card.cardId).single())
+
+        val inRange = HolderNative.listMilestonesInRange(project.projectId, start - 3600, start + 3600)
+        assertEquals(1, inRange.size)
+        assertEquals(added.milestoneId, inRange.single().milestoneId)
+        assertEquals("Renewal", inRange.single().cardTitle)
+
+        assertTrue(HolderNative.listMilestonesInRange(project.projectId, start + 7200, start + 10_800).isEmpty())
+
+        HolderNative.removeCardMilestone(card.cardId, added.milestoneId)
+        assertTrue(HolderNative.listCardMilestones(card.cardId).isEmpty())
+        assertTrue(HolderNative.listMilestonesInRange(project.projectId, start - 3600, start + 3600).isEmpty())
+    }
+
+    @Test
+    fun milestones_supportASpanWithAnEndAndSurviveCardTrash() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("Milestone span test project")
+        val card = HolderNative.createCard(project.projectId, "Conference", "content")
+
+        val start = 1_800_000_000L
+        val end = start + 2 * 24 * 60 * 60
+        val added = HolderNative.addCardMilestone(cardId = card.cardId, startAt = start, endAt = end)
+            .single()
+        assertEquals(end, added.endAt)
+
+        val inRange = HolderNative.listMilestonesInRange(project.projectId, start - 3600, start + 3600)
+        assertEquals(1, inRange.size)
+
+        HolderNative.deleteCard(card.cardId)
+        assertTrue(HolderNative.listMilestonesInRange(project.projectId, start - 3600, end + 3600).isEmpty())
     }
 
     private fun initialize(welcomeContent: String) {
