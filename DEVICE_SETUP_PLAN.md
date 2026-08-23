@@ -19,6 +19,21 @@ first. It's cut from MVP anyway because it doesn't serve the actual
 motivating case — a phone-first MVP would help someone whose *first*
 device was their phone, which isn't the story Step six was written for.
 
+There's a sharper reason than build cost, though: Phone → desktop
+presupposes the phone already *has* a working, git-configured project to
+share, and Android has no wizard to get there from nothing. Checked
+`GitSyncScreen.kt` — it's a raw remote-URL text field (`ssh://git@host/
+path/repo.git` placeholder) plus a manual SSH-key copy/paste, nothing
+like desktop's `create_private_repo_and_verify` + `detect_github_cli_state`
+guided flow. A phone-first user hitting that today runs straight into
+the exact manual-Git experience this whole feature exists to eliminate
+— just earlier in the story. Building a proper Android setup-from-
+scratch wizard is a separate, bigger undertaking not scoped anywhere in
+this document (arguably its own future step, closer in shape to
+desktop's original Git-sync wizard than to anything here), so 6.4/6.5
+below aren't just lower priority, they're not fully meaningful to ship
+until that exists.
+
 Per `holder-daemon/docs/PRIVACY.md`, shielding non-technical users from
 Git's power is already the whole point of Holder's encryption model:
 "spreading the awesome power of Git to non-technical users needs to come
@@ -321,7 +336,9 @@ prompt alone.
 Designed for completeness and because it shares almost all of its
 machinery with the Desktop → phone direction above, but not scheduled —
 see the note in the intro for why it's cut from MVP despite being the
-cheaper build.
+cheaper build, and for the bigger reason it isn't fully meaningful yet:
+it assumes the phone already has a project to share, and there's no
+Android wizard to get one there from nothing.
 
 Same payload, same two-step shape (import project + key material, then
 clear the Git-auth "one more step") — just carried differently, since a
