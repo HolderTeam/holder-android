@@ -161,37 +161,31 @@ reliable phone-camera scanning: drop `project_name` from the QR-specific
 export (cosmetic only, not needed to import), and pick error-correction
 level L/M rather than the higher levels QR defaults often use.
 
-### 2. Git authentication: two options, recommend the host-agnostic one first
+### 2. Git authentication: GitHub-only full automation for MVP, fallback for everything else
 
-**Option A — embed a scoped credential in the token, use HTTPS instead of SSH.**
-Desktop mints a repo-scoped credential (a fine-grained GitHub PAT, a
-GitLab project access token, etc.) and puts it in the encrypted payload
-alongside the key material; the phone authenticates over
-`https://x-access-token:<token>@host/owner/repo.git` instead of SSH, and
-never needs its own registered key at all.
+Decision (per direct steer): scope v1 to **making GitHub work with zero
+manual steps**, and accept a manual fallback for every other host rather
+than delaying on host-agnostic support. Three shapes were considered;
+here's why the GitHub-specific one wins for MVP and what it actually
+costs.
 
-This is the "just works, one QR, done" option, but has a real problem:
-**minting a fresh scoped credential programmatically isn't generally
-possible** with just an authenticated `gh` CLI session — fine-grained PAT
-creation on GitHub is a web-UI flow, not a CLI/API call a logged-in `gh`
-session can trigger on your behalf. The realistic fallback is reusing
-desktop's *own* existing credential for every paired phone, which means
-one compromised or lost phone leaks access equivalent to the desktop
-itself — a bad tradeoff for "make this foolproof for non-technical
-users," since losing a phone is an ordinary event this has to handle
-gracefully. It's also inherently GitHub/GitLab-shaped; Holder's remote
-field is a freeform URL (`ssh://git@host/path/repo.git` placeholder in
-`GitSyncScreen`), explicitly supporting self-hosted remotes with no API
-to mint anything against.
+**Rejected — shared HTTPS credential.** Desktop mints a scoped credential
+(fine-grained PAT, GitLab project access token) and embeds it in the
+token; the phone authenticates over HTTPS instead of SSH, no key
+registration needed. Dropped because **minting a fresh scoped credential
+programmatically isn't generally possible** — fine-grained PAT creation
+on GitHub is a web-UI flow, not something an authenticated `gh` CLI
+session can trigger. The realistic fallback would be reusing desktop's
+*own* credential for every paired phone, so one lost phone leaks access
+equivalent to the desktop itself — losing a phone is exactly the ordinary
+event this feature has to handle gracefully, not undermine.
 
-**Option B (recommended baseline) — keep per-device SSH keys, automate
-everything up to the paste.** The phone still generates its own
-Keystore-backed SSH identity (already built, `GitIdentity.kt`) — nothing
-here needs a new credential type or a new git transport path in
-`holder-core`. What changes is the *experience* around the manual step:
-after a successful QR import, the app knows the pull will fail until this
-device is authorized, and treats that as an expected, first-class state
-rather than a generic error:
+**Option B — manual fallback, kept for everything GitHub doesn't cover.**
+The phone generates its own Keystore-backed SSH identity (already built,
+`GitIdentity.kt`), the app treats "pull fails, this device isn't trusted
+yet" as an expected first-class state, and shows a copy-the-key screen —
+with a deep link to the host's deploy-key settings when the host is
+recognized, plain instructions otherwise:
 
 ```text
 Scan QR → PIN entry → project + key material imported
@@ -205,24 +199,99 @@ link straight to that repo's "Add deploy key" settings page
 User pastes, returns to Holder, taps Retry → pull succeeds
 ```
 
-This keeps every device individually revocable (lose a phone, remove one
-deploy key, nothing else needs rotating), works identically for any git
-host including self-hosted ones (unrecognized hosts just get the copyable
-key and a plain instruction instead of a deep link), and reuses 100% of
-already-built infrastructure. It doesn't fully hit "zero technical
-steps," but it collapses "figure out what a deploy key is and where
-GitHub hides that setting" down to "tap a link, paste, done" — which is
-the part actually worth automating.
+This is what non-GitHub hosts get (self-hosted Git, GitLab, Bitbucket) —
+not removed, just demoted from "the v1 experience" to "the honest
+fallback for the hosts we haven't automated."
 
-**Recommendation:** ship Option B for the first release. Revisit Option
-A's GitHub-specific auto-registration only if Option B's one remaining
-manual step turns out to be a real adoption blocker in practice — and
-note that doing it properly (registering the *phone's* key from
-*desktop*, automatically) needs the phone's public key to reach the
-desktop somehow, which the one-directional QR flow described in
-ROADMAP.md doesn't provide. That's a materially bigger feature (a return
-channel: a second QR the phone shows and desktop scans, or a network
-handshake) than "Step six" as scoped, not a small addition to it.
+**Option C (recommended MVP for GitHub) — desktop generates and
+pre-registers the phone's key before the QR ever exists, so there's no
+return channel to design.** The insight that makes this genuinely
+different from the "6.4 stretch" idea in the previous draft of this
+plan: the earlier framing assumed the *phone* generates its key and
+something has to carry the public half back to desktop for registration
+— a return channel this feature's one-directional QR doesn't have. But
+nothing requires the phone to generate its own key. Desktop can generate
+**and register** the deploy key entirely on its own, before the phone is
+involved at all, then hand the *private* half to the phone inside the
+same PIN-encrypted token as the project key material:
+
+```text
+Desktop: "Pair a phone" tapped
+    ↓
+generate_ssh_key(email, tmp_key_path)          -- already exists, git_sync_service.vala
+    ↓
+gh repo deploy-key add tmp_key_path.pub --repo owner/repo --title "..."
+    (already shells out to `gh`: detect_github_cli_state / create_private_repo_and_verify
+     in the same file establish this is a proven, already-used pattern)
+    ↓
+export_recovery_token(..., pin)  +  embed the new private key bytes
+    ↓
+Render QR + PIN
+    ↓
+Phone scans, imports token+key in one step -- pull succeeds immediately,
+no "one more step" screen, no paste, nothing left to understand
+```
+
+Verified `gh repo deploy-key add <key-file> [--title] [--repo]` is real
+and does exactly this (confirmed via `gh repo deploy-key add --help`
+locally); `git_sync_service.vala` already runs `gh` as a subprocess for
+`auth status`, `api user`, and `repo create`, so adding one more `gh`
+invocation is consistent with existing code, not a new integration
+pattern. One caveat `gh` prints itself and worth carrying into the UI:
+*"If you de-authorize the GitHub CLI app or authentication token from
+your account, any deploy keys added by GitHub CLI will be removed as
+well"* — i.e. every phone paired this way stops syncing if the user ever
+re-authenticates or revokes desktop's `gh` session. Worth a line of copy
+on the pairing screen, not a blocker.
+
+**The real cost: this only works in the Desktop → phone direction, and
+it changes where a device's private key is born.** Two things worth
+being explicit about rather than glossing over:
+
+- *Not symmetric.* Desktop's half is cheap because `gh` CLI + an already
+  logged-in session already exists there. Android has no equivalent —
+  no GitHub-authenticated session concept anywhere in the app today, and
+  no `gh` binary to shell out to. Doing the Phone → desktop direction
+  this same fully-automated way would mean building a GitHub OAuth
+  Device Flow login on Android from scratch, calling GitHub's REST API
+  directly (`POST /repos/{owner}/{repo}/keys`) to register desktop's
+  key. That's a materially bigger, separate feature — Phone → desktop
+  stays on the Option B manual-paste experience (6.0) for MVP, full stop.
+- *A transported key isn't the same guarantee as a device-generated one.*
+  `GitIdentity.kt`'s existing model is a non-exportable AndroidKeyStore
+  key — the private key material never exists outside secure hardware,
+  full stop, by construction. A desktop-generated key that travels
+  through a PIN-encrypted QR payload necessarily exists outside secure
+  hardware at least momentarily (in desktop's process memory, in transit,
+  briefly on the phone before it's stored). The phone should still
+  **import the received key material into AndroidKeyStore on arrival**
+  (`KeyStore.setEntry` with a `KeyProtection` spec supports importing raw
+  key material since API 28, not just generating in place) so it gets
+  hardware-backed protection from that point forward — but the moment of
+  transport itself is a real, if brief and PIN-gated, departure from
+  "this device's key has never existed anywhere else." State this
+  plainly to the user pairing a phone this way rather than silently
+  presenting it as equivalent to the self-generated model. `GitIdentity`
+  needs a second code path (import a provided keypair) alongside its
+  existing generate-your-own path — used for QR-provisioned GitHub
+  pairing specifically, while manually-added projects and non-GitHub
+  QR fallback keep generating their own key as today.
+
+**Recommendation:** ship Option C for GitHub remotes as the MVP Desktop →
+phone experience; Option B's manual-paste screen remains for every other
+host and for the Phone → desktop direction entirely. Revisit full
+automation for Phone → desktop, and for non-GitHub hosts, only once
+there's a concrete reason to invest in a GitHub OAuth flow on Android or
+a per-host API integration — not part of this MVP.
+
+This scoping isn't just "GitHub is easier to automate," it's the right
+cut for who actually needs it: someone who has deliberately picked a
+different provider, or is running their own Git server, already has
+enough Git literacy to handle a deploy-key paste — the population this
+whole feature exists to remove hand-holding for and the population that
+chose self-hosted git are largely disjoint. Option B isn't a lesser
+experience being tolerated for those users; it's an appropriately-sized
+one.
 
 ### 3. New dependencies
 
@@ -282,6 +351,12 @@ desktop UI, but it's the same design already specified for 6.3 below,
 just built on the desktop side of `git_sync_tool_view.vala` instead of
 Android's `GitSyncScreen`.
 
+Unlike Desktop → phone, this direction stays manual-paste even for
+GitHub in the MVP — the full-automation trick under "Git authentication"
+below works because desktop can shell out to an already-authenticated
+`gh` CLI; Android has no equivalent GitHub session to call the API with.
+Automating this side too is 6.4, not part of MVP scope.
+
 **What this direction does *not* need:** no QR generation on desktop, no
 barcode scanning on Android, no new dependency on either side — it's
 pure UI wiring `RecoveryController`, `exportRecoveryToken`, and
@@ -304,35 +379,51 @@ that, and that it needs neither a QR library nor a camera permission,
 consider shipping it before 6.1–6.3 rather than after.
 
 **6.1 — Desktop: "Pair a phone" screen.** New action in Git Sync tooling:
-generates a one-time pairing PIN, calls the existing
-`export_recovery_token(project_id, project_key_id, pin, project_name,
-git_remote_url)`, renders the returned token as a QR code plus the PIN
-in large text alongside it. Needs the new `libqrencode` dependency; no
-new core API.
+generates a one-time pairing PIN. If the project's remote is a
+`github.com` URL and `detect_github_cli_state()` reports an authenticated
+`gh` session: run `generate_ssh_key` against a throwaway path, `gh repo
+deploy-key add` the public half, and bundle the private key bytes into
+the export alongside the usual `export_recovery_token(project_id,
+project_key_id, pin, project_name, git_remote_url)` call (needs a new,
+optional field on the token payload/C ABI for this — the existing
+envelope format is versioned specifically so it can grow). Otherwise
+(non-GitHub host, or `gh` not authenticated) fall back to exporting the
+token without a key, same as before. Either way, render the result as a
+QR code plus the PIN in large text. Needs the new `libqrencode`
+dependency, and a small core-side change to carry the optional key field;
+no new core *concept* — same token, same call, one new field.
 
 **6.2 — Android: scan → import.** New screen: camera preview, barcode
 scan, sniff-check the payload looks like a Holder token, PIN entry, call
 `HolderNative.importRecoveryTokenGlobal(pin, token)` (already implemented,
-currently has no UI caller at all). Wire in a new entry point — the
-empty "no projects yet" state and/or a menu action alongside the existing
-manual remote-URL entry in `GitSyncScreen`. Needs the new
-barcode-scanning dependency, `CAMERA` permission flow, and permission
-rationale copy.
+currently has no UI caller at all). If the token carries a bundled
+private key (6.1's GitHub path), import it into AndroidKeyStore as this
+project's git identity and skip straight to a successful pull — no
+device-authorization step needed. If it doesn't, fall through to 6.3.
+Wire in a new entry point — the empty "no projects yet" state and/or a
+menu action alongside the existing manual remote-URL entry in
+`GitSyncScreen`. Needs the new barcode-scanning dependency, `CAMERA`
+permission flow, and permission rationale copy.
 
-**6.3 — Android: the device-authorization step.** Detect the "project
-imported, but pull failed because this device isn't trusted yet" case
-specifically (distinguishable from other pull failures) and route to a
-dedicated screen reusing `GitIdentity.sshPublicKeyLine()` plus a
-host-recognition table for deep links (start with github.com, gitlab.com;
-anything else gets the plain copyable key). Ends with a retry that
-re-attempts the pull.
+**6.3 — Android: the device-authorization fallback.** For every case 6.2
+didn't fully automate (non-GitHub host, or desktop's `gh` wasn't
+authenticated at pairing time): detect the "project imported, but pull
+failed because this device isn't trusted yet" case specifically
+(distinguishable from other pull failures) and route to a dedicated
+screen reusing `GitIdentity.sshPublicKeyLine()` plus a host-recognition
+table for deep links (start with github.com, gitlab.com; anything else
+gets the plain copyable key). Ends with a retry that re-attempts the
+pull. This is also exactly what 6.0's Phone → desktop direction needs on
+the desktop side, per the note there.
 
-**6.4 — Stretch, not required for first release.** GitHub-specific
-auto-registration of the phone's deploy key when desktop's `gh` CLI is
-already authenticated (reusing the same GitHub CLI integration
-`GitSyncController`'s auto-sync flow already has) — blocked on designing
-a return channel for the phone's public key to reach desktop, per the
-note under Option B above. Track separately; don't let it hold up 6.1–6.3.
+**6.4 — Stretch, not required for first release.** Extend Option C-style
+full automation to the Phone → desktop direction. Needs a GitHub OAuth
+Device Flow login on Android (nothing like it exists in the app today)
+so the phone can call `POST /repos/{owner}/{repo}/keys` directly, since
+there's no `gh` CLI equivalent to shell out to on Android. Track
+separately; don't let it hold up 6.0–6.3, and don't build it at all
+unless GitHub-remote Phone → desktop pairing turns out to be common
+enough that Option B's manual paste is a real friction point there too.
 
 ## Security notes
 
@@ -353,7 +444,23 @@ note under Option B above. Track separately; don't let it hold up 6.1–6.3.
 - Option B's per-device SSH keys are individually revocable; that
   revocation is still a manual step for the user on the host's website
   after a lost phone, but at least doesn't require rotating a shared
-  secret across every other already-paired device too.
+  secret across every other already-paired device too. Option C's
+  desktop-registered keys are exactly as individually revocable — same
+  deploy-key-per-device model, just registered automatically instead of
+  by hand — with one added wrinkle: `gh` itself warns that de-authorizing
+  the GitHub CLI or rotating its token removes every deploy key it ever
+  registered, not just the one being intentionally revoked. Worth
+  surfacing that consequence in the desktop UI wherever a user might
+  re-authenticate `gh`, not just in this document.
+- Option C's transported private key exists briefly outside secure
+  hardware (desktop process memory, in transit inside the PIN-encrypted
+  token, momentarily on the phone before import) — a real, if brief and
+  PIN-gated, departure from `GitIdentity.kt`'s existing guarantee that a
+  device's key material never exists anywhere it wasn't generated. Land
+  it in AndroidKeyStore immediately on import and don't retain a
+  plaintext copy in memory longer than the import call needs; state the
+  distinction plainly in the pairing UI rather than presenting it as
+  equivalent to a self-generated key.
 - The Phone → desktop share-sheet transport carries the same PIN-wrapped
   token as the QR side, just over a channel the user picked (email, a
   messaging app, a cloud drive) instead of an in-person camera scan. That
@@ -379,6 +486,19 @@ note under Option B above. Track separately; don't let it hold up 6.1–6.3.
   building for 6.3's first cut, or whether "GitHub gets a deep link,
   everyone else gets the plain instruction" is a good enough starting
   point to ship.
+- Exact shape of the new optional key field on the recovery-token
+  envelope/C ABI for Option C (raw private key bytes? Wrapped somehow
+  beyond the existing PIN envelope?) and what deploy-key `--title` to
+  register with (device name? "Holder — {project name}"?) so a user
+  looking at GitHub's deploy-key list later can tell which key is which.
+- What happens to the throwaway keypair `generate_ssh_key` writes to
+  disk during 6.1's flow after it's been read into the token — delete it
+  immediately, since desktop never needs to use it itself (only the
+  *phone* authenticates with it going forward).
+- Whether desktop should let a user un-pair a phone from the "Pair a
+  phone" screen later (calling `gh repo deploy-key delete`), or whether
+  that's left to the manual "go to GitHub and remove it" path even for
+  Option C-paired devices — not designed here.
 
 ## Guiding principle
 
