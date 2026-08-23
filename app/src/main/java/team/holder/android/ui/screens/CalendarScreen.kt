@@ -80,6 +80,32 @@ private val MONTH_YEAR_FORMAT = DateTimeFormatter.ofPattern("MMMM yyyy")
 
 private fun Long.toLocalDate(): LocalDate = Instant.ofEpochSecond(this).atZone(CALENDAR_ZONE).toLocalDate()
 
+internal data class CalendarDayActivity(
+    val milestoneDays: Set<LocalDate>,
+    val createdDays: Set<LocalDate>,
+    val updatedDays: Set<LocalDate>,
+)
+
+/** Buckets milestones/cards by local calendar day for the month grid's dots. Dedups created vs.
+ * updated the same way the About screen does: a card touched only once shows as "created", not
+ * "created and updated" -- otherwise every fresh card would light two dots instead of one. */
+internal fun calendarDayActivity(milestones: List<HolderMilestone>, cards: List<HolderCard>): CalendarDayActivity =
+    CalendarDayActivity(
+        milestoneDays = milestones.map { it.startAt.toLocalDate() }.toSet(),
+        createdDays = cards.map { it.createdAt.toLocalDate() }.toSet(),
+        updatedDays = cards.filter { it.updatedAt != it.createdAt }.map { it.updatedAt.toLocalDate() }.toSet(),
+    )
+
+/** The dates for a month grid, padded with leading/trailing days from adjacent months so the
+ * grid is always a whole number of weeks starting on firstDayOfWeek. */
+internal fun monthGridDates(month: YearMonth, firstDayOfWeek: DayOfWeek): List<LocalDate> {
+    val firstOfMonth = month.atDay(1)
+    val leadingDays = (firstOfMonth.dayOfWeek.value - firstDayOfWeek.value + 7) % 7
+    val gridStart = firstOfMonth.minusDays(leadingDays.toLong())
+    val totalCells = ((month.lengthOfMonth() + leadingDays + 6) / 7) * 7
+    return (0 until totalCells).map { gridStart.plusDays(it.toLong()) }
+}
+
 /** Every milestone across projectId: a month grid (milestone/created/updated days marked) above
  * a chronological list, the project-level view MILESTONE_IDEA.md calls "the Calendar". The list
  * lands scrolled to today by default; tapping a day in the grid swaps it for that day's detail
@@ -143,14 +169,8 @@ fun CalendarScreen(
     }
 
     val milestones = (state as? LoadState.Success)?.value ?: emptyList()
-    val milestoneDays = milestones.map { it.startAt.toLocalDate() }.toSet()
-    val createdDays = allCards.map { it.createdAt.toLocalDate() }.toSet()
-    // Dedup with created, same rule the About screen uses: a card touched only once shows as
-    // "created", not "created and updated" -- otherwise every fresh card lights two dots.
-    val updatedDays = allCards
-        .filter { it.updatedAt != it.createdAt }
-        .map { it.updatedAt.toLocalDate() }
-        .toSet()
+    val activity = calendarDayActivity(milestones, allCards)
+    val (milestoneDays, createdDays, updatedDays) = activity
 
     Scaffold(
         topBar = {
@@ -310,14 +330,11 @@ private fun MonthGrid(
             }
         }
 
-        val firstOfMonth = month.atDay(1)
-        val leadingDays = (firstOfMonth.dayOfWeek.value - firstDayOfWeek.value + 7) % 7
-        val gridStart = firstOfMonth.minusDays(leadingDays.toLong())
-        val totalCells = ((month.lengthOfMonth() + leadingDays + 6) / 7) * 7
-        for (weekStart in 0 until totalCells step 7) {
+        val gridDates = monthGridDates(month, firstDayOfWeek)
+        for (weekStart in gridDates.indices step 7) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 for (offset in 0 until 7) {
-                    val date = gridStart.plusDays((weekStart + offset).toLong())
+                    val date = gridDates[weekStart + offset]
                     DayCell(
                         date = date,
                         inCurrentMonth = YearMonth.from(date) == month,
