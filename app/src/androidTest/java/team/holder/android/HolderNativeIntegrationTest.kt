@@ -103,6 +103,44 @@ class HolderNativeIntegrationTest {
     }
 
     @Test
+    fun databaseRebuild_restoresProjectsAndCardsFromDurableFiles() {
+        val welcome = "# Welcome\n\nWelcome"
+        initialize(welcome)
+        val project = HolderNative.createProject("Rebuild project")
+        val card = HolderNative.createCard(
+            project.projectId,
+            "Rebuilt card",
+            "# Rebuilt card\n\nThis body is durable.",
+        )
+
+        val dryRun = HolderNative.rebuildDatabase(
+            context = context,
+            dataDir = dataDir,
+            schemaSql = schemaSql,
+            welcomeContent = welcome,
+            dryRun = true,
+        )
+        assertTrue(dryRun.getBoolean("dry_run"))
+        assertEquals(2, dryRun.getInt("projects"))
+
+        HolderNative.close()
+        assertTrue(dataDir.resolve("server/holder.db").delete())
+
+        val rebuilt = HolderNative.rebuildDatabase(
+            context = context,
+            dataDir = dataDir,
+            schemaSql = schemaSql,
+            welcomeContent = welcome,
+        )
+        assertEquals("missing", rebuilt.getString("previous_health"))
+        assertEquals(2, rebuilt.getInt("projects"))
+        assertEquals(
+            "# Rebuilt card\n\nThis body is durable.",
+            HolderNative.getCardContent(card.cardId),
+        )
+    }
+
+    @Test
     fun deletingMissingCard_returnsNativeErrorThroughKotlinBoundary() {
         initialize("# Welcome\n\nWelcome")
 

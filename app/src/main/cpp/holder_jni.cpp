@@ -107,6 +107,34 @@ Java_team_holder_android_HolderNative_nativeContextClose(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeDatabaseRebuild(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jstring data_dir,
+    jstring schema_sql,
+    jboolean dry_run
+) {
+  UtfChars data_dir_chars(env, data_dir);
+  UtfChars schema_sql_chars(env, schema_sql);
+  if (data_dir_chars.get() == nullptr || schema_sql_chars.get() == nullptr) {
+    throw_runtime(env, "data_dir and schema_sql must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_database_rebuild(
+      data_dir_chars.get(), schema_sql_chars.get(), dry_run == JNI_TRUE ? 1 : 0,
+      &json, &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeProjectList(
     JNIEnv* env,
     jobject /* thiz */,

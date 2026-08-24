@@ -175,6 +175,7 @@ object HolderNative {
     private external fun nativeVersion(): String
     private external fun nativeContextOpen(dataDir: String, schemaSql: String): Long
     private external fun nativeContextClose(contextHandle: Long)
+    private external fun nativeDatabaseRebuild(dataDir: String, schemaSql: String, dryRun: Boolean): String
     private external fun nativeProjectList(contextHandle: Long): String
     private external fun nativeCardList(contextHandle: Long, projectId: String): String
     private external fun nativeCardGetContent(contextHandle: Long, cardId: String): String
@@ -308,10 +309,12 @@ object HolderNative {
         loadError?.let { throw it }
 
         if (contextHandle == 0L) {
+            // Recovery of encrypted projects needs the platform keyring before
+            // holder_context_open can reconstruct the SQLite projection.
+            check(team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) == 0) {
+                "Could not register the Android platform keyring"
+            }
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
-            // Best-effort: encrypted_git projects fall back to failing outright if this
-            // doesn't register, but nothing else about the app depends on it.
-            runCatching { team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) }
             // Best-effort: git sync still falls back to the (nonexistent, on Android)
             // default ssh-agent/~/.ssh lookup if this fails, so a Keystore hiccup here
             // shouldn't block the rest of the app from opening.
@@ -323,6 +326,31 @@ object HolderNative {
             deriveWelcomeTitle(welcomeContent, WELCOME_CARD_TITLE_FALLBACK),
             welcomeContent,
         )
+    }
+
+    /**
+     * Reconstructs Holder's disposable SQLite projection from the Git-backed
+     * project files. The native context is closed for the swap and reopened
+     * before this method returns, including after a dry run.
+     */
+    @Synchronized
+    fun rebuildDatabase(
+        context: Context,
+        dataDir: File,
+        schemaSql: String,
+        welcomeContent: String,
+        dryRun: Boolean = false,
+    ): JSONObject {
+        loadError?.let { throw it }
+        close()
+        check(team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) == 0) {
+            "Could not register the Android platform keyring"
+        }
+        return try {
+            JSONObject(nativeDatabaseRebuild(dataDir.absolutePath, schemaSql, dryRun))
+        } finally {
+            initialize(context, dataDir, schemaSql, welcomeContent)
+        }
     }
 
     /** Closes the native store. Safe to call even if it was never opened. */

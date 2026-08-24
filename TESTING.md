@@ -16,7 +16,7 @@ Use the native Android testing stack. Do not duplicate libholder/C API tests in 
 4. **Android/JNI integration tests**
    - Put in `androidTest`.
    - Verify Kotlin → JNI → libholder → Android filesystem/native dependencies → Kotlin.
-   - Test representative round trips, UTF-8, errors, persistence, Git operations and later Android Keystore integration.
+   - Test representative round trips, UTF-8, errors, persistence, Git operations, Android Keystore integration and reconstruction of the disposable SQLite projection.
    - Do not rerun every C API test through JNI.
 
 5. **Whole-app smoke tests**
