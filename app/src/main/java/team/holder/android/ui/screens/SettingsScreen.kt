@@ -227,7 +227,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim two-space hard breaks")
-                        Text("Two invisible trailing spaces normally force a line break.")
+                        Text("Two invisible trailing spaces can force a Markdown line break.")
                     }
                     Switch(
                         checked = trimTwoSpaceLineEndings,
@@ -240,7 +240,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim trailing whitespace in code blocks")
-                        Text("Blocks normally preserve their contents literally.")
+                        Text("Code blocks normally preserve their contents literally.")
                     }
                     Switch(
                         checked = trimWhitespaceInCodeBlocks,
