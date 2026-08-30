@@ -227,7 +227,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim two-space line endings")
-                        Text("Enforces clean Markdown line endings without the ambiguous two-space hard line break convention.")
+                        Text("Enforces clean Markdown line endings without the ambiguous convention.")
                     }
                     Switch(
                         checked = trimTwoSpaceLineEndings,
@@ -240,7 +240,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim whitespace in code blocks")
-                        Text("Trims trailing whitespace in code blocks, where spaces may be significant.")
+                        Text("Spaces may be significant.")
                     }
                     Switch(
                         checked = trimWhitespaceInCodeBlocks,
