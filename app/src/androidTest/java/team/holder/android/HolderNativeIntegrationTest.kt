@@ -141,6 +141,32 @@ class HolderNativeIntegrationTest {
     }
 
     @Test
+    fun initialize_rebuildsEncryptedProjectUsingAndroidKeyring() {
+        val welcome = "# Welcome\n\nWelcome"
+        initialize(welcome)
+        val project = HolderNative.createProject(
+            name = "Encrypted rebuild project",
+            privacyMode = "encrypted_git",
+        )
+        val content = "# Private card\n\nThis encrypted body survives reconstruction."
+        val card = HolderNative.createCard(project.projectId, "Private card", content)
+        assertTrue(HolderNative.encryptionCheck(project.projectId).ok)
+
+        HolderNative.close()
+        assertTrue(dataDir.resolve("server/holder.db").delete())
+
+        // initialize() must register the Android keyring before holder_context_open()
+        // notices the missing projection and reconstructs the encrypted project.
+        initialize(welcome)
+
+        assertEquals("encrypted_git", HolderNative.listProjects()
+            .single { it.projectId == project.projectId }
+            .privacyMode)
+        assertEquals(content, HolderNative.getCardContent(card.cardId))
+        assertTrue(HolderNative.encryptionCheck(project.projectId).ok)
+    }
+
+    @Test
     fun deletingMissingCard_returnsNativeErrorThroughKotlinBoundary() {
         initialize("# Welcome\n\nWelcome")
 

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.annotation.Keep
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -91,17 +92,20 @@ object AndroidKeyringStore {
 
     /** Called from native code (see holder_keyring_bridge.cpp). kind is 0 for a generic
      * secret (service+account) or 1 for a project key (projectId+account). */
+    @Keep
     @Suppress("unused") // invoked via JNI
     private fun lookup(kind: Int, service: String, account: String, projectId: String?): String? {
         val stored = prefs.getString(storageKey(kind, service, account, projectId), null) ?: return null
         return decrypt(stored)
     }
 
+    @Keep
     @Suppress("unused") // invoked via JNI
     private fun store(kind: Int, service: String, account: String, projectId: String?, secret: String) {
         prefs.edit().putString(storageKey(kind, service, account, projectId), encrypt(secret)).apply()
     }
 
+    @Keep
     @Suppress("unused") // invoked via JNI
     private fun remove(kind: Int, service: String, account: String, projectId: String?) {
         prefs.edit().remove(storageKey(kind, service, account, projectId)).apply()

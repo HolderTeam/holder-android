@@ -310,10 +310,10 @@ object HolderNative {
 
         if (contextHandle == 0L) {
             // Recovery of encrypted projects needs the platform keyring before
-            // holder_context_open can reconstruct the SQLite projection.
-            check(team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) == 0) {
-                "Could not register the Android platform keyring"
-            }
+            // holder_context_open can reconstruct the SQLite projection. Registration
+            // remains best-effort here: a plain profile does not need it, while core
+            // will fail closed if reconstruction actually needs an unavailable key.
+            runCatching { team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) }
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
             // Best-effort: git sync still falls back to the (nonexistent, on Android)
             // default ssh-agent/~/.ssh lookup if this fails, so a Keystore hiccup here
@@ -342,14 +342,26 @@ object HolderNative {
         dryRun: Boolean = false,
     ): JSONObject {
         loadError?.let { throw it }
-        close()
-        check(team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) == 0) {
-            "Could not register the Android platform keyring"
-        }
+        var primaryFailure: Throwable? = null
         return try {
+            close()
+            // As in initialize(), let holder-core decide whether a missing keyring
+            // is material for the projects being reconstructed.
+            runCatching { team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) }
             JSONObject(nativeDatabaseRebuild(dataDir.absolutePath, schemaSql, dryRun))
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
         } finally {
-            initialize(context, dataDir, schemaSql, welcomeContent)
+            try {
+                initialize(context, dataDir, schemaSql, welcomeContent)
+            } catch (reopenFailure: Throwable) {
+                if (primaryFailure != null) {
+                    primaryFailure.addSuppressed(reopenFailure)
+                } else {
+                    throw reopenFailure
+                }
+            }
         }
     }
 
