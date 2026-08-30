@@ -227,7 +227,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim two-space line endings")
-                        Text("Enforces clean Markdown line endings without the ambiguous convention.")
+                        Text("Enforces cleaner Markdown without the ambiguous convention.")
                     }
                     Switch(
                         checked = trimTwoSpaceLineEndings,
