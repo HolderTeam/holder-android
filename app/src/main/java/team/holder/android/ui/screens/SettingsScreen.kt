@@ -213,10 +213,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Preserve trailing whitespace")
-                    Text(
-                        "Off cleans up meaningless trailing spaces and tabs when a card is saved, " +
-                            "keeping a genuine two-space hard-break intact. On saves exactly what you typed or pasted.",
-                    )
+                    Text("Keeps spaces and tabs at the ends of lines.")
                 }
                 Switch(
                     checked = preserveTrailingWhitespace,
@@ -230,7 +227,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim two-space line endings")
-                        Text("Also removes the ambiguous two-space Markdown hard-break convention, instead of keeping it.")
+                        Text("Enforces clean Markdown line endings without the ambiguous two-space hard line break convention.")
                     }
                     Switch(
                         checked = trimTwoSpaceLineEndings,
@@ -243,7 +240,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim whitespace in code blocks")
-                        Text("Also cleans up trailing whitespace inside fenced code blocks, instead of leaving it untouched.")
+                        Text("Trims trailing whitespace in code blocks, where spaces may be significant.")
                     }
                     Switch(
                         checked = trimWhitespaceInCodeBlocks,
