@@ -24,6 +24,9 @@ object HolderSettings {
     private val THEME_OPTION = stringPreferencesKey("theme_option")
     private val FONT_SIZE_OPTION = stringPreferencesKey("font_size_option")
     private val FONT_FAMILY_OPTION = stringPreferencesKey("font_family_option")
+    private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
+    private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
+    private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -87,5 +90,37 @@ object HolderSettings {
 
     suspend fun setFontFamilyOption(context: Context, option: HolderFontFamilyOption) {
         context.settingsDataStore.edit { it[FONT_FAMILY_OPTION] = option.name }
+    }
+
+    /** Off by default: a card's raw Markdown gets its trailing whitespace cleaned up on save
+     * (see [team.holder.android.ui.markdown.trimTrailingWhitespaceForSave]). On disables that
+     * entirely -- whatever was typed or pasted is saved byte-for-byte, and
+     * [trimTwoSpaceLineEndings]/[trimWhitespaceInCodeBlocks] are moot. */
+    fun preserveTrailingWhitespace(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[PRESERVE_TRAILING_WHITESPACE] ?: false }
+
+    suspend fun setPreserveTrailingWhitespace(context: Context, enabled: Boolean) {
+        context.settingsDataStore.edit { it[PRESERVE_TRAILING_WHITESPACE] = enabled }
+    }
+
+    /** Off by default: a genuine hard-break run (2+ literal trailing spaces) is preserved,
+     * canonicalized to exactly 2. On strips it to 0 like any other trailing whitespace, so the
+     * two-space hard-break convention can never survive a save. No effect when
+     * [preserveTrailingWhitespace] is on. */
+    fun trimTwoSpaceLineEndings(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[TRIM_TWO_SPACE_LINE_ENDINGS] ?: false }
+
+    suspend fun setTrimTwoSpaceLineEndings(context: Context, enabled: Boolean) {
+        context.settingsDataStore.edit { it[TRIM_TWO_SPACE_LINE_ENDINGS] = enabled }
+    }
+
+    /** Off by default: lines inside a fenced code block are exempt from all trailing-whitespace
+     * cleanup, since that whitespace may be literal pasted content. On strips it there too. No
+     * effect when [preserveTrailingWhitespace] is on. */
+    fun trimWhitespaceInCodeBlocks(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[TRIM_WHITESPACE_IN_CODE_BLOCKS] ?: false }
+
+    suspend fun setTrimWhitespaceInCodeBlocks(context: Context, enabled: Boolean) {
+        context.settingsDataStore.edit { it[TRIM_WHITESPACE_IN_CODE_BLOCKS] = enabled }
     }
 }

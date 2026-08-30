@@ -42,6 +42,7 @@ import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
 import team.holder.android.ui.markdown.MarkdownFormattingToolbar
+import team.holder.android.ui.markdown.trimTrailingWhitespaceForSave
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -56,6 +57,9 @@ fun CardEditScreen(
 ) {
     val context = LocalContext.current
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
+    val preserveTrailingWhitespace by HolderSettings.preserveTrailingWhitespace(context).collectAsState(initial = false)
+    val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
+    val trimWhitespaceInCodeBlocks by HolderSettings.trimWhitespaceInCodeBlocks(context).collectAsState(initial = false)
 
     // Two independent field states, one per mode -- only one is ever shown, but both are
     // deterministically derived from initialContent regardless of which value `separateTitle`
@@ -133,11 +137,17 @@ fun CardEditScreen(
                             onClick = {
                                 if (!hasSubmitted) {
                                     hasSubmitted = true
-                                    val content = if (separateTitle) {
+                                    val rawContent = if (separateTitle) {
                                         combineTitleAndBody(titleState.text.toString(), separateBodyState.text.toString())
                                     } else {
                                         firstLineBodyState.text.toString()
                                     }
+                                    val content = trimTrailingWhitespaceForSave(
+                                        rawContent,
+                                        preserve = preserveTrailingWhitespace,
+                                        trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
+                                        trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
+                                    )
                                     onSave(derivedTitle, content)
                                 }
                             },

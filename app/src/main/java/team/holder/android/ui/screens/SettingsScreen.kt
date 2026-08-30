@@ -60,6 +60,9 @@ fun SettingsScreen(onBack: () -> Unit) {
     val fontFamilyOption by HolderSettings.fontFamilyOption(context)
         .collectAsState(initial = HolderFontFamilyOption.DEFAULT)
     var fontFamilyMenuExpanded by remember { mutableStateOf(false) }
+    val preserveTrailingWhitespace by HolderSettings.preserveTrailingWhitespace(context).collectAsState(initial = false)
+    val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
+    val trimWhitespaceInCodeBlocks by HolderSettings.trimWhitespaceInCodeBlocks(context).collectAsState(initial = false)
 
     // Keeps WorkManager's schedule in sync whenever either setting changes here, in addition
     // to the reconcile MainActivity does once at process start.
@@ -203,6 +206,52 @@ fun SettingsScreen(onBack: () -> Unit) {
                         scope.launch { HolderSettings.setSeparateTitleEnabled(context, enabled) }
                     },
                 )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Preserve trailing whitespace")
+                    Text(
+                        "Off cleans up meaningless trailing spaces and tabs when a card is saved, " +
+                            "keeping a genuine two-space hard-break intact. On saves exactly what you typed or pasted.",
+                    )
+                }
+                Switch(
+                    checked = preserveTrailingWhitespace,
+                    onCheckedChange = { enabled ->
+                        scope.launch { HolderSettings.setPreserveTrailingWhitespace(context, enabled) }
+                    },
+                )
+            }
+
+            if (!preserveTrailingWhitespace) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Trim two-space line endings")
+                        Text("Also removes the ambiguous two-space Markdown hard-break convention, instead of keeping it.")
+                    }
+                    Switch(
+                        checked = trimTwoSpaceLineEndings,
+                        onCheckedChange = { enabled ->
+                            scope.launch { HolderSettings.setTrimTwoSpaceLineEndings(context, enabled) }
+                        },
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Trim whitespace in code blocks")
+                        Text("Also cleans up trailing whitespace inside fenced code blocks, instead of leaving it untouched.")
+                    }
+                    Switch(
+                        checked = trimWhitespaceInCodeBlocks,
+                        onCheckedChange = { enabled ->
+                            scope.launch { HolderSettings.setTrimWhitespaceInCodeBlocks(context, enabled) }
+                        },
+                    )
+                }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))

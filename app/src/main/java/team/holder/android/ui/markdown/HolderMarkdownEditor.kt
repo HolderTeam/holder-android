@@ -56,7 +56,8 @@ private val INLINE_CODE_REGEX = Regex("`[^`\n]+`")
 // Fence-to-fence, so other token regexes below can be suppressed inside one -- without this, a
 // code identifier like some_function_name renders as italic, and a code comment's # as a heading.
 // No visual style of its own yet (no monospace/background); this is purely an exclusion zone.
-private val FENCED_CODE_BLOCK_REGEX = Regex("(?m)^```[^\n]*\n[\\s\\S]*?^```[ \t]*$")
+// internal: also the code-block exclusion zone for trimTrailingWhitespaceForSave.
+internal val FENCED_CODE_BLOCK_REGEX = Regex("(?m)^```[^\n]*\n[\\s\\S]*?^```[ \t]*$")
 private val WIKILINK_REGEX = Regex("\\[\\[[^\\]\n]+\\]\\]")
 private val MD_LINK_REGEX = Regex("\\[[^\\]\n]*\\]\\([^)\n]*\\)")
 // Cosmetic only -- just flags bare URLs while typing to match what autolink will pick up in
