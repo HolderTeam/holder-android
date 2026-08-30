@@ -239,7 +239,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Trim trailing whitespace in code blocks")
+                        Text("Trim trailing whitespace in code")
                         Text("Code blocks normally preserve their contents literally.")
                     }
                     Switch(
