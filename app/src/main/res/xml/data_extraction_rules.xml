@@ -1,19 +1,28 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
--->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Governs Auto Backup on API 31+ (cloud-backup) and the device-to-device "Copy your data"
+     transfer (device-transfer). Excludes only what would be actively wrong to restore, not
+     everything: with no <include> elements, everything else (e.g. HolderSettings' small UI
+     preferences: theme, font, sync interval) is backed up by default. See backup_rules.xml for
+     the equivalent pre-API-31 rules.
+
+     Excluded:
+     - files/holder/, holder-core's SQLite index and any local working files. This is a
+       rebuildable cache, not a copy of record (Git is); restoring a stale one on a different
+       install could also resurrect plaintext local state for an encrypted_git project onto a
+       device that never had it.
+     - shared_prefs/holder_platform_keyring.xml, AndroidKeyringStore's secrets (Git signing
+       keys, S3 credentials), AES-GCM encrypted with a non-exportable AndroidKeyStore key. That
+       key never leaves this device's secure hardware, so a restored copy of this file would be
+       ciphertext nothing can ever decrypt again, worse than losing it outright, since it would
+       look "connected" in Settings while silently unable to do anything, rather than plainly
+       needing to be reconnected. -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="holder/" />
+        <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="holder/" />
+        <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>
