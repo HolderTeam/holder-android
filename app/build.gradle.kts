@@ -70,6 +70,24 @@ android {
         }
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // The default debug signing config auto-generates ~/.android/debug.keystore with a
+            // random key the first time it's needed -- fine for a single dev machine, but a
+            // GitHub Actions runner is a fresh machine every run, so CI-built debug APKs were
+            // each getting a *different* signing certificate. Since the Google Drive "Android"
+            // OAuth client is matched by package name + certificate SHA-1 (see the debug
+            // buildType comment below), that meant Drive sign-in broke on every new CI build
+            // regardless of what was registered in Google Cloud Console. Use one fixed,
+            // checked-in keystore instead, for every build everywhere: this is the standard
+            // Android debug keystore (alias "androiddebugkey", password "android" -- not a
+            // secret, and not usable for anything other than local/CI testing installs).
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
         release {
             optimization {
@@ -77,6 +95,7 @@ android {
             }
         }
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             // Distinct applicationId so a locally-built debug APK installs alongside a real
             // release install rather than overwriting it -- Android sandboxes app data per
             // applicationId, so this gets the debug build a fully separate data directory,
@@ -87,8 +106,10 @@ android {
             // The Google Drive "Android" OAuth client is matched by Google against package
             // name + signing certificate SHA-1, not an embedded client ID, so a debug build
             // under this new applicationId needs its own OAuth client registered in Google
-            // Cloud Console (package name "team.holder.android.debug", SHA-1 from `./gradlew
-            // signingReport`'s debug variant) before Drive sign-in will work in debug builds.
+            // Cloud Console (package name "team.holder.android.debug", SHA-1 from the fixed
+            // debug.keystore above -- ./gradlew signingReport shows it, or `keytool -list -v
+            // -keystore app/debug.keystore -storepass android` directly) before Drive sign-in
+            // works in debug builds.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
