@@ -20,8 +20,8 @@ private const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file
 private const val EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
 
 /** The one thing Holder keeps locally about a connected Drive account. Never a secret --
- * see [team.holder.android.HolderSettings.driveConnectedAccountEmail] for where it's stored,
- * and [GoogleDriveAuth]'s own doc comment for why no token is stored alongside it. */
+ * see [GoogleDriveConnection.connectedAccountEmail] for where it's stored, and
+ * [GoogleDriveAuth]'s own doc comment for why no token is stored alongside it. */
 data class DriveAuthorization(val accessToken: String, val accountEmail: String?)
 
 class GoogleDriveAuthException(message: String) : Exception(message)

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONObject
 import team.holder.android.ui.theme.HolderFontFamilyOption
 import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
@@ -27,8 +28,6 @@ object HolderSettings {
     private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
-    private val DRIVE_CONNECTED_ACCOUNT_EMAIL = stringPreferencesKey("drive_connected_account_email")
-    private val DRIVE_FOLDER_ID = stringPreferencesKey("drive_folder_id")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -126,28 +125,32 @@ object HolderSettings {
         context.settingsDataStore.edit { it[TRIM_WHITESPACE_IN_CODE_BLOCKS] = enabled }
     }
 
-    /** Null when Drive isn't connected. Not a secret -- just which account to show in
-     * Settings and to pass to GoogleDriveAuth.authorize so it can skip the account picker.
-     * See GoogleDriveAuth's doc comment for why no token is stored anywhere at all. */
-    fun driveConnectedAccountEmail(context: Context): Flow<String?> =
-        context.settingsDataStore.data.map { it[DRIVE_CONNECTED_ACCOUNT_EMAIL] }
+    /** Non-secret local config for a connected storage provider (e.g. Drive's connected
+     * account email and shared folder id) -- null when [providerId] isn't connected. One
+     * generic slot per provider id rather than a dedicated field per provider, so a second
+     * storage backend (S3, WebDAV, ...) doesn't need its own copy-pasted pair of settings
+     * keys; see RESOURCE_STORAGE_ROADMAP.md's step 1. Deliberately never used for secrets --
+     * an S3 secret key belongs in the Android keyring (see AndroidKeyringStore), same as
+     * GoogleDriveAuth never stores an OAuth token here either. */
+    fun connectedProviderConfig(context: Context, providerId: String): Flow<Map<String, String>?> =
+        context.settingsDataStore.data.map { prefs ->
+            prefs[connectedProviderConfigKey(providerId)]?.let(::decodeProviderConfig)
+        }
 
-    suspend fun setDriveConnectedAccountEmail(context: Context, email: String?) {
-        context.settingsDataStore.edit {
-            if (email == null) it.remove(DRIVE_CONNECTED_ACCOUNT_EMAIL) else it[DRIVE_CONNECTED_ACCOUNT_EMAIL] = email
+    suspend fun setConnectedProviderConfig(context: Context, providerId: String, config: Map<String, String>?) {
+        context.settingsDataStore.edit { prefs ->
+            val key = connectedProviderConfigKey(providerId)
+            if (config == null) prefs.remove(key) else prefs[key] = encodeProviderConfig(config)
         }
     }
 
-    /** The id of the single well-known "Holder/Resources" Drive folder every project's
-     * google-drive Location shares -- see GoogleDriveStorageProvider's doc comment for why
-     * one global folder, not one per project, is today's deliberate simplification. Null
-     * until Drive has been connected once. */
-    fun driveFolderId(context: Context): Flow<String?> =
-        context.settingsDataStore.data.map { it[DRIVE_FOLDER_ID] }
+    private fun connectedProviderConfigKey(providerId: String) =
+        stringPreferencesKey("connected_provider_config:$providerId")
 
-    suspend fun setDriveFolderId(context: Context, folderId: String?) {
-        context.settingsDataStore.edit {
-            if (folderId == null) it.remove(DRIVE_FOLDER_ID) else it[DRIVE_FOLDER_ID] = folderId
-        }
+    private fun encodeProviderConfig(config: Map<String, String>): String = JSONObject(config).toString()
+
+    private fun decodeProviderConfig(json: String): Map<String, String> {
+        val obj = JSONObject(json)
+        return obj.keys().asSequence().associateWith { obj.getString(it) }
     }
 }

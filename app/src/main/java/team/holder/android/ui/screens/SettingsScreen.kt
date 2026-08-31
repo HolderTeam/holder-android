@@ -73,11 +73,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     val preserveTrailingWhitespace by HolderSettings.preserveTrailingWhitespace(context).collectAsState(initial = false)
     val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
     val trimWhitespaceInCodeBlocks by HolderSettings.trimWhitespaceInCodeBlocks(context).collectAsState(initial = false)
-    val driveConnectedAccountEmail by HolderSettings.driveConnectedAccountEmail(context).collectAsState(initial = null)
+    val driveConnectedAccountEmail by GoogleDriveConnection.connectedAccountEmail(context).collectAsState(initial = null)
     // The folder id, not the email, is what actually determines "connected" -- it's always
     // set on a successful connect, where the email is best-effort (see GoogleDriveAuth's
     // EMAIL_SCOPE comment) and only ever used for display below.
-    val driveFolderId by HolderSettings.driveFolderId(context).collectAsState(initial = null)
+    val driveFolderId by GoogleDriveConnection.folderId(context).collectAsState(initial = null)
     val driveConnected = driveFolderId != null
     var driveConnecting by remember { mutableStateOf(false) }
     var driveError by remember { mutableStateOf<String?>(null) }
@@ -263,44 +263,32 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Google Drive")
-                    Text(
-                        if (driveConnected) {
-                            driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected"
-                        } else {
-                            "Store photo attachments in your own Google Drive."
-                        },
-                    )
-                    driveError?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
-                }
-                when {
-                    driveConnecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
-                    driveConnected -> TextButton(
-                        onClick = { scope.launch { GoogleDriveConnection.disconnect(context) } },
-                    ) { Text("Disconnect") }
-                    else -> Button(
-                        onClick = {
-                            driveError = null
-                            driveConnecting = true
-                            scope.launch {
-                                runCatching {
-                                    GoogleDriveConnection.connect(context) { request ->
-                                        val deferred = CompletableDeferred<ActivityResult>()
-                                        pendingConsent = deferred
-                                        consentLauncher.launch(request)
-                                        deferred.await()
-                                    }
-                                }.onFailure { failure ->
-                                    driveError = failure.message ?: "Could not connect to Google Drive"
-                                }
-                                driveConnecting = false
+            StorageProviderConnectionRow(
+                title = "Google Drive",
+                connectedSubtitle = driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected",
+                disconnectedSubtitle = "Store photo attachments in your own Google Drive.",
+                connected = driveConnected,
+                connecting = driveConnecting,
+                error = driveError,
+                onConnect = {
+                    driveError = null
+                    driveConnecting = true
+                    scope.launch {
+                        runCatching {
+                            GoogleDriveConnection.connect(context) { request ->
+                                val deferred = CompletableDeferred<ActivityResult>()
+                                pendingConsent = deferred
+                                consentLauncher.launch(request)
+                                deferred.await()
                             }
-                        },
-                    ) { Text("Connect") }
-                }
-            }
+                        }.onFailure { failure ->
+                            driveError = failure.message ?: "Could not connect to Google Drive"
+                        }
+                        driveConnecting = false
+                    }
+                },
+                onDisconnect = { scope.launch { GoogleDriveConnection.disconnect(context) } },
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -365,6 +353,40 @@ fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The connect/disconnect row shape shared by every connected storage provider's Settings
+ * entry -- title, a connected-vs-disconnected subtitle, an inline error, and a
+ * Connect/Disconnect/spinner control. Originally written once for Google Drive; factored out
+ * here so a second provider (S3, WebDAV, ...) reuses the row instead of copy-pasting it. Each
+ * provider still supplies its own [onConnect] -- what "connect" means (OAuth consent, a
+ * pasted credential, ...) is provider-specific and stays that way. See
+ * RESOURCE_STORAGE_ROADMAP.md's step 1.
+ */
+@Composable
+private fun StorageProviderConnectionRow(
+    title: String,
+    connectedSubtitle: String,
+    disconnectedSubtitle: String,
+    connected: Boolean,
+    connecting: Boolean,
+    error: String?,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title)
+            Text(if (connected) connectedSubtitle else disconnectedSubtitle)
+            error?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
+        }
+        when {
+            connecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+            connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
+            else -> Button(onClick = onConnect) { Text("Connect") }
         }
     }
 }

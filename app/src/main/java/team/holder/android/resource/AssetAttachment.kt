@@ -12,15 +12,23 @@ import team.holder.android.resource.drive.GoogleDriveConnection
 
 /**
  * Copies [uri] (as picked from the system photo picker) into holder-core's Resource/Asset
- * model, attached to [cardId] in [projectId] -- ensuring a Google Drive Location exists
- * first (see [GoogleDriveConnection.ensureLocationForProject]), the only storage backend
- * exposed to Android today. Returns the Markdown image reference to insert into the card's
- * body (`![label](holder://resource/<id>)`, the same scheme holder-desktop already renders
- * -- see `HolderMarkdownViewer`) -- inserting it is the caller's job, not this function's.
+ * model, attached to [cardId] in [projectId] -- ensuring a Location for [providerId] exists
+ * first (see [ConnectedStorageProviders.ensureLocationForProject]). Defaults to Google Drive,
+ * the only storage backend exposed to Android today, but doesn't hard-code it: a second
+ * provider is a different [providerId], not a different function. Returns the Markdown image
+ * reference to insert into the card's body (`![label](holder://resource/<id>)`, the same
+ * scheme holder-desktop already renders -- see `HolderMarkdownViewer`) -- inserting it is the
+ * caller's job, not this function's.
  */
-suspend fun attachPickedPhoto(context: Context, projectId: String, cardId: String, uri: Uri): String =
+suspend fun attachPickedPhoto(
+    context: Context,
+    projectId: String,
+    cardId: String,
+    uri: Uri,
+    providerId: String = GoogleDriveConnection.PROVIDER_ID,
+): String =
     withContext(Dispatchers.IO) {
-        val location = GoogleDriveConnection.ensureLocationForProject(context, projectId)
+        val location = ConnectedStorageProviders.ensureLocationForProject(context, projectId, providerId)
         val displayName = queryDisplayName(context, uri) ?: "photo.jpg"
         val staging = File(context.cacheDir, "attach-staging").apply { mkdirs() }
         val stagedFile = File(staging, "${UUID.randomUUID()}-$displayName")

@@ -14,7 +14,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
-import team.holder.android.HolderSettings
 import team.holder.android.resource.AndroidStorageProvider
 import team.holder.android.resource.StorageErrorCode
 import team.holder.android.resource.encode
@@ -132,14 +131,14 @@ class GoogleDriveStorageProvider(
     // -- internals --
 
     private fun accessTokenOrThrow(): String {
-        // driveFolderId, not driveConnectedAccountEmail, is the real "connected" signal --
-        // see HolderSettings.driveFolderId's doc comment and the same reasoning in
-        // SettingsScreen. Email is passed to authorize() as a hint when available (helps
-        // Play Services target the right account silently on a multi-account device) but
-        // its absence must never block an otherwise-working connection.
-        runBlocking { HolderSettings.driveFolderId(context).first() }
+        // GoogleDriveConnection.folderId, not connectedAccountEmail, is the real "connected"
+        // signal -- see its doc comment and the same reasoning in SettingsScreen. Email is
+        // passed to authorize() as a hint when available (helps Play Services target the
+        // right account silently on a multi-account device) but its absence must never block
+        // an otherwise-working connection.
+        runBlocking { GoogleDriveConnection.folderId(context).first() }
             ?: throw StorageProviderFailure(StorageErrorCode.AUTHENTICATION, "Google Drive is not connected")
-        val email = runBlocking { HolderSettings.driveConnectedAccountEmail(context).first() }
+        val email = runBlocking { GoogleDriveConnection.connectedAccountEmail(context).first() }
         val authorization = runBlocking {
             GoogleDriveAuth.authorize(context, email) {
                 // Uploads/downloads run on a background thread with no Activity available to
