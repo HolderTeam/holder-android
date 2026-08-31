@@ -88,6 +88,60 @@ data class HolderMilestone(
     val cardTitle: String? = null,
 )
 
+/** A storage location a project's Resources/Assets can be placed in -- e.g. a Google Drive
+ * folder. `configuration` is provider-specific and portable (git-synced, per-project); it
+ * holds public locators like a Drive folder id, never secrets -- see AndroidStorageProvider
+ * for where the actual OAuth/API credentials live instead. */
+data class HolderLocation(
+    val locationId: String,
+    val projectId: String,
+    val name: String,
+    val provider: String,
+    val configuration: Map<String, String>,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class HolderPlacement(
+    val placementId: String,
+    val assetId: String,
+    val locationId: String,
+    val objectKey: String,
+    val encoding: String,
+    val storedByteSize: Long,
+    val storedSha256: String,
+    val createdAt: Long,
+)
+
+data class HolderAsset(
+    val assetId: String,
+    val resourceId: String,
+    val originalFilename: String,
+    val mediaType: String,
+    val byteSize: Long,
+    val plaintextSha256: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val placements: List<HolderPlacement>,
+)
+
+data class HolderResource(
+    val resourceId: String,
+    val projectId: String,
+    val type: String,
+    val label: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val assets: List<HolderAsset>,
+)
+
+data class HolderAssetImportResult(
+    val resourceId: String,
+    val assetId: String,
+    val duplicateReused: Boolean,
+    val linkCreated: Boolean,
+)
+
 data class GitTestRemoteResult(
     val status: String,
     val remoteHasHead: Boolean,
@@ -287,6 +341,23 @@ object HolderNative {
         pin: String,
         recoveryToken: String,
     ): String
+    private external fun nativeLocationList(contextHandle: Long, projectId: String): String
+    private external fun nativeLocationPutJson(contextHandle: Long, locationJson: String): String
+    private external fun nativeResourceGet(contextHandle: Long, resourceId: String): String
+    private external fun nativeAssetImportFile(
+        contextHandle: Long,
+        projectId: String,
+        cardId: String,
+        locationId: String,
+        sourceFilePath: String,
+    ): String
+    private external fun nativeAssetRetrieve(
+        contextHandle: Long,
+        resourceId: String,
+        assetId: String,
+        placementId: String,
+        destinationFilePath: String,
+    )
 
     fun version(): String {
         loadError?.let {
@@ -686,6 +757,60 @@ object HolderNative {
         )
     }
 
+    /** Storage locations (e.g. a Google Drive folder) available to attach Resources into,
+     * within projectId. */
+    fun listLocations(projectId: String): List<HolderLocation> {
+        val locations = JSONArray(nativeLocationList(requireContext(), projectId))
+        return List(locations.length()) { index -> parseLocation(locations.getJSONObject(index)) }
+    }
+
+    /** Creates or updates a storage location. locationId identifies which -- pass a fresh
+     * uuid to create one. */
+    fun putLocation(
+        locationId: String,
+        projectId: String,
+        name: String,
+        provider: String,
+        configuration: Map<String, String>,
+        now: Long,
+    ): HolderLocation {
+        val body = JSONObject().apply {
+            put("location_id", locationId)
+            put("project_id", projectId)
+            put("name", name)
+            put("provider", provider)
+            put("configuration", JSONObject(configuration))
+            put("created_at", now)
+            put("updated_at", now)
+        }
+        return parseLocation(JSONObject(nativeLocationPutJson(requireContext(), body.toString())))
+    }
+
+    fun getResource(resourceId: String): HolderResource =
+        parseResourceBundle(JSONObject(nativeResourceGet(requireContext(), resourceId)))
+
+    /** Imports sourceFilePath into projectId's Resource/Asset model, stores it via
+     * locationId's storage provider (see [team.holder.android.resource.AndroidStorageProvider]),
+     * and attaches it to cardId -- both as a structural link and, separately, by inserting a
+     * `![label](holder://resource/<id>)` reference into the card's body, the caller's job just
+     * like it is for holder-desktop (see HolderMarkdownViewer). Deduplicates by content hash
+     * within the project -- a second import of identical bytes reuses the existing Resource. */
+    fun importAsset(projectId: String, cardId: String, locationId: String, sourceFilePath: String): HolderAssetImportResult {
+        val json = JSONObject(nativeAssetImportFile(requireContext(), projectId, cardId, locationId, sourceFilePath))
+        return HolderAssetImportResult(
+            resourceId = json.getString("resource_id"),
+            assetId = json.getString("asset_id"),
+            duplicateReused = json.getBoolean("duplicate_reused"),
+            linkCreated = json.getBoolean("link_created"),
+        )
+    }
+
+    /** Downloads assetId's placementId back down to destinationFilePath via that placement's
+     * Location's storage provider, verified against the Asset's recorded size/hash. */
+    fun retrieveAsset(resourceId: String, assetId: String, placementId: String, destinationFilePath: String) {
+        nativeAssetRetrieve(requireContext(), resourceId, assetId, placementId, destinationFilePath)
+    }
+
     private fun requireContext(): Long {
         val handle = contextHandle
         check(handle != 0L) { "HolderNative.initialize() must be called first" }
@@ -748,6 +873,62 @@ object HolderNative {
 
     private fun JSONObject.optLongOrNull(name: String): Long? =
         if (isNull(name)) null else getLong(name)
+
+    private fun JSONObject.toStringMap(): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        keys().forEach { key -> map[key] = getString(key) }
+        return map
+    }
+
+    private fun parseLocation(json: JSONObject) = HolderLocation(
+        locationId = json.getString("location_id"),
+        projectId = json.getString("project_id"),
+        name = json.getString("name"),
+        provider = json.getString("provider"),
+        configuration = json.optJSONObject("configuration")?.toStringMap().orEmpty(),
+        createdAt = json.getLong("created_at"),
+        updatedAt = json.getLong("updated_at"),
+    )
+
+    private fun parsePlacement(json: JSONObject) = HolderPlacement(
+        placementId = json.getString("placement_id"),
+        assetId = json.getString("asset_id"),
+        locationId = json.getString("location_id"),
+        objectKey = json.getString("object_key"),
+        encoding = json.getString("encoding"),
+        storedByteSize = json.getLong("stored_byte_size"),
+        storedSha256 = json.getString("stored_sha256"),
+        createdAt = json.getLong("created_at"),
+    )
+
+    private fun parseAsset(json: JSONObject): HolderAsset {
+        val placements = json.getJSONArray("placements")
+        return HolderAsset(
+            assetId = json.getString("asset_id"),
+            resourceId = json.getString("resource_id"),
+            originalFilename = json.getString("original_filename"),
+            mediaType = json.getString("media_type"),
+            byteSize = json.getLong("byte_size"),
+            plaintextSha256 = json.getString("plaintext_sha256"),
+            createdAt = json.getLong("created_at"),
+            updatedAt = json.getLong("updated_at"),
+            placements = List(placements.length()) { index -> parsePlacement(placements.getJSONObject(index)) },
+        )
+    }
+
+    private fun parseResourceBundle(json: JSONObject): HolderResource {
+        val resource = json.getJSONObject("resource")
+        val assets = json.getJSONArray("assets")
+        return HolderResource(
+            resourceId = resource.getString("resource_id"),
+            projectId = resource.getString("project_id"),
+            type = resource.getString("type"),
+            label = resource.getString("label"),
+            createdAt = resource.getLong("created_at"),
+            updatedAt = resource.getLong("updated_at"),
+            assets = List(assets.length()) { index -> parseAsset(assets.getJSONObject(index)) },
+        )
+    }
 
     /** Mirrors holder-daemon's Bootstrap.cpp: first line, only if it's a markdown heading. */
     private fun deriveWelcomeTitle(content: String, fallback: String): String {

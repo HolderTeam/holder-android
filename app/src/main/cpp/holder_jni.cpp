@@ -1270,3 +1270,160 @@ Java_team_holder_android_HolderNative_nativeRecoveryTokenImportGlobal(
   }
   return string_result(env, json);
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeLocationList(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_location_list(context, project_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeLocationPutJson(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring location_json
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars location_json_chars(env, location_json);
+  if (location_json_chars.get() == nullptr) {
+    throw_runtime(env, "location_json must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_location_put_json(context, location_json_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeResourceGet(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring resource_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars resource_id_chars(env, resource_id);
+  if (resource_id_chars.get() == nullptr) {
+    throw_runtime(env, "resource_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_resource_get(context, resource_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeAssetImportFile(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring card_id,
+    jstring location_id,
+    jstring source_file_path
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars card_id_chars(env, card_id);
+  UtfChars location_id_chars(env, location_id);
+  UtfChars source_file_path_chars(env, source_file_path);
+  if (project_id_chars.get() == nullptr || card_id_chars.get() == nullptr ||
+      location_id_chars.get() == nullptr || source_file_path_chars.get() == nullptr) {
+    throw_runtime(env, "project_id, card_id, location_id, and source_file_path must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_asset_import_file(
+      context, project_id_chars.get(), card_id_chars.get(), location_id_chars.get(),
+      source_file_path_chars.get(), &json, &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_team_holder_android_HolderNative_nativeAssetRetrieve(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring resource_id,
+    jstring asset_id,
+    jstring placement_id,
+    jstring destination_file_path
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return;
+  }
+
+  UtfChars resource_id_chars(env, resource_id);
+  UtfChars asset_id_chars(env, asset_id);
+  UtfChars placement_id_chars(env, placement_id);
+  UtfChars destination_file_path_chars(env, destination_file_path);
+  if (resource_id_chars.get() == nullptr || asset_id_chars.get() == nullptr ||
+      placement_id_chars.get() == nullptr || destination_file_path_chars.get() == nullptr) {
+    throw_runtime(env, "resource_id, asset_id, placement_id, and destination_file_path must not be null");
+    return;
+  }
+
+  holder_error* error = nullptr;
+  const int rc = holder_asset_retrieve(
+      context, resource_id_chars.get(), asset_id_chars.get(), placement_id_chars.get(),
+      destination_file_path_chars.get(), &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+  }
+}

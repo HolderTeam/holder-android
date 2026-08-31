@@ -36,6 +36,7 @@ import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
+import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.screens.TagResultsScreen
@@ -57,6 +58,12 @@ class MainActivity : ComponentActivity() {
                 welcomeContent = assets.open("WELCOME.md").bufferedReader().use { it.readText() },
             )
         }.exceptionOrNull()
+
+        // Safe and cheap regardless of initError or whether Drive is actually connected --
+        // holder-core only ever calls into it for a project that has a google-drive
+        // Location. See GoogleDriveConnection's doc comment for why this is process-wide
+        // registration, not something scoped to a project or a screen.
+        GoogleDriveConnection.registerProvider(this)
 
         // Restores the background-sync schedule on every process start: a fresh process has
         // no memory of a periodic work request enqueued in a past one, only what WorkManager

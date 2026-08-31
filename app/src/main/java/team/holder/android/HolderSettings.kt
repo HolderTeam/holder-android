@@ -27,6 +27,8 @@ object HolderSettings {
     private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
+    private val DRIVE_CONNECTED_ACCOUNT_EMAIL = stringPreferencesKey("drive_connected_account_email")
+    private val DRIVE_FOLDER_ID = stringPreferencesKey("drive_folder_id")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -122,5 +124,30 @@ object HolderSettings {
 
     suspend fun setTrimWhitespaceInCodeBlocks(context: Context, enabled: Boolean) {
         context.settingsDataStore.edit { it[TRIM_WHITESPACE_IN_CODE_BLOCKS] = enabled }
+    }
+
+    /** Null when Drive isn't connected. Not a secret -- just which account to show in
+     * Settings and to pass to GoogleDriveAuth.authorize so it can skip the account picker.
+     * See GoogleDriveAuth's doc comment for why no token is stored anywhere at all. */
+    fun driveConnectedAccountEmail(context: Context): Flow<String?> =
+        context.settingsDataStore.data.map { it[DRIVE_CONNECTED_ACCOUNT_EMAIL] }
+
+    suspend fun setDriveConnectedAccountEmail(context: Context, email: String?) {
+        context.settingsDataStore.edit {
+            if (email == null) it.remove(DRIVE_CONNECTED_ACCOUNT_EMAIL) else it[DRIVE_CONNECTED_ACCOUNT_EMAIL] = email
+        }
+    }
+
+    /** The id of the single well-known "Holder/Resources" Drive folder every project's
+     * google-drive Location shares -- see GoogleDriveStorageProvider's doc comment for why
+     * one global folder, not one per project, is today's deliberate simplification. Null
+     * until Drive has been connected once. */
+    fun driveFolderId(context: Context): Flow<String?> =
+        context.settingsDataStore.data.map { it[DRIVE_FOLDER_ID] }
+
+    suspend fun setDriveFolderId(context: Context, folderId: String?) {
+        context.settingsDataStore.edit {
+            if (folderId == null) it.remove(DRIVE_FOLDER_ID) else it[DRIVE_FOLDER_ID] = folderId
+        }
     }
 }

@@ -12,6 +12,9 @@ navigationCompose = "2.9.8"
 commonmark = "0.30.0"
 datastorePreferences = "1.2.1"
 workRuntimeKtx = "2.11.2"
+playServicesAuth = "22.0.0"
+okhttp = "5.5.0"
+coroutinesPlayServices = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +41,9 @@ commonmark-ext-autolink = { group = "org.commonmark", name = "commonmark-ext-aut
 commonmark-ext-gfm-alerts = { group = "org.commonmark", name = "commonmark-ext-gfm-alerts", version.ref = "commonmark" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntimeKtx" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
