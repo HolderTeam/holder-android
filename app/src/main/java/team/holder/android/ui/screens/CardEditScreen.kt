@@ -9,7 +9,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -272,18 +270,7 @@ fun CardEditScreen(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            if (pendingConnectUri != null) {
-                Column(modifier = Modifier.padding(bottom = 8.dp)) {
-                    Text("Connect Google Drive to attach this photo.")
-                    Row {
-                        Button(onClick = connectAndRetryAttach, enabled = !attaching) { Text("Connect") }
-                        TextButton(
-                            onClick = { pendingConnectUri = null },
-                            enabled = !attaching,
-                        ) { Text("Cancel") }
-                    }
-                }
-            } else if (attachError != null) {
+            if (attachError != null) {
                 Text(
                     text = "Couldn't attach photo: $attachError",
                     color = MaterialTheme.colorScheme.error,
@@ -322,6 +309,20 @@ fun CardEditScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
+            },
+        )
+    }
+
+    if (pendingConnectUri != null) {
+        AlertDialog(
+            onDismissRequest = { if (!attaching) pendingConnectUri = null },
+            title = { Text("Connect Google Drive?") },
+            text = { Text("Attaching a photo stores it in your own Google Drive.") },
+            confirmButton = {
+                TextButton(enabled = !attaching, onClick = connectAndRetryAttach) { Text("Connect") }
+            },
+            dismissButton = {
+                TextButton(enabled = !attaching, onClick = { pendingConnectUri = null }) { Text("Cancel") }
             },
         )
     }
