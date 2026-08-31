@@ -2,6 +2,7 @@ package team.holder.android
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -38,6 +39,28 @@ class ComposeUiTest {
         composeRule.onNodeWithText("First item").assertIsDisplayed()
         composeRule.onNodeWithText("Second item").assertIsDisplayed()
         composeRule.onNodeWithText("Another card").assertIsDisplayed()
+    }
+
+    @Test
+    fun markdownViewer_resourceImageReference_fallsBackToAnErrorRatherThanCrashing() {
+        // No HolderNative.initialize() in this isolated test -- HolderNative.getResource
+        // throws deterministically, exercising ResourceImage's failure path (and proving a
+        // resource-image paragraph doesn't take down the rest of the document with it).
+        composeRule.setContent {
+            HolderMarkdownViewer(
+                markdown = "Before.\n\n![Holiday photo](holder://resource/some-id)\n\nAfter.",
+                projectId = "project-1",
+                cardId = null,
+                onNavigateToCard = { _, _ -> },
+                onNavigateToTag = {},
+            )
+        }
+
+        composeRule.onNodeWithText("Before.").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Couldn't load image", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("After.").assertIsDisplayed()
     }
 
     @Test

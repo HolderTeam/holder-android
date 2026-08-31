@@ -9,14 +9,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +40,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
@@ -47,6 +51,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import team.holder.android.R
 
 private val HEADING_REGEX = Regex("(?m)^#{1,6}[ \t].*$")
 private val BOLD_REGEX = Regex("\\*\\*[^*\n]+\\*\\*|__[^_\n]+__")
@@ -244,9 +249,18 @@ private fun TextFieldState.toggleHeading() {
  * A row of quick-insert buttons for touch typing, since raw Markdown syntax (`**`, `` ` ``,
  * `[[`) is tedious to type by hand on a soft keyboard. Acts on [state] directly; the caller
  * decides which field that is (only the body makes sense to format).
+ *
+ * [onAttachPhoto] is null to hide the attach button entirely (the caller decides when
+ * attaching makes sense at all -- e.g. not on a card that doesn't exist yet); [attaching]
+ * shows a progress spinner in its place while a previously-triggered attach is in flight.
  */
 @Composable
-fun MarkdownFormattingToolbar(state: TextFieldState, modifier: Modifier = Modifier) {
+fun MarkdownFormattingToolbar(
+    state: TextFieldState,
+    modifier: Modifier = Modifier,
+    onAttachPhoto: (() -> Unit)? = null,
+    attaching: Boolean = false,
+) {
     Row(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceContainer)
@@ -271,6 +285,13 @@ fun MarkdownFormattingToolbar(state: TextFieldState, modifier: Modifier = Modifi
         }
         IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
             Text("[[ ]]")
+        }
+        if (attaching) {
+            CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
+        } else if (onAttachPhoto != null) {
+            IconButton(onClick = onAttachPhoto) {
+                Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
+            }
         }
     }
 }

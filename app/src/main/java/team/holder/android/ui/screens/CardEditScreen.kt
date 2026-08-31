@@ -1,6 +1,9 @@
 package team.holder.android.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,15 +33,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
 import team.holder.android.R
 import team.holder.android.combineTitleAndBody
+import team.holder.android.resource.attachPickedPhoto
 import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
@@ -52,6 +59,11 @@ fun CardEditScreen(
     initialContent: String,
     saving: Boolean,
     errorMessage: String? = null,
+    // Attaching a photo needs a real, already-persisted card to attach to -- cardId is null
+    // for the "new card" screen (see MainActivity's "projects/{projectId}/cards/new" route),
+    // which hides the attach button entirely rather than offering something that would fail.
+    projectId: String = "",
+    cardId: String? = null,
     onSave: (title: String, content: String) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -83,6 +95,24 @@ fun CardEditScreen(
         titleState.undoState
     } else {
         separateBodyState.undoState
+    }
+    val activeBodyState = if (separateTitle) separateBodyState else firstLineBodyState
+
+    val scope = rememberCoroutineScope()
+    var attaching by remember { mutableStateOf(false) }
+    var attachError by remember { mutableStateOf<String?>(null) }
+    val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null || cardId == null) return@rememberLauncherForActivityResult
+        attachError = null
+        attaching = true
+        scope.launch {
+            val result = runCatching { attachPickedPhoto(context, projectId, cardId, uri) }
+            attaching = false
+            result.fold(
+                onSuccess = { markdown -> insertOwnLine(activeBodyState, markdown) },
+                onFailure = { failure -> attachError = failure.message ?: failure::class.java.simpleName },
+            )
+        }
     }
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
@@ -165,8 +195,16 @@ fun CardEditScreen(
             // there's only the one field.
             if (!separateTitle || !titleFocused) {
                 MarkdownFormattingToolbar(
-                    state = if (separateTitle) separateBodyState else firstLineBodyState,
+                    state = activeBodyState,
                     modifier = Modifier.fillMaxWidth().imePadding(),
+                    // Attaching needs a real, already-persisted card (see AssetImportService)
+                    // -- null on the "new card" screen, which hides the button entirely.
+                    onAttachPhoto = if (cardId != null && !attaching) {
+                        { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    } else {
+                        null
+                    },
+                    attaching = attaching,
                 )
             }
         },
@@ -175,6 +213,13 @@ fun CardEditScreen(
             if (errorMessage != null) {
                 Text(
                     text = "Failed to save: $errorMessage",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            if (attachError != null) {
+                Text(
+                    text = "Couldn't attach photo: $attachError",
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
@@ -213,5 +258,22 @@ fun CardEditScreen(
                 TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
             },
         )
+    }
+}
+
+/** Inserts [text] at the cursor on its own line -- a blank line before it unless the cursor
+ * is already at the start of a line, always a trailing newline -- mirroring
+ * holder-desktop's MarkdownResourceImageController.block_insertion for the same
+ * `![label](holder://resource/<id>)` references, so a card edited on either platform ends up
+ * with the same shape around an attached image. */
+@OptIn(ExperimentalFoundationApi::class)
+private fun insertOwnLine(state: TextFieldState, text: String) {
+    state.edit {
+        val cursor = selection.start
+        val content = asCharSequence()
+        val atLineStart = cursor == 0 || content[cursor - 1] == '\n'
+        val insertion = (if (atLineStart) "" else "\n") + text + "\n"
+        replace(cursor, cursor, insertion)
+        placeCursorBeforeCharAt(cursor + insertion.length)
     }
 }

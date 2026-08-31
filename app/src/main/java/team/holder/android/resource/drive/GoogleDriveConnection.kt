@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import team.holder.android.HolderLocation
+import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
 import team.holder.android.resource.AndroidStorageProviderBridge
 
@@ -65,6 +67,27 @@ object GoogleDriveConnection {
         val appContext = context.applicationContext
         HolderSettings.setDriveConnectedAccountEmail(appContext, null)
         HolderSettings.setDriveFolderId(appContext, null)
+    }
+
+    /** Ensures projectId has a "google-drive" Location pointing at the connected Drive
+     * folder, reusing one if this project already has it (e.g. from an earlier attach)
+     * rather than creating a duplicate every time. Throws [GoogleDriveAuthException] if
+     * Drive isn't connected. */
+    suspend fun ensureLocationForProject(context: Context, projectId: String): HolderLocation {
+        val appContext = context.applicationContext
+        val folderId = HolderSettings.driveFolderId(appContext).first()
+            ?: throw GoogleDriveAuthException("Connect Google Drive in Settings first")
+        return withContext(Dispatchers.IO) {
+            HolderNative.listLocations(projectId).firstOrNull { it.provider == DRIVE_PROVIDER_NAME }
+                ?: HolderNative.putLocation(
+                    locationId = java.util.UUID.randomUUID().toString(),
+                    projectId = projectId,
+                    name = "Google Drive",
+                    provider = DRIVE_PROVIDER_NAME,
+                    configuration = mapOf("folder_id" to folderId),
+                    now = System.currentTimeMillis() / 1000,
+                )
+        }
     }
 
     private fun requireStoredFolderId(context: Context): String =

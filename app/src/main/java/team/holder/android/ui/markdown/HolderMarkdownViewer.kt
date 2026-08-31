@@ -1,7 +1,9 @@
 package team.holder.android.ui.markdown
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,8 +31,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -43,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +73,7 @@ import org.commonmark.node.Emphasis
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
 import org.commonmark.node.Heading
+import org.commonmark.node.Image as MdImage
 import org.commonmark.node.IndentedCodeBlock
 import org.commonmark.node.Link
 import org.commonmark.node.ListItem
@@ -82,6 +90,13 @@ import team.holder.android.HolderNative
 
 private val WIKILINK_REGEX = Regex("\\[\\[([^\\]\n]+)\\]\\]")
 private const val HOLDER_LINK_SCHEME = "holder-link:"
+
+// The same scheme holder-desktop's MarkdownResourceImageController already renders --
+// `![label](holder://resource/<resource-id>)`. Only recognized when it's the entire
+// paragraph (see the Paragraph branch in MarkdownBlock below), matching desktop's own
+// restriction: a resource image mixed inline with other text just falls back to plain link
+// rendering rather than an attempt at inline bitmap layout.
+private const val HOLDER_RESOURCE_SCHEME = "holder://resource/"
 
 // Roughly matches GitHub's own alert accent colors; doesn't need to be pixel-exact.
 private val ALERT_COLORS = mapOf(
@@ -100,6 +115,17 @@ private fun Node.children(): List<Node> {
         child = child.next
     }
     return result
+}
+
+/** The literal text inside node's subtree -- used for an MdImage's alt text (its children are
+ * the `[...]` contents, themselves ordinary inline nodes like any other), not for anything
+ * that needs real inline formatting. */
+private fun plainText(node: Node): String = buildString {
+    fun visit(current: Node) {
+        if (current is MdText) append(current.literal)
+        current.children().forEach(::visit)
+    }
+    visit(node)
 }
 
 /** Rewrites `[[Name]]` into an ordinary Markdown link with a custom scheme, so a vanilla
@@ -240,10 +266,26 @@ private fun MarkdownBlock(
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
-        is Paragraph -> Text(
-            text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
+        is Paragraph -> {
+            val soleImage = node.firstChild as? MdImage
+            val resourceId = soleImage
+                ?.takeIf { it === node.lastChild }
+                ?.destination
+                ?.takeIf { it.startsWith(HOLDER_RESOURCE_SCHEME) }
+                ?.removePrefix(HOLDER_RESOURCE_SCHEME)
+            if (resourceId != null) {
+                ResourceImage(
+                    resourceId = resourceId,
+                    altText = plainText(soleImage),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                )
+            } else {
+                Text(
+                    text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
         is BulletList -> Column(modifier = Modifier.padding(start = 16.dp)) {
             for (item in node.children()) {
                 if (item is ListItem) {
@@ -496,5 +538,63 @@ private fun appendInline(
             else -> appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
         }
         child = child.next
+    }
+}
+
+private sealed interface ResourceImageState {
+    object Loading : ResourceImageState
+    data class Loaded(val bitmap: ImageBitmap) : ResourceImageState
+    data class Failed(val message: String) : ResourceImageState
+}
+
+/** Bytes are cached on disk, not just in memory -- see the plan's own success criterion:
+ * restarting Holder and reopening the card must still render the image without re-touching
+ * Drive every time, while the very first load (or a load after the cache is cleared) still
+ * genuinely round-trips through HolderNative.retrieveAsset -- see AssetImportService::retrieve
+ * in holder-core for the integrity check that guards what lands in this file. */
+private fun resourceImageCacheFile(context: android.content.Context, resourceId: String): File =
+    File(context.cacheDir, "resource-images/$resourceId.bin")
+
+@Composable
+private fun ResourceImage(resourceId: String, altText: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var state by remember(resourceId) { mutableStateOf<ResourceImageState>(ResourceImageState.Loading) }
+
+    LaunchedEffect(resourceId) {
+        state = ResourceImageState.Loading
+        state = runCatching {
+            withContext(Dispatchers.IO) {
+                val cacheFile = resourceImageCacheFile(context, resourceId)
+                if (!cacheFile.exists()) {
+                    val resource = HolderNative.getResource(resourceId)
+                    val asset = resource.assets.firstOrNull() ?: error("resource has no asset")
+                    val placement = asset.placements.firstOrNull() ?: error("asset has no placement")
+                    cacheFile.parentFile?.mkdirs()
+                    HolderNative.retrieveAsset(resourceId, asset.assetId, placement.placementId, cacheFile.absolutePath)
+                }
+                BitmapFactory.decodeFile(cacheFile.absolutePath)?.asImageBitmap()
+                    ?: error("could not decode image")
+            }
+        }.fold(
+            onSuccess = { bitmap -> ResourceImageState.Loaded(bitmap) },
+            onFailure = { failure -> ResourceImageState.Failed(failure.message ?: failure::class.java.simpleName) },
+        )
+    }
+
+    when (val current = state) {
+        is ResourceImageState.Loading -> Box(
+            modifier = modifier.height(160.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) { CircularProgressIndicator() }
+        is ResourceImageState.Failed -> Text(
+            text = "Couldn't load image \"$altText\": ${current.message}",
+            color = MaterialTheme.colorScheme.error,
+            modifier = modifier,
+        )
+        is ResourceImageState.Loaded -> Image(
+            bitmap = current.bitmap,
+            contentDescription = altText,
+            modifier = modifier,
+        )
     }
 }
