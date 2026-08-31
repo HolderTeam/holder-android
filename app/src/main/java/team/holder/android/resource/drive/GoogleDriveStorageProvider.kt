@@ -132,8 +132,14 @@ class GoogleDriveStorageProvider(
     // -- internals --
 
     private fun accessTokenOrThrow(): String {
-        val email = runBlocking { HolderSettings.driveConnectedAccountEmail(context).first() }
+        // driveFolderId, not driveConnectedAccountEmail, is the real "connected" signal --
+        // see HolderSettings.driveFolderId's doc comment and the same reasoning in
+        // SettingsScreen. Email is passed to authorize() as a hint when available (helps
+        // Play Services target the right account silently on a multi-account device) but
+        // its absence must never block an otherwise-working connection.
+        runBlocking { HolderSettings.driveFolderId(context).first() }
             ?: throw StorageProviderFailure(StorageErrorCode.AUTHENTICATION, "Google Drive is not connected")
+        val email = runBlocking { HolderSettings.driveConnectedAccountEmail(context).first() }
         val authorization = runBlocking {
             GoogleDriveAuth.authorize(context, email) {
                 // Uploads/downloads run on a background thread with no Activity available to
