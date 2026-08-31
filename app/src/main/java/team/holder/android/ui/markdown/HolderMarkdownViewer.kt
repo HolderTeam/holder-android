@@ -555,8 +555,13 @@ private sealed interface ResourceImageState {
 private fun resourceImageCacheFile(context: android.content.Context, resourceId: String): File =
     File(context.cacheDir, "resource-images/$resourceId.bin")
 
+/** Downloads (or reads back from an on-disk cache), decodes, and renders a Resource's image
+ * bytes -- internal, not private, so [team.holder.android.ui.screens.ConnectionsScreen] can
+ * reuse it for a small attachment thumbnail rather than duplicating the retrieve/decode/cache
+ * logic. The loading placeholder sizes to its spinner rather than a fixed height, so it looks
+ * right both as a full-width inline image and as a small thumbnail -- size it via [modifier]. */
 @Composable
-private fun ResourceImage(resourceId: String, altText: String, modifier: Modifier = Modifier) {
+internal fun ResourceImage(resourceId: String, altText: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var state by remember(resourceId) { mutableStateOf<ResourceImageState>(ResourceImageState.Loading) }
 
@@ -583,7 +588,7 @@ private fun ResourceImage(resourceId: String, altText: String, modifier: Modifie
 
     when (val current = state) {
         is ResourceImageState.Loading -> Box(
-            modifier = modifier.height(160.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) { CircularProgressIndicator() }
         is ResourceImageState.Failed -> Text(

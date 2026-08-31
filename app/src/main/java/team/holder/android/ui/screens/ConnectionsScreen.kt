@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -35,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -57,6 +59,7 @@ import team.holder.android.HolderOutgoingLink
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.cardSequenceLinks
+import team.holder.android.ui.markdown.ResourceImage
 
 private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
 private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -192,6 +195,7 @@ fun ConnectionsScreen(
                     // attachment record) -- there's no card to navigate to or manage here; the
                     // image is already visible inline in the body.
                     val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
+                    val attachments = links.outgoing.filter { it.toType == "resource" }
                     val noConnections = links.parent == null && links.children.isEmpty() &&
                         navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
                         sequence.next == null && sequence.previous == null &&
@@ -232,6 +236,23 @@ fun ConnectionsScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        if (attachments.isNotEmpty()) {
+                            item { SectionHeader("Attachments") }
+                            items(attachments, key = { "attachment:${it.toCardId}" }) { link ->
+                                ListItem(
+                                    leadingContent = {
+                                        ResourceImage(
+                                            resourceId = link.toCardId,
+                                            altText = link.label ?: "Photo",
+                                            modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
+                                        )
+                                    },
+                                    headlineContent = {
+                                        Text(link.label ?: "Photo", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    },
+                                )
                             }
                         }
                         if (noConnections) {
