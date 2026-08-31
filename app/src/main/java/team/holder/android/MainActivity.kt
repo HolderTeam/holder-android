@@ -37,6 +37,7 @@ import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.resource.drive.GoogleDriveConnection
+import team.holder.android.resource.s3.S3Connection
 import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.screens.TagResultsScreen
@@ -59,11 +60,14 @@ class MainActivity : ComponentActivity() {
             )
         }.exceptionOrNull()
 
-        // Safe and cheap regardless of initError or whether Drive is actually connected --
-        // holder-core only ever calls into it for a project that has a google-drive
-        // Location. See GoogleDriveConnection's doc comment for why this is process-wide
-        // registration, not something scoped to a project or a screen.
+        // Safe and cheap regardless of initError or whether Drive/S3 is actually connected --
+        // holder-core only ever calls into either for a project that has a matching Location,
+        // including one synced in from desktop rather than created on this device (e.g. a
+        // GTK-created s3_compatible Location becomes retrievable here the moment S3 is
+        // connected in Settings, no attach required). See GoogleDriveConnection/S3Connection's
+        // doc comments for why this is process-wide registration, not scoped to a project.
         GoogleDriveConnection.registerProvider(this)
+        S3Connection.registerProvider(this)
 
         // Restores the background-sync schedule on every process start: a fresh process has
         // no memory of a periodic work request enqueued in a past one, only what WorkManager

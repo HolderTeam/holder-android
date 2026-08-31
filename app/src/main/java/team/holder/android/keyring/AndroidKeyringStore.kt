@@ -76,6 +76,30 @@ object AndroidKeyringStore {
         return String(cipher.doFinal(ciphertext), Charsets.UTF_8)
     }
 
+    /** Stores an arbitrary Android-only local secret (e.g. an S3 secret access key) under
+     * the same AndroidKeyStore-backed AES-256-GCM encryption this object already uses for
+     * holder-core's own keyring secrets -- callable directly from Kotlin, not just via the
+     * JNI seam below. For secrets that are purely local device config and never flow through
+     * holder-core's project-key model (which S3 credentials aren't -- see
+     * [team.holder.android.resource.s3.S3Connection]). Takes [context] directly rather than
+     * relying on [registerWithNative] having already been called, since callers of this may
+     * run before that registration happens. */
+    fun storeLocalSecret(context: Context, key: String, secret: String) {
+        localSecretPrefs(context).edit().putString(localSecretKey(key), encrypt(secret)).apply()
+    }
+
+    fun getLocalSecret(context: Context, key: String): String? =
+        localSecretPrefs(context).getString(localSecretKey(key), null)?.let(::decrypt)
+
+    fun removeLocalSecret(context: Context, key: String) {
+        localSecretPrefs(context).edit().remove(localSecretKey(key)).apply()
+    }
+
+    private fun localSecretPrefs(context: Context): SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun localSecretKey(key: String) = "local_secret:$key"
+
     /** Registers this store as holder-core's platform keyring provider for the process.
      * Idempotent -- only the first call actually registers. */
     @Synchronized

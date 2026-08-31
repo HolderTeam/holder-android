@@ -3,6 +3,7 @@ package team.holder.android.resource
 import android.content.Context
 import team.holder.android.HolderLocation
 import team.holder.android.resource.drive.GoogleDriveConnection
+import team.holder.android.resource.s3.S3Connection
 
 /**
  * Routes an attach flow's "ensure I have a Location to write into" step to whichever connected
@@ -16,6 +17,7 @@ import team.holder.android.resource.drive.GoogleDriveConnection
 object ConnectedStorageProviders {
     private val ensureLocation: Map<String, suspend (Context, String) -> HolderLocation> = mapOf(
         GoogleDriveConnection.PROVIDER_ID to GoogleDriveConnection::ensureLocationForProject,
+        S3Connection.PROVIDER_ID to S3Connection::ensureLocationForProject,
     )
 
     suspend fun ensureLocationForProject(context: Context, projectId: String, providerId: String): HolderLocation =
