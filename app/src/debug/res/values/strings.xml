@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-variant override of app_name (main: app/src/main/res/values/strings.xml), so a
+     locally-built debug install is visually distinct on the home screen from a real release
+     install alongside it. See the debug buildType comment in app/build.gradle.kts for why
+     they can now coexist as separate apps. -->
+<resources>
+    <string name="app_name">Holder Debug</string>
+</resources>

@@ -76,6 +76,22 @@ android {
                 enable = false
             }
         }
+        debug {
+            // Distinct applicationId so a locally-built debug APK installs alongside a real
+            // release install rather than overwriting it -- Android sandboxes app data per
+            // applicationId, so this gets the debug build a fully separate data directory,
+            // database, and SharedPreferences automatically. FileProvider authorities in this
+            // app are already built from ${applicationId}/context.packageName rather than a
+            // hardcoded literal, so this doesn't need any FileProvider changes.
+            //
+            // The Google Drive "Android" OAuth client is matched by Google against package
+            // name + signing certificate SHA-1, not an embedded client ID, so a debug build
+            // under this new applicationId needs its own OAuth client registered in Google
+            // Cloud Console (package name "team.holder.android.debug", SHA-1 from `./gradlew
+            // signingReport`'s debug variant) before Drive sign-in will work in debug builds.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
