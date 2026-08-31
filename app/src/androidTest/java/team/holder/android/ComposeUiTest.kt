@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -125,6 +126,10 @@ class ComposeUiTest {
         // device. The point of this test is that the whole screen, including the new Google
         // Drive row, composes and renders without throwing.
         composeRule.onNodeWithText("Google Drive").assertIsDisplayed()
-        composeRule.onNodeWithText("Background git sync").assertIsDisplayed()
+        // performScrollTo() first: on a shorter screen (the CI managed devices' Pixel 2
+        // profile, unlike a local emulator with more vertical space) this row is below the
+        // fold by default -- scrolling to it is also a real regression check that the screen
+        // is genuinely scrollable, not just that this text exists somewhere in the tree.
+        composeRule.onNodeWithText("Background git sync").performScrollTo().assertIsDisplayed()
     }
 }
