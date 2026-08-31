@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the resource-attachments cache subdirectory is exposed via FileProvider.
+     See AndroidManifest.xml's provider entry and
+     team.holder.android.resource.openResourceExternally. -->
+<paths>
+    <cache-path name="resource_attachments" path="resource-attachments/" />
+</paths>

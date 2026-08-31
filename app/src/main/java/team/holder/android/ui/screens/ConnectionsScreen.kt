@@ -38,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -56,11 +58,15 @@ import team.holder.android.HolderCardLinks
 import team.holder.android.HolderMilestone
 import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
+import team.holder.android.R
+import team.holder.android.resource.openResourceExternally
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.cardSequenceLinks
+import team.holder.android.ui.markdown.ResourceAttachmentKind
 import team.holder.android.ui.markdown.ResourceImage
 import team.holder.android.ui.markdown.ResourceImageViewerDialog
+import team.holder.android.ui.markdown.rememberResourceAttachmentKind
 
 private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
 private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -243,22 +249,7 @@ fun ConnectionsScreen(
                         if (attachments.isNotEmpty()) {
                             item { SectionHeader("Attachments") }
                             items(attachments, key = { "attachment:${it.toCardId}" }) { link ->
-                                ListItem(
-                                    leadingContent = {
-                                        ResourceImage(
-                                            resourceId = link.toCardId,
-                                            altText = link.label ?: "Photo",
-                                            modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
-                                        )
-                                    },
-                                    headlineContent = {
-                                        Text(link.label ?: "Photo", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    },
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = { viewerAttachment = link },
-                                        onLongClick = {},
-                                    ),
-                                )
+                                AttachmentRow(link = link, onOpenImage = { viewerAttachment = link })
                             }
                         }
                         if (noConnections) {
@@ -431,6 +422,62 @@ private fun DateRow(label: String, epochSeconds: Long) {
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
     )
+}
+
+/** A single Attachments-list row: an image thumbnail (tap opens the full-screen viewer,
+ * via [onOpenImage]) or a generic file icon (tap opens externally, via
+ * [team.holder.android.resource.openResourceExternally]) -- decided the same way
+ * [team.holder.android.ui.markdown.ResourceAttachment] decides it for an inline body
+ * reference, by the Resource's own recorded media type, not by guesswork. */
+@Composable
+private fun AttachmentRow(link: HolderOutgoingLink, onOpenImage: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var openError by remember(link.toCardId) { mutableStateOf<String?>(null) }
+    val displayName = link.label ?: "Attachment"
+    val kind = rememberResourceAttachmentKind(link.toCardId, displayName)
+
+    Column {
+        ListItem(
+            leadingContent = {
+                if (kind is ResourceAttachmentKind.Image) {
+                    ResourceImage(
+                        resourceId = link.toCardId,
+                        altText = displayName,
+                        modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
+                    )
+                } else {
+                    Icon(
+                        painterResource(R.drawable.ic_file),
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp).padding(8.dp),
+                    )
+                }
+            },
+            headlineContent = { Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            modifier = Modifier.combinedClickable(
+                onClick = {
+                    if (kind is ResourceAttachmentKind.Image) {
+                        onOpenImage()
+                    } else {
+                        openError = null
+                        scope.launch {
+                            runCatching { openResourceExternally(context, link.toCardId) }
+                                .onFailure { failure -> openError = failure.message ?: failure::class.java.simpleName }
+                        }
+                    }
+                },
+                onLongClick = {},
+            ),
+        )
+        openError?.let { message ->
+            Text(
+                text = "Couldn't open \"$displayName\": $message",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            )
+        }
+    }
 }
 
 /** A single-line "Label: Title" row (e.g. "Next: Finish The Split") for connections that carry

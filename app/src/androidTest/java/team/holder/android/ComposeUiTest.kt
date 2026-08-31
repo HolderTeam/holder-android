@@ -45,8 +45,10 @@ class ComposeUiTest {
     @Test
     fun markdownViewer_resourceImageReference_fallsBackToAnErrorRatherThanCrashing() {
         // No HolderNative.initialize() in this isolated test -- HolderNative.getResource
-        // throws deterministically, exercising ResourceImage's failure path (and proving a
-        // resource-image paragraph doesn't take down the rest of the document with it).
+        // throws deterministically, exercising rememberResourceAttachmentKind's failure path
+        // (and proving a resource-image paragraph doesn't take down the rest of the document
+        // with it). The failure happens before the dispatch even knows whether this would
+        // have been an image or not, hence "attachment", not "image", in the message.
         composeRule.setContent {
             HolderMarkdownViewer(
                 markdown = "Before.\n\n![Holiday photo](holder://resource/some-id)\n\nAfter.",
@@ -59,7 +61,7 @@ class ComposeUiTest {
 
         composeRule.onNodeWithText("Before.").assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Couldn't load image", substring = true).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("Couldn't load attachment", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("After.").assertIsDisplayed()
     }

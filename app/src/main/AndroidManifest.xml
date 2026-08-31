@@ -25,6 +25,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Grants other apps read-only, revocable access to a downloaded Resource
+             attachment so it can be opened externally (ACTION_VIEW). See
+             team.holder.android.resource.openResourceExternally. Only the
+             resource-attachments cache subdirectory is exposed; see file_paths.xml. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

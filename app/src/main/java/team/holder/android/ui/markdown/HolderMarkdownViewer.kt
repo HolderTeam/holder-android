@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
@@ -91,6 +94,8 @@ import org.commonmark.node.Text as MdText
 import org.commonmark.parser.Parser
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
+import team.holder.android.R
+import team.holder.android.resource.openResourceExternally
 
 private val WIKILINK_REGEX = Regex("\\[\\[([^\\]\n]+)\\]\\]")
 private const val HOLDER_LINK_SCHEME = "holder-link:"
@@ -271,24 +276,27 @@ private fun MarkdownBlock(
             )
         }
         is Paragraph -> {
-            val soleImage = node.firstChild as? MdImage
-            val resourceId = soleImage
-                ?.takeIf { it === node.lastChild }
-                ?.destination
+            // A resource reference (image or plain link syntax -- see ResourceAttachment's
+            // own doc comment for why the markdown syntax used doesn't actually decide how
+            // it renders) only gets special treatment when it's the paragraph's entire
+            // content, matching holder-desktop's own MarkdownResourceImageController
+            // restriction: mixed inline with other text, it just falls back to plain link
+            // rendering below.
+            val soleChild = node.firstChild?.takeIf { it === node.lastChild }
+            val destination = when (soleChild) {
+                is MdImage -> soleChild.destination
+                is Link -> soleChild.destination
+                else -> null
+            }
+            val resourceId = destination
                 ?.takeIf { it.startsWith(HOLDER_RESOURCE_SCHEME) }
                 ?.removePrefix(HOLDER_RESOURCE_SCHEME)
-            if (resourceId != null) {
-                var viewerOpen by remember(resourceId) { mutableStateOf(false) }
-                val altText = plainText(soleImage)
-                ResourceImage(
+            if (resourceId != null && soleChild != null) {
+                ResourceAttachment(
                     resourceId = resourceId,
-                    altText = altText,
+                    label = plainText(soleChild),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    onClick = { viewerOpen = true },
                 )
-                if (viewerOpen) {
-                    ResourceImageViewerDialog(resourceId = resourceId, altText = altText, onDismiss = { viewerOpen = false })
-                }
             } else {
                 Text(
                     text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
@@ -671,6 +679,123 @@ internal fun ResourceImageViewerDialog(resourceId: String, altText: String, onDi
                 altText = altText,
                 maxDimensionPx = 2560,
                 modifier = Modifier.fillMaxSize().padding(16.dp),
+            )
+        }
+    }
+}
+
+/** Internal, not private -- [team.holder.android.ui.screens.ConnectionsScreen]'s
+ * Attachments list needs the same image-vs-file dispatch too, but its own row layout
+ * (separate thumbnail slot, headline text, whole-row click target) doesn't fit as a
+ * single black-box widget the way [ResourceAttachment] does for an inline body
+ * reference -- see [rememberResourceAttachmentKind]. */
+internal sealed interface ResourceAttachmentKind {
+    object Loading : ResourceAttachmentKind
+    object Image : ResourceAttachmentKind
+    data class File(val displayName: String) : ResourceAttachmentKind
+    data class Failed(val message: String) : ResourceAttachmentKind
+}
+
+/**
+ * Resolves whether resourceId is image-shaped or not, by its recorded media type -- not
+ * by whether the markdown that referenced it used `![...]` or `[...]` syntax, since a
+ * resource attached on another platform (or one whose markdown was hand-edited) can't be
+ * trusted to have used the syntax that matches its actual content. [label] is only used
+ * as the [ResourceAttachmentKind.File] fallback display name if the Resource has no
+ * recorded filename of its own.
+ */
+@Composable
+internal fun rememberResourceAttachmentKind(resourceId: String, label: String): ResourceAttachmentKind {
+    var kind by remember(resourceId) { mutableStateOf<ResourceAttachmentKind>(ResourceAttachmentKind.Loading) }
+    LaunchedEffect(resourceId) {
+        kind = runCatching {
+            withContext(Dispatchers.IO) {
+                HolderNative.getResource(resourceId).assets.firstOrNull() ?: error("resource has no asset")
+            }
+        }.fold(
+            onSuccess = { asset ->
+                if (asset.mediaType.startsWith("image/")) {
+                    ResourceAttachmentKind.Image
+                } else {
+                    ResourceAttachmentKind.File(asset.originalFilename.ifBlank { label })
+                }
+            },
+            onFailure = { failure -> ResourceAttachmentKind.Failed(failure.message ?: failure::class.java.simpleName) },
+        )
+    }
+    return kind
+}
+
+/**
+ * Renders a `holder://resource/<id>` reference as either an inline image (tap for
+ * full-screen) or a generic "open externally" file row -- see
+ * [rememberResourceAttachmentKind] for how that's decided. This is the one entry point
+ * [MarkdownBlock]'s Paragraph branch uses for a sole-child resource reference, image or
+ * not.
+ */
+@Composable
+internal fun ResourceAttachment(resourceId: String, label: String, modifier: Modifier = Modifier) {
+    when (val current = rememberResourceAttachmentKind(resourceId, label)) {
+        is ResourceAttachmentKind.Loading -> Box(
+            modifier = modifier.height(48.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) { CircularProgressIndicator() }
+        is ResourceAttachmentKind.Failed -> Text(
+            text = "Couldn't load attachment \"$label\": ${current.message}",
+            color = MaterialTheme.colorScheme.error,
+            modifier = modifier,
+        )
+        is ResourceAttachmentKind.Image -> {
+            var viewerOpen by remember(resourceId) { mutableStateOf(false) }
+            ResourceImage(resourceId = resourceId, altText = label, modifier = modifier, onClick = { viewerOpen = true })
+            if (viewerOpen) {
+                ResourceImageViewerDialog(resourceId = resourceId, altText = label, onDismiss = { viewerOpen = false })
+            }
+        }
+        is ResourceAttachmentKind.File -> ResourceFileRow(resourceId = resourceId, displayName = current.displayName, modifier = modifier)
+    }
+}
+
+/** A tap-to-open row for a non-image Resource -- downloads (or reuses the on-disk cache)
+ * and hands the bytes to whatever app the user has installed for it, via
+ * [openResourceExternally]. Failure (including "no app can open this") surfaces inline
+ * rather than crashing or failing silently. */
+@Composable
+private fun ResourceFileRow(resourceId: String, displayName: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var opening by remember(resourceId) { mutableStateOf(false) }
+    var openError by remember(resourceId) { mutableStateOf<String?>(null) }
+
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(enabled = !opening) {
+                    openError = null
+                    opening = true
+                    scope.launch {
+                        runCatching { openResourceExternally(context, resourceId) }
+                            .onFailure { failure -> openError = failure.message ?: failure::class.java.simpleName }
+                        opening = false
+                    }
+                }
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (opening) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            } else {
+                Icon(painterResource(R.drawable.ic_file), contentDescription = null, modifier = Modifier.size(24.dp))
+            }
+            Text(displayName, modifier = Modifier.padding(start = 8.dp))
+        }
+        openError?.let { message ->
+            Text(
+                text = "Couldn't open \"$displayName\": $message",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
