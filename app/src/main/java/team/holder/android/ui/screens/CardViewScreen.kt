@@ -286,8 +286,12 @@ private fun ConnectionsSummary(
 
     if (links == null) return
     val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
+    // Excludes "resource" links (a photo attached via the toolbar's structural attachment
+    // record) -- there's no card to navigate to, and the image is already visible inline in
+    // the body via its holder://resource/ reference.
+    val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
     val isEmpty = links.parent == null && links.children.isEmpty() &&
-        links.outgoing.isEmpty() && links.backlinks.isEmpty() &&
+        navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
         sequence.next == null && sequence.previous == null &&
         sequence.follows == null && sequence.precedes == null
     if (isEmpty) return
@@ -324,7 +328,7 @@ private fun ConnectionsSummary(
                 onNavigateToCard(child.cardId, child.title)
             }
         }
-        links.outgoing.forEach { link ->
+        navigableOutgoing.forEach { link ->
             ConnectionSummaryLinkRow(
                 label = HolderNative.linkKindLabel(link.kind, forward = true),
                 title = link.toTitle ?: link.toCardId,

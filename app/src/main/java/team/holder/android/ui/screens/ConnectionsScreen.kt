@@ -188,8 +188,12 @@ fun ConnectionsScreen(
                 is LoadState.Success -> {
                     val links = state.value
                     val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
+                    // Excludes "resource" links (a photo attached via the toolbar's structural
+                    // attachment record) -- there's no card to navigate to or manage here; the
+                    // image is already visible inline in the body.
+                    val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
                     val noConnections = links.parent == null && links.children.isEmpty() &&
-                        links.outgoing.isEmpty() && links.backlinks.isEmpty() &&
+                        navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
                         sequence.next == null && sequence.previous == null &&
                         sequence.follows == null && sequence.precedes == null
                     LazyColumn(modifier = Modifier.padding(innerPadding)) {
@@ -281,7 +285,7 @@ fun ConnectionsScreen(
                                     onNavigateToCard(child.cardId, child.title)
                                 }
                             }
-                            items(links.outgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
+                            items(navigableOutgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
                                 Box {
                                     ListItem(
                                         headlineContent = {
