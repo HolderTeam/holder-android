@@ -74,6 +74,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
     val trimWhitespaceInCodeBlocks by HolderSettings.trimWhitespaceInCodeBlocks(context).collectAsState(initial = false)
     val driveConnectedAccountEmail by HolderSettings.driveConnectedAccountEmail(context).collectAsState(initial = null)
+    // The folder id, not the email, is what actually determines "connected" -- it's always
+    // set on a successful connect, where the email is best-effort (see GoogleDriveAuth's
+    // EMAIL_SCOPE comment) and only ever used for display below.
+    val driveFolderId by HolderSettings.driveFolderId(context).collectAsState(initial = null)
+    val driveConnected = driveFolderId != null
     var driveConnecting by remember { mutableStateOf(false) }
     var driveError by remember { mutableStateOf<String?>(null) }
     // Bridges StartIntentSenderForResult's fixed, registration-time callback into the single
@@ -284,14 +289,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Google Drive")
                     Text(
-                        driveConnectedAccountEmail?.let { "Connected as $it" }
-                            ?: "Store photo attachments in your own Google Drive.",
+                        if (driveConnected) {
+                            driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected"
+                        } else {
+                            "Store photo attachments in your own Google Drive."
+                        },
                     )
                     driveError?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
                 }
                 when {
                     driveConnecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
-                    driveConnectedAccountEmail != null -> TextButton(
+                    driveConnected -> TextButton(
                         onClick = { scope.launch { GoogleDriveConnection.disconnect(context) } },
                     ) { Text("Disconnect") }
                     else -> Button(

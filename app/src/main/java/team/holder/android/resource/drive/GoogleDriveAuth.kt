@@ -12,6 +12,12 @@ import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.tasks.await
 
 private const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+// Requested purely so the result can carry back which account was authorized, for Settings'
+// "Connected as <email>" -- drive.file alone gives no reason for Google to return any
+// profile info at all, and toGoogleSignInAccount() has nothing to read an address from
+// without it. Non-sensitive scope, no extra verification tier, no extra consent screen --
+// Google presents it alongside drive.file in the same single consent step.
+private const val EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
 
 /** The one thing Holder keeps locally about a connected Drive account. Never a secret --
  * see [team.holder.android.HolderSettings.driveConnectedAccountEmail] for where it's stored,
@@ -52,7 +58,8 @@ object GoogleDriveAuth {
         resolveConsent: suspend (IntentSenderRequest) -> ActivityResult,
     ): DriveAuthorization {
         val client = Identity.getAuthorizationClient(context)
-        val requestBuilder = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(DRIVE_FILE_SCOPE)))
+        val requestBuilder = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(DRIVE_FILE_SCOPE), Scope(EMAIL_SCOPE)))
         if (accountEmail != null) requestBuilder.setAccount(Account(accountEmail, "com.google"))
 
         val initial = client.authorize(requestBuilder.build()).await()
