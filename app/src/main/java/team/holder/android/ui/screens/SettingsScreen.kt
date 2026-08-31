@@ -1,5 +1,8 @@
 package team.holder.android.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,15 +14,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,8 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
+import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.theme.HolderFontFamilyOption
 import team.holder.android.ui.theme.HolderFontSizeOption
@@ -63,6 +71,17 @@ fun SettingsScreen(onBack: () -> Unit) {
     val preserveTrailingWhitespace by HolderSettings.preserveTrailingWhitespace(context).collectAsState(initial = false)
     val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
     val trimWhitespaceInCodeBlocks by HolderSettings.trimWhitespaceInCodeBlocks(context).collectAsState(initial = false)
+    val driveConnectedAccountEmail by HolderSettings.driveConnectedAccountEmail(context).collectAsState(initial = null)
+    var driveConnecting by remember { mutableStateOf(false) }
+    var driveError by remember { mutableStateOf<String?>(null) }
+    // Bridges StartIntentSenderForResult's fixed, registration-time callback into the single
+    // suspend call GoogleDriveConnection.connect needs for the account/consent screen --
+    // there's at most one Drive connect attempt in flight at a time, so one slot is enough.
+    var pendingConsent by remember { mutableStateOf<CompletableDeferred<ActivityResult>?>(null) }
+    val consentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        pendingConsent?.complete(result)
+        pendingConsent = null
+    }
 
     // Keeps WorkManager's schedule in sync whenever either setting changes here, in addition
     // to the reconcile MainActivity does once at process start.
@@ -248,6 +267,44 @@ fun SettingsScreen(onBack: () -> Unit) {
                             scope.launch { HolderSettings.setTrimWhitespaceInCodeBlocks(context, enabled) }
                         },
                     )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Google Drive")
+                    Text(
+                        driveConnectedAccountEmail?.let { "Connected as $it" }
+                            ?: "Store photo attachments in your own Google Drive.",
+                    )
+                    driveError?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
+                }
+                when {
+                    driveConnecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+                    driveConnectedAccountEmail != null -> TextButton(
+                        onClick = { scope.launch { GoogleDriveConnection.disconnect(context) } },
+                    ) { Text("Disconnect") }
+                    else -> Button(
+                        onClick = {
+                            driveError = null
+                            driveConnecting = true
+                            scope.launch {
+                                runCatching {
+                                    GoogleDriveConnection.connect(context) { request ->
+                                        val deferred = CompletableDeferred<ActivityResult>()
+                                        pendingConsent = deferred
+                                        consentLauncher.launch(request)
+                                        deferred.await()
+                                    }
+                                }.onFailure { failure ->
+                                    driveError = failure.message ?: "Could not connect to Google Drive"
+                                }
+                                driveConnecting = false
+                            }
+                        },
+                    ) { Text("Connect") }
                 }
             }
 

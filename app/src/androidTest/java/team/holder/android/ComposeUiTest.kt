@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import team.holder.android.ui.markdown.HolderMarkdownViewer
 import team.holder.android.ui.screens.CardEditScreen
+import team.holder.android.ui.screens.SettingsScreen
 
 @RunWith(AndroidJUnit4::class)
 class ComposeUiTest {
@@ -88,5 +89,19 @@ class ComposeUiTest {
         composeRule.onNodeWithText("Discard").performClick()
 
         assertEquals(1, cancelCount)
+    }
+
+    @Test
+    fun settingsScreen_rendersWithoutCrashing() {
+        composeRule.setContent {
+            SettingsScreen(onBack = {})
+        }
+
+        // Not asserting Connect/Disconnect specifically -- Google Drive's connected state is
+        // real local DataStore state that can carry over between test runs on the same
+        // device. The point of this test is that the whole screen, including the new Google
+        // Drive row, composes and renders without throwing.
+        composeRule.onNodeWithText("Google Drive").assertIsDisplayed()
+        composeRule.onNodeWithText("Background git sync").assertIsDisplayed()
     }
 }
