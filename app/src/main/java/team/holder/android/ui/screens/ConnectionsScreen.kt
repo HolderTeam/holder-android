@@ -60,6 +60,7 @@ import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.cardSequenceLinks
 import team.holder.android.ui.markdown.ResourceImage
+import team.holder.android.ui.markdown.ResourceImageViewerDialog
 
 private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
 private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -92,6 +93,7 @@ fun ConnectionsScreen(
     var milestoneMenuOpenFor by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     var pendingRemoveMilestone by remember { mutableStateOf<HolderMilestone?>(null) }
+    var viewerAttachment by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     // Guards remove against double-tap, same rationale as other screens' isSubmitting.
     var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -252,6 +254,10 @@ fun ConnectionsScreen(
                                     headlineContent = {
                                         Text(link.label ?: "Photo", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     },
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = { viewerAttachment = link },
+                                        onLongClick = {},
+                                    ),
                                 )
                             }
                         }
@@ -392,6 +398,14 @@ fun ConnectionsScreen(
             dismissButton = {
                 TextButton(onClick = { pendingRemoveMilestone = null }) { Text("Cancel") }
             },
+        )
+    }
+
+    viewerAttachment?.let { link ->
+        ResourceImageViewerDialog(
+            resourceId = link.toCardId,
+            altText = link.label ?: "Photo",
+            onDismiss = { viewerAttachment = null },
         )
     }
 }

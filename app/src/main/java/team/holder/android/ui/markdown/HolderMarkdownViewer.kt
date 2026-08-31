@@ -6,12 +6,14 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -274,11 +278,17 @@ private fun MarkdownBlock(
                 ?.takeIf { it.startsWith(HOLDER_RESOURCE_SCHEME) }
                 ?.removePrefix(HOLDER_RESOURCE_SCHEME)
             if (resourceId != null) {
+                var viewerOpen by remember(resourceId) { mutableStateOf(false) }
+                val altText = plainText(soleImage)
                 ResourceImage(
                     resourceId = resourceId,
-                    altText = plainText(soleImage),
+                    altText = altText,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    onClick = { viewerOpen = true },
                 )
+                if (viewerOpen) {
+                    ResourceImageViewerDialog(resourceId = resourceId, altText = altText, onDismiss = { viewerOpen = false })
+                }
             } else {
                 Text(
                     text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
@@ -555,17 +565,57 @@ private sealed interface ResourceImageState {
 private fun resourceImageCacheFile(context: android.content.Context, resourceId: String): File =
     File(context.cacheDir, "resource-images/$resourceId.bin")
 
+// Android's own documented technique (developer.android.com "Loading Large Bitmaps
+// Efficiently") for decoding at a reduced resolution without ever holding the full-size
+// bitmap in memory -- inSampleSize halves both dimensions per step, so the loop finds the
+// largest power-of-two downsample that still meets reqWidth/reqHeight.
+private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+    val height = options.outHeight
+    val width = options.outWidth
+    var inSampleSize = 1
+    if (height > reqHeight || width > reqWidth) {
+        val halfHeight = height / 2
+        val halfWidth = width / 2
+        while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+            inSampleSize *= 2
+        }
+    }
+    return inSampleSize
+}
+
+/** Decodes path at a resolution no larger than maxDimensionPx on either side -- never reads
+ * the full-resolution bitmap into memory just to immediately downscale it. A real camera
+ * photo can be 12MP+; decoding that in full for a 48dp thumbnail (or several, in a scrolling
+ * list) is a real OOM risk, not just wasted work. */
+private fun decodeSampledBitmap(path: String, maxDimensionPx: Int): android.graphics.Bitmap {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(bounds, maxDimensionPx, maxDimensionPx)
+    }
+    return BitmapFactory.decodeFile(path, options) ?: error("could not decode image")
+}
+
 /** Downloads (or reads back from an on-disk cache), decodes, and renders a Resource's image
  * bytes -- internal, not private, so [team.holder.android.ui.screens.ConnectionsScreen] can
  * reuse it for a small attachment thumbnail rather than duplicating the retrieve/decode/cache
  * logic. The loading placeholder sizes to its spinner rather than a fixed height, so it looks
- * right both as a full-width inline image and as a small thumbnail -- size it via [modifier]. */
+ * right both as a full-width inline image and as a small thumbnail -- size it via [modifier].
+ * [maxDimensionPx] bounds the *decode* resolution (see [decodeSampledBitmap]), independent of
+ * [modifier]'s display size -- a thumbnail should pass a small value; [ResourceImageViewerDialog]
+ * passes a much larger one since it's the one place actually meant to show full detail. */
 @Composable
-internal fun ResourceImage(resourceId: String, altText: String, modifier: Modifier = Modifier) {
+internal fun ResourceImage(
+    resourceId: String,
+    altText: String,
+    modifier: Modifier = Modifier,
+    maxDimensionPx: Int = 1600,
+    onClick: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
-    var state by remember(resourceId) { mutableStateOf<ResourceImageState>(ResourceImageState.Loading) }
+    var state by remember(resourceId, maxDimensionPx) { mutableStateOf<ResourceImageState>(ResourceImageState.Loading) }
 
-    LaunchedEffect(resourceId) {
+    LaunchedEffect(resourceId, maxDimensionPx) {
         state = ResourceImageState.Loading
         state = runCatching {
             withContext(Dispatchers.IO) {
@@ -577,8 +627,7 @@ internal fun ResourceImage(resourceId: String, altText: String, modifier: Modifi
                     cacheFile.parentFile?.mkdirs()
                     HolderNative.retrieveAsset(resourceId, asset.assetId, placement.placementId, cacheFile.absolutePath)
                 }
-                BitmapFactory.decodeFile(cacheFile.absolutePath)?.asImageBitmap()
-                    ?: error("could not decode image")
+                decodeSampledBitmap(cacheFile.absolutePath, maxDimensionPx).asImageBitmap()
             }
         }.fold(
             onSuccess = { bitmap -> ResourceImageState.Loaded(bitmap) },
@@ -586,9 +635,10 @@ internal fun ResourceImage(resourceId: String, altText: String, modifier: Modifi
         )
     }
 
+    val clickableModifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
     when (val current = state) {
         is ResourceImageState.Loading -> Box(
-            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+            modifier = clickableModifier.background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) { CircularProgressIndicator() }
         is ResourceImageState.Failed -> Text(
@@ -599,7 +649,29 @@ internal fun ResourceImage(resourceId: String, altText: String, modifier: Modifi
         is ResourceImageState.Loaded -> Image(
             bitmap = current.bitmap,
             contentDescription = altText,
-            modifier = modifier,
+            modifier = clickableModifier,
         )
+    }
+}
+
+/** Full-screen, tap-anywhere-to-dismiss view of a Resource image at a much higher decode
+ * resolution than the inline/thumbnail cases -- still capped (see [decodeSampledBitmap]'s
+ * doc comment), never a true uncapped full-resolution decode; nothing in this app has a
+ * legitimate need to hold a 12MP+ bitmap in memory at once, and a phone screen couldn't
+ * show that much detail anyway. */
+@Composable
+internal fun ResourceImageViewerDialog(resourceId: String, altText: String, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black).clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            ResourceImage(
+                resourceId = resourceId,
+                altText = altText,
+                maxDimensionPx = 2560,
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+            )
+        }
     }
 }
