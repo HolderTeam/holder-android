@@ -223,6 +223,89 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Text("Background git sync")
+                    Text("Periodically pull and push projects with a remote configured, even when Holder isn't open. Uses battery and data.")
+                }
+                Switch(
+                    checked = backgroundSyncEnabled,
+                    onCheckedChange = { enabled ->
+                        scope.launch { HolderSettings.setGitBackgroundSyncEnabled(context, enabled) }
+                    },
+                )
+            }
+
+            if (backgroundSyncEnabled) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text("Sync every", modifier = Modifier.weight(1f).padding(top = 12.dp))
+                    Box {
+                        Button(onClick = { intervalMenuExpanded = true }) {
+                            Text("$backgroundSyncIntervalMinutes min")
+                        }
+                        DropdownMenu(
+                            expanded = intervalMenuExpanded,
+                            onDismissRequest = { intervalMenuExpanded = false },
+                        ) {
+                            BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES.forEach { minutes ->
+                                DropdownMenuItem(
+                                    text = { Text("$minutes min") },
+                                    onClick = {
+                                        intervalMenuExpanded = false
+                                        scope.launch {
+                                            HolderSettings.setGitBackgroundSyncIntervalMinutes(context, minutes)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Google Drive")
+                    Text(
+                        if (driveConnected) {
+                            driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected"
+                        } else {
+                            "Store photo attachments in your own Google Drive."
+                        },
+                    )
+                    driveError?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
+                }
+                when {
+                    driveConnecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+                    driveConnected -> TextButton(
+                        onClick = { scope.launch { GoogleDriveConnection.disconnect(context) } },
+                    ) { Text("Disconnect") }
+                    else -> Button(
+                        onClick = {
+                            driveError = null
+                            driveConnecting = true
+                            scope.launch {
+                                runCatching {
+                                    GoogleDriveConnection.connect(context) { request ->
+                                        val deferred = CompletableDeferred<ActivityResult>()
+                                        pendingConsent = deferred
+                                        consentLauncher.launch(request)
+                                        deferred.await()
+                                    }
+                                }.onFailure { failure ->
+                                    driveError = failure.message ?: "Could not connect to Google Drive"
+                                }
+                                driveConnecting = false
+                            }
+                        },
+                    ) { Text("Connect") }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text("Separate title field")
                     Text(
                         text = if (separateTitle) {
@@ -280,89 +363,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                             scope.launch { HolderSettings.setTrimWhitespaceInCodeBlocks(context, enabled) }
                         },
                     )
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Google Drive")
-                    Text(
-                        if (driveConnected) {
-                            driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected"
-                        } else {
-                            "Store photo attachments in your own Google Drive."
-                        },
-                    )
-                    driveError?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
-                }
-                when {
-                    driveConnecting -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
-                    driveConnected -> TextButton(
-                        onClick = { scope.launch { GoogleDriveConnection.disconnect(context) } },
-                    ) { Text("Disconnect") }
-                    else -> Button(
-                        onClick = {
-                            driveError = null
-                            driveConnecting = true
-                            scope.launch {
-                                runCatching {
-                                    GoogleDriveConnection.connect(context) { request ->
-                                        val deferred = CompletableDeferred<ActivityResult>()
-                                        pendingConsent = deferred
-                                        consentLauncher.launch(request)
-                                        deferred.await()
-                                    }
-                                }.onFailure { failure ->
-                                    driveError = failure.message ?: "Could not connect to Google Drive"
-                                }
-                                driveConnecting = false
-                            }
-                        },
-                    ) { Text("Connect") }
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Background git sync")
-                    Text("Periodically pull and push projects with a remote configured, even when Holder isn't open. Uses battery and data.")
-                }
-                Switch(
-                    checked = backgroundSyncEnabled,
-                    onCheckedChange = { enabled ->
-                        scope.launch { HolderSettings.setGitBackgroundSyncEnabled(context, enabled) }
-                    },
-                )
-            }
-
-            if (backgroundSyncEnabled) {
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Text("Sync every", modifier = Modifier.weight(1f).padding(top = 12.dp))
-                    Box {
-                        Button(onClick = { intervalMenuExpanded = true }) {
-                            Text("$backgroundSyncIntervalMinutes min")
-                        }
-                        DropdownMenu(
-                            expanded = intervalMenuExpanded,
-                            onDismissRequest = { intervalMenuExpanded = false },
-                        ) {
-                            BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES.forEach { minutes ->
-                                DropdownMenuItem(
-                                    text = { Text("$minutes min") },
-                                    onClick = {
-                                        intervalMenuExpanded = false
-                                        scope.launch {
-                                            HolderSettings.setGitBackgroundSyncIntervalMinutes(context, minutes)
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
