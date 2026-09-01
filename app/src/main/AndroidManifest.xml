@@ -17,12 +17,35 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Holder"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Lets Files/Downloads/an email client offer "Open with Holder" for a .hrk
+                 recovery-key export (see holder-desktop's recovery_service.vala, which produces
+                 that same extension), straight to Recover Project with the token pre-filled,
+                 rather than the user having to copy its text out by hand. Most apps that hand
+                 off an unregistered extension like this present it as a generic mimeType (often
+                 application/octet-stream) rather than anything .hrk-specific, so this matches on
+                 the file name pattern instead, permissive on mimeType/scheme/host to catch
+                 however a given app actually constructs the URI. singleTop above means an
+                 already-running Holder gets this via onNewIntent rather than a second instance. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.hrk" />
             </intent-filter>
         </activity>
 

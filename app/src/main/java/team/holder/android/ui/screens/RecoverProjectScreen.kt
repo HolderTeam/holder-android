@@ -33,9 +33,12 @@ import team.holder.android.RecoveryTokenImportGlobalResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecoverProjectScreen(onBack: () -> Unit) {
+fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
     var pin by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
+    // initialToken comes from opening a .hrk file directly (see MainActivity's ACTION_VIEW
+    // handling) rather than pasting one by hand -- seeded once, same as every other field here;
+    // still just an editable starting value, not a locked-in source of truth.
+    var token by remember { mutableStateOf(initialToken.orEmpty()) }
     var isBusy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<RecoveryTokenImportGlobalResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }

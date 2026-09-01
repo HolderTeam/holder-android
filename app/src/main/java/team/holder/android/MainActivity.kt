@@ -1,5 +1,6 @@
 package team.holder.android
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,8 +50,15 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 class MainActivity : ComponentActivity() {
+    // Set from a .hrk file opened directly (Files app, email attachment, etc. -- see the
+    // ACTION_VIEW intent-filter in AndroidManifest.xml) rather than a token pasted by hand.
+    // A regular property with Compose's `by` delegate, not composable state: it needs to be
+    // writable from onNewIntent, which runs outside the setContent{} composition entirely.
+    private var pendingRecoveryToken by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingRecoveryToken = recoveryTokenFromIntent(intent)
 
         val initError = runCatching {
             HolderNative.initialize(
@@ -89,15 +98,35 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    HolderNavHost()
+                    HolderNavHost(pendingRecoveryToken = pendingRecoveryToken)
                 }
             }
         }
     }
+
+    // Fires when a .hrk file is opened while this activity is already running (launchMode
+    // "singleTop" in the manifest routes it here instead of spinning up a second instance).
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
+    }
+
+    /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
+     * app, an email attachment, etc. -- see AndroidManifest.xml's intent-filter). Null for any
+     * other launch (the normal case: tapping the launcher icon), including a VIEW intent whose
+     * content can't be read for some reason -- never a fatal error, just nothing to pre-fill. */
+    private fun recoveryTokenFromIntent(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+        val uri = intent.data ?: return null
+        return runCatching {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
 }
 
 @Composable
-private fun HolderNavHost() {
+private fun HolderNavHost(pendingRecoveryToken: String? = null) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
 
@@ -118,6 +147,17 @@ private fun HolderNavHost() {
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
 
+    // Jumps straight to Recover Project when launched (or resumed) via a .hrk file, rather
+    // than making the user find the recovery icon themselves after already handing over the
+    // file's content. Keyed on the token itself: re-fires on a genuinely new file (a second
+    // ACTION_VIEW while already on this screen re-triggers just like the first), but not on
+    // every recomposition once here.
+    LaunchedEffect(pendingRecoveryToken) {
+        if (pendingRecoveryToken != null) {
+            navController.navigate("recover-project")
+        }
+    }
+
     NavHost(navController = navController, startDestination = "projects") {
         composable("projects") {
             ProjectListScreen(
@@ -137,7 +177,10 @@ private fun HolderNavHost() {
             SettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("recover-project") {
-            RecoverProjectScreen(onBack = { navController.popBackStack() })
+            RecoverProjectScreen(
+                onBack = { navController.popBackStack() },
+                initialToken = pendingRecoveryToken,
+            )
         }
         composable("projects/{projectId}/git-sync") {
             selectedProjectForSync?.let { project ->
