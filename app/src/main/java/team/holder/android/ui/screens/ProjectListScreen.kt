@@ -1,13 +1,13 @@
 package team.holder.android.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,7 +41,7 @@ import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.TextInputDialog
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectListScreen(
     onProjectClick: (HolderProject) -> Unit,
@@ -108,10 +108,15 @@ fun ProjectListScreen(
                             Box {
                                 ListItem(
                                     headlineContent = { Text(project.name) },
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = { onProjectClick(project) },
-                                        onLongClick = { menuOpenFor = project.projectId },
-                                    ),
+                                    modifier = Modifier.clickable { onProjectClick(project) },
+                                    trailingContent = {
+                                        IconButton(onClick = { menuOpenFor = project.projectId }) {
+                                            Icon(
+                                                Icons.Filled.MoreVert,
+                                                contentDescription = "More options for ${project.name}",
+                                            )
+                                        }
+                                    },
                                 )
                                 DropdownMenu(
                                     expanded = menuOpenFor == project.projectId,
