@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -232,6 +233,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     onValueChange = { pinInput = it },
                     label = { Text("PIN") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 Button(

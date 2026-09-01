@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -74,6 +75,7 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                 onValueChange = { pin = it },
                 label = { Text("PIN") },
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             )
             OutlinedTextField(
