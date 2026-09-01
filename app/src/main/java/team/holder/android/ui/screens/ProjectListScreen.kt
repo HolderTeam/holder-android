@@ -105,46 +105,51 @@ fun ProjectListScreen(
                 } else {
                     LazyColumn(modifier = Modifier.padding(innerPadding)) {
                         items(current.value, key = { it.projectId }) { project ->
-                            Box {
-                                ListItem(
-                                    headlineContent = { Text(project.name) },
-                                    modifier = Modifier.clickable { onProjectClick(project) },
-                                    trailingContent = {
+                            ListItem(
+                                headlineContent = { Text(project.name) },
+                                modifier = Modifier.clickable { onProjectClick(project) },
+                                trailingContent = {
+                                    // The Box, not just the IconButton, is what DropdownMenu
+                                    // anchors to -- keeping it scoped to just the button (rather
+                                    // than wrapping the whole row, which anchored the menu to the
+                                    // row's own top-start instead of where the button actually is)
+                                    // is what makes the menu open under the button itself.
+                                    Box {
                                         IconButton(onClick = { menuOpenFor = project.projectId }) {
                                             Icon(
                                                 Icons.Filled.MoreVert,
                                                 contentDescription = "More options for ${project.name}",
                                             )
                                         }
-                                    },
-                                )
-                                DropdownMenu(
-                                    expanded = menuOpenFor == project.projectId,
-                                    onDismissRequest = { menuOpenFor = null },
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Rename") },
-                                        onClick = {
-                                            menuOpenFor = null
-                                            projectPendingRename = project
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Git Sync") },
-                                        onClick = {
-                                            menuOpenFor = null
-                                            onGitSyncClick(project)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Delete") },
-                                        onClick = {
-                                            menuOpenFor = null
-                                            projectPendingDelete = project
-                                        },
-                                    )
-                                }
-                            }
+                                        DropdownMenu(
+                                            expanded = menuOpenFor == project.projectId,
+                                            onDismissRequest = { menuOpenFor = null },
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Rename") },
+                                                onClick = {
+                                                    menuOpenFor = null
+                                                    projectPendingRename = project
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Git Sync") },
+                                                onClick = {
+                                                    menuOpenFor = null
+                                                    onGitSyncClick(project)
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Delete") },
+                                                onClick = {
+                                                    menuOpenFor = null
+                                                    projectPendingDelete = project
+                                                },
+                                            )
+                                        }
+                                    }
+                                },
+                            )
                         }
                     }
                 }
