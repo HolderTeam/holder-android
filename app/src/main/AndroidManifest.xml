@@ -29,12 +29,16 @@
             <!-- Lets Files/Downloads/an email client offer "Open with Holder" for a .hrk
                  recovery-key export (see holder-desktop's recovery_service.vala, which produces
                  that same extension), straight to Recover Project with the token pre-filled,
-                 rather than the user having to copy its text out by hand. Most apps that hand
-                 off an unregistered extension like this present it as a generic mimeType (often
-                 application/octet-stream) rather than anything .hrk-specific, so this matches on
-                 the file name pattern instead, permissive on mimeType/scheme/host to catch
-                 however a given app actually constructs the URI. singleTop above means an
-                 already-running Holder gets this via onNewIntent rather than a second instance. -->
+                 rather than the user having to copy its text out by hand. singleTop above means
+                 an already-running Holder gets this via onNewIntent rather than a second
+                 instance.
+
+                 Two independent filters, deliberately not combined into one: mixing a
+                 mimeType constraint and a pathPattern constraint in the same intent-filter's
+                 data set made real-device matching inconsistent (a MediaStore-backed content://
+                 URI matched; a DocumentsProvider-backed one, what Files/Downloads actually hand
+                 off, didn't). Keeping them apart avoids Android combining them into one
+                 stricter, harder-to-satisfy requirement. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -43,9 +47,22 @@
 
                 <data android:scheme="content" />
                 <data android:scheme="file" />
-                <data android:host="*" />
-                <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.hrk" />
+            </intent-filter>
+
+            <!-- Covers a content:// URI whose path is an opaque document/attachment id rather
+                 than the real filename (the common case for Files/Downloads/an email client),
+                 where pathPattern above can't match at all. application/octet-stream is what
+                 most such providers fall back to for a .hrk file, since it's not a MIME type
+                 Android has any built-in association for. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 
