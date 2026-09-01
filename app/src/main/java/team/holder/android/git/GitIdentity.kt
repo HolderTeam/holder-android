@@ -18,6 +18,28 @@ private const val FIELD_SIZE = 32 // P-256 coordinate size in bytes
 private const val DEFAULT_KEY_ALIAS = "holder-git-identity"
 
 /**
+ * Host keys for the git hosting providers a Holder user is most likely to actually use, so a
+ * brand-new install -- Android apps have no $HOME, hence no pre-existing ~/.ssh/known_hosts for
+ * libgit2 to check a new SSH remote against -- can still connect without either a manual
+ * "trust this host" step or blindly accepting whatever key answers first (trust-on-first-use).
+ * These are each provider's own long-lived, publicly documented host keys, not secrets:
+ * github.com's from its own https://api.github.com/meta `ssh_keys`; gitlab.com's and
+ * bitbucket.org's from their published SSH host key fingerprint docs. A remote on any other
+ * host still has no trust path yet -- this only covers the common case.
+ */
+internal val BUNDLED_KNOWN_HOSTS = listOf(
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
+    "gitlab.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9",
+    "gitlab.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=",
+    "gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf",
+    "bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2qOCsIsD1Xw0xSeiPDlCr7kq97NLmMbpKTX6Esc30NuoqEEHCuc7yWtwp8dI76EEEB1VqY9QJq6vk+aySyboD5QF61I/1WeTwu+deCbgKMGbUijeXhtfbxSxm6JwGrXrhBdofTsbKRUsrN1WoNgUa8uqN1Vx6WAJw1JHPhglEGGHea6QICwJOAr/6mrui/oB7pkaWKHj3z7d1IC4KWLtY47elvjbaTlkN04Kc/5LFEirorGYVbt15kAUlqGM65pk6ZBxtaO3+30LVlORZkxOh+LKL/BvbZ/iRNhItLqNyieoQj/uh/7Iv4uyH/cV/0b4WDSd3DptigWq84lJubb9t/DnZlrJazxyDCulTmKdOR7vs9gMTo+uoIrPSb8ScTtvw65+odKAlBj59dhnVp9zd7QUojOpXlL62Aw56U4oO+FALuevvMjiWeavKhJqlR7i5n9srYcrNV7ttmDw7kf/97P5zauIhxcjX+xHv4M=",
+    "bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=",
+    "bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO",
+)
+
+/**
  * The app's git SSH identity: a non-exportable AndroidKeyStore EC P-256 key. Holder's git sync
  * (see HolderNative) authenticates with this instead of a filesystem-based key, since Android
  * apps have no ~/.ssh. registerWithNative bridges libssh2's raw-bytes-to-sign challenge across
@@ -69,8 +91,25 @@ object GitIdentity {
      * HolderNative.initialize(); subsequent git operations on this context sign
      * with the Keystore key instead of the default ssh-agent/~/.ssh lookup.
      */
-    fun registerWithNative(contextHandle: Long, filesDir: File, alias: String = DEFAULT_KEY_ALIAS): Int =
-        nativeRegisterSigner(contextHandle, alias, sshPublicKeyBlob(alias), filesDir.absolutePath)
+    fun registerWithNative(contextHandle: Long, filesDir: File, alias: String = DEFAULT_KEY_ALIAS): Int {
+        ensureKnownHosts(filesDir)
+        return nativeRegisterSigner(contextHandle, alias, sshPublicKeyBlob(alias), filesDir.absolutePath)
+    }
+
+    /** Makes sure BUNDLED_KNOWN_HOSTS' entries are present in filesDir/.ssh/known_hosts,
+     * without disturbing anything else already there (e.g. a future "trust this custom host"
+     * feature's own entries) -- appends only the ones missing, or creates the file fresh on a
+     * brand-new install. Internal rather than private so GitIdentityTest can exercise it
+     * directly with a plain temp directory, without needing AndroidKeyStore. */
+    internal fun ensureKnownHosts(filesDir: File) {
+        val sshDir = File(filesDir, ".ssh")
+        sshDir.mkdirs()
+        val knownHosts = File(sshDir, "known_hosts")
+        val existingLines = if (knownHosts.isFile) knownHosts.readLines().toSet() else emptySet()
+        val missing = BUNDLED_KNOWN_HOSTS.filter { it !in existingLines }
+        if (missing.isEmpty()) return
+        knownHosts.appendText(missing.joinToString("") { "$it\n" })
+    }
 
     /** Called from native code (see holder_git_signer.cpp) to sign an SSH auth challenge.
      * Returns a raw DER ECDSA-Sig-Value{r,s} -- native code reshapes it into SSH wire format. */
