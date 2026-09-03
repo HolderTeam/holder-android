@@ -45,11 +45,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
+import team.holder.android.git.github.DeviceAuthorization
+import team.holder.android.git.github.GitHubConnection
+import team.holder.android.git.github.GitHubStatus
 import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.resource.s3.S3Connection
 import team.holder.android.sync.GitSyncScheduler
+import team.holder.android.ui.GitHubDeviceFlowDialog
+import team.holder.android.ui.openUrlExternally
 import team.holder.android.ui.theme.HolderFontFamilyOption
 import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
@@ -97,6 +103,28 @@ fun SettingsScreen(onBack: () -> Unit) {
     var s3Connecting by remember { mutableStateOf(false) }
     var s3Error by remember { mutableStateOf<String?>(null) }
     var s3ShowConnectDialog by remember { mutableStateOf(false) }
+    // null while the initial check is in flight -- see GitHubConnectionSection for how that
+    // (as opposed to a genuine NotConnected) is rendered.
+    var githubStatus by remember { mutableStateOf<GitHubStatus?>(null) }
+    var githubBusy by remember { mutableStateOf(false) }
+    var githubError by remember { mutableStateOf<String?>(null) }
+    var pendingGithubAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
+    // Cancelling the dialog needs to cancel the actual in-flight Device Flow poll too, not
+    // just hide the dialog -- see GitHubDeviceFlowDialog's doc comment.
+    var githubConnectJob by remember { mutableStateOf<Job?>(null) }
+
+    fun recheckGithubStatus() {
+        githubError = null
+        githubBusy = true
+        scope.launch {
+            runCatching { GitHubConnection.status(context) }
+                .onSuccess { githubStatus = it }
+                .onFailure { githubError = it.message ?: "Could not check GitHub status" }
+            githubBusy = false
+        }
+    }
+
+    LaunchedEffect(Unit) { recheckGithubStatus() }
 
     // Keeps WorkManager's schedule in sync whenever either setting changes here, in addition
     // to the reconcile MainActivity does once at process start.
@@ -338,6 +366,49 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
+            GitHubConnectionSection(
+                status = githubStatus,
+                busy = githubBusy,
+                error = githubError,
+                onConnect = {
+                    githubError = null
+                    githubBusy = true
+                    githubConnectJob = scope.launch {
+                        runCatching {
+                            GitHubConnection.connect(context) { authorization -> pendingGithubAuth = authorization }
+                        }.onSuccess { newStatus ->
+                            pendingGithubAuth = null
+                            githubStatus = newStatus
+                        }.onFailure { failure ->
+                            pendingGithubAuth = null
+                            githubError = failure.message ?: "Could not connect to GitHub"
+                        }
+                        githubBusy = false
+                    }
+                },
+                onDisconnect = {
+                    scope.launch {
+                        GitHubConnection.disconnect(context)
+                        githubStatus = GitHubStatus.NotConnected
+                    }
+                },
+                onOpenUrl = { url -> openUrlExternally(context, url) },
+                onRetryInstallCheck = { recheckGithubStatus() },
+            )
+
+            pendingGithubAuth?.let { authorization ->
+                GitHubDeviceFlowDialog(
+                    authorization = authorization,
+                    onCancel = {
+                        githubConnectJob?.cancel()
+                        pendingGithubAuth = null
+                        githubBusy = false
+                    },
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Separate title field")
@@ -400,6 +471,62 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * GitHub's Settings row -- deliberately not [StorageProviderConnectionRow], since GitHub
+ * isn't a storage provider and has more states than connected/disconnected (see
+ * GITHUB_INTEGRATION_ANDROID_PLAN.md's "Connection state" section: [GitHubStatus] has four
+ * states, not two, and [GitHubStatus.InstallationRequired]/[GitHubStatus.Connected] each
+ * need their own secondary action beyond Connect/Disconnect). [status] is null only while
+ * the very first check is in flight -- not a fifth state, just "don't know yet."
+ */
+@Composable
+private fun GitHubConnectionSection(
+    status: GitHubStatus?,
+    busy: Boolean,
+    error: String?,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onRetryInstallCheck: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("GitHub")
+            Text(
+                when (status) {
+                    null -> "Checking..."
+                    GitHubStatus.NotConnected ->
+                        "Let Holder create and manage GitHub repositories for your projects."
+                    GitHubStatus.AuthorizationRequired -> "Your GitHub sign-in needs to be renewed."
+                    is GitHubStatus.InstallationRequired -> "Signed in -- one more step is needed on GitHub."
+                    is GitHubStatus.Connected -> "Connected as @${status.login}"
+                },
+            )
+            error?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
+        }
+        when {
+            busy -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+            status == null -> {}
+            status is GitHubStatus.Connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
+            status is GitHubStatus.InstallationRequired ->
+                Button(onClick = { onOpenUrl(status.installUrl) }) { Text("Finish setup") }
+            status is GitHubStatus.AuthorizationRequired -> Button(onClick = onConnect) { Text("Reconnect") }
+            else -> Button(onClick = onConnect) { Text("Connect") }
+        }
+    }
+    if (status is GitHubStatus.InstallationRequired && !busy) {
+        TextButton(onClick = onRetryInstallCheck, modifier = Modifier.padding(top = 4.dp)) {
+            Text("I've installed it -- check again")
+        }
+    }
+    if (status is GitHubStatus.Connected) {
+        TextButton(
+            onClick = { onOpenUrl(status.installationSettingsUrl) },
+            modifier = Modifier.padding(top = 4.dp),
+        ) { Text("Manage repository access") }
     }
 }
 
