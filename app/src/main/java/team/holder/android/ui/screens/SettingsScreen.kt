@@ -47,13 +47,16 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import team.holder.android.HolderProject
 import team.holder.android.HolderSettings
 import team.holder.android.git.github.DeviceAuthorization
+import team.holder.android.git.github.GitHubBackfill
 import team.holder.android.git.github.GitHubConnection
 import team.holder.android.git.github.GitHubStatus
 import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.resource.s3.S3Connection
 import team.holder.android.sync.GitSyncScheduler
+import team.holder.android.ui.GitHubBackfillDialog
 import team.holder.android.ui.GitHubDeviceFlowDialog
 import team.holder.android.ui.openUrlExternally
 import team.holder.android.ui.theme.HolderFontFamilyOption
@@ -112,13 +115,29 @@ fun SettingsScreen(onBack: () -> Unit) {
     // Cancelling the dialog needs to cancel the actual in-flight Device Flow poll too, not
     // just hide the dialog -- see GitHubDeviceFlowDialog's doc comment.
     var githubConnectJob by remember { mutableStateOf<Job?>(null) }
+    // Non-null only while the one-time "sync your existing projects?" offer is showing --
+    // see GitHubBackfill.checkAndMarkOfferedOnce, called below every time this screen learns
+    // status is Connected. Idempotent (no-ops after the first real time), so it's safe to
+    // call from every one of those places rather than needing one single canonical trigger.
+    var backfillCandidates by remember { mutableStateOf<List<HolderProject>?>(null) }
+
+    suspend fun maybeOfferBackfill(status: GitHubStatus) {
+        if (status is GitHubStatus.Connected) {
+            GitHubBackfill.checkAndMarkOfferedOnce(context).let { eligible ->
+                if (eligible.isNotEmpty()) backfillCandidates = eligible
+            }
+        }
+    }
 
     fun recheckGithubStatus() {
         githubError = null
         githubBusy = true
         scope.launch {
             runCatching { GitHubConnection.status(context) }
-                .onSuccess { githubStatus = it }
+                .onSuccess {
+                    githubStatus = it
+                    maybeOfferBackfill(it)
+                }
                 .onFailure { githubError = it.message ?: "Could not check GitHub status" }
             githubBusy = false
         }
@@ -379,6 +398,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }.onSuccess { newStatus ->
                             pendingGithubAuth = null
                             githubStatus = newStatus
+                            maybeOfferBackfill(newStatus)
                         }.onFailure { failure ->
                             pendingGithubAuth = null
                             githubError = failure.message ?: "Could not connect to GitHub"
@@ -395,6 +415,13 @@ fun SettingsScreen(onBack: () -> Unit) {
                 onOpenUrl = { url -> openUrlExternally(context, url) },
                 onRetryInstallCheck = { recheckGithubStatus() },
             )
+
+            backfillCandidates?.let { candidates ->
+                GitHubBackfillDialog(
+                    projects = candidates,
+                    onFinished = { backfillCandidates = null },
+                )
+            }
 
             pendingGithubAuth?.let { authorization ->
                 GitHubDeviceFlowDialog(

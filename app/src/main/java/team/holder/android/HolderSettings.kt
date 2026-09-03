@@ -153,4 +153,19 @@ object HolderSettings {
         val obj = JSONObject(json)
         return obj.keys().asSequence().associateWith { obj.getString(it) }
     }
+
+    /** Whether the one-time "keep your existing projects safe and synced with GitHub?"
+     * offer (see GITHUB_INTEGRATION_ANDROID_PLAN.md's "Future work: back-filling
+     * pre-existing local-only projects") has already been shown -- true the moment it's
+     * checked, whether or not anything was eligible or she accepted anything. Never reset,
+     * including across disconnect/reconnect -- a genuine one-time-ever flag, not
+     * connection-state-derived, so it can't re-fire on every reconnect. */
+    fun githubBackfillOfferShown(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[GITHUB_BACKFILL_OFFER_SHOWN] ?: false }
+
+    suspend fun setGithubBackfillOfferShown(context: Context, shown: Boolean) {
+        context.settingsDataStore.edit { it[GITHUB_BACKFILL_OFFER_SHOWN] = shown }
+    }
+
+    private val GITHUB_BACKFILL_OFFER_SHOWN = booleanPreferencesKey("github_backfill_offer_shown")
 }

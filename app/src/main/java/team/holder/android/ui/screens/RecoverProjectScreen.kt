@@ -35,13 +35,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
+import team.holder.android.HolderProject
 import team.holder.android.RecoveryTokenImportGlobalResult
 import team.holder.android.git.github.DeviceAuthorization
+import team.holder.android.git.github.GitHubBackfill
 import team.holder.android.git.github.GitHubConnection
 import team.holder.android.git.github.GitHubError
 import team.holder.android.git.github.GitHubResult
 import team.holder.android.git.github.GitHubStatus
 import team.holder.android.git.github.parseGitHubOwnerRepo
+import team.holder.android.ui.GitHubBackfillDialog
 import team.holder.android.ui.GitHubDeviceFlowDialog
 import team.holder.android.ui.githubErrorMessage
 import team.holder.android.ui.openUrlExternally
@@ -81,6 +84,9 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
     var githubActionUrl by remember { mutableStateOf<String?>(null) }
     var pendingGithubAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
     var githubConnectJob by remember { mutableStateOf<Job?>(null) }
+    // Non-null only while the one-time "sync your existing projects?" offer is showing --
+    // see GitHubBackfill.checkAndMarkOfferedOnce, called from continueGithubRecovery below.
+    var backfillCandidates by remember { mutableStateOf<List<HolderProject>?>(null) }
 
     val scope = rememberCoroutineScope()
 
@@ -90,14 +96,17 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
     suspend fun registerAndRetryPull(projectId: String, owner: String, repo: String) {
         when (val keyResult = GitHubConnection.registerDeployKey(context, owner, repo)) {
             is GitHubResult.Success -> {
-                val retried = runCatching {
+                runCatching {
                     withContext(Dispatchers.IO) { HolderNative.pullGit(projectId) }
-                }.getOrNull()
-                if (retried != null) {
+                }.onSuccess { retried ->
                     pullStatus = retried.status
                     pullError = retried.errorMessage
-                } else {
-                    githubError = "Registered this device, but the retry pull failed to run"
+                }.onFailure { failure ->
+                    // The deploy key really was registered at this point -- worth being
+                    // explicit that this failure is something else, and worth actually
+                    // showing what, rather than a swallowed-exception generic message.
+                    githubError = "Registered this device, but the retry pull failed to run: " +
+                        (failure.message ?: failure::class.java.simpleName)
                 }
             }
             is GitHubResult.Failure -> {
@@ -108,20 +117,53 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
         }
     }
 
-    /** Re-checks [GitHubConnection.status] and, the moment it reads [GitHubStatus.Connected],
-     * immediately continues into [registerAndRetryPull] -- see the plan's wiring point 3:
+    /** The full authorize → install → register → resync chain from one call, driving
+     * whatever the current status turns out to be -- see the plan's wiring point 3:
      * "authorize → install → register device → resync all happen on this one screen... no
-     * detour through Settings." Called after Connect/Finish-setup succeeds and by the
-     * explicit "check again" retry button alike. */
+     * detour through Settings." Checks status; if it's [GitHubStatus.NotConnected] or
+     * [GitHubStatus.AuthorizationRequired], immediately runs [GitHubConnection.connect]
+     * itself (per direct steer: skip the extra "Connect to GitHub" tap when a failed pull
+     * already told us she needs this -- no reason to make her ask twice), then re-checks;
+     * once [GitHubStatus.Connected] either way, continues straight into
+     * [registerAndRetryPull]. [GitHubStatus.InstallationRequired] is left alone here --
+     * unlike Connect, "finish installing" opens a heavier one-time GitHub page and stays an
+     * explicit tap (`GitHubRecoverySection`'s own button), so a stale/failed attempt here
+     * never turns into a surprise repeated browser-switch on its own.
+     *
+     * One function, not two mutually-calling ones (an earlier draft tried a separate
+     * startGithubConnect calling back into this) -- Kotlin local functions can't
+     * forward-reference each other in a Composable body, and a single linear chain reads
+     * more clearly here anyway. Called right after a GitHub-eligible import failure, and by
+     * the explicit "check again"/"Retry" buttons alike. */
     suspend fun continueGithubRecovery(projectId: String, owner: String, repo: String) {
         githubError = null
         githubActionUrl = null
         githubBusy = true
-        val newStatus = runCatching { GitHubConnection.status(context) }
+
+        var status = runCatching { GitHubConnection.status(context) }
             .onFailure { githubError = it.message ?: "Could not check GitHub status" }
             .getOrNull()
-        githubStatus = newStatus
-        if (newStatus is GitHubStatus.Connected) {
+        githubStatus = status
+
+        if (status is GitHubStatus.NotConnected || status is GitHubStatus.AuthorizationRequired) {
+            val connectResult = runCatching {
+                GitHubConnection.connect(context) { authorization -> pendingGithubAuth = authorization }
+            }
+            pendingGithubAuth = null
+            connectResult.onFailure { failure -> githubError = failure.message ?: "Could not connect to GitHub" }
+            status = connectResult.getOrNull()
+            githubStatus = status
+        }
+
+        if (status is GitHubStatus.Connected) {
+            // Idempotent (no-ops after the first real time) -- see
+            // GitHubBackfill.checkAndMarkOfferedOnce's doc comment on why it's safe and
+            // correct to call this from every place a screen learns status is Connected,
+            // not just one canonical trigger. The project being recovered right now is
+            // never a candidate itself: it already has a remote configured by this point.
+            GitHubBackfill.checkAndMarkOfferedOnce(context).let { eligible ->
+                if (eligible.isNotEmpty()) backfillCandidates = eligible
+            }
             registerAndRetryPull(projectId, owner, repo)
         }
         githubBusy = false
@@ -182,7 +224,15 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                         githubOwnerRepo = null
                         githubStatus = null
                         githubError = null
-                        scope.launch {
+                        // Assigned unconditionally (most imports never touch GitHub at all,
+                        // and this sits unused for those) so that if continueGithubRecovery
+                        // below ends up auto-triggering connect() and showing the Device
+                        // Flow dialog, its Cancel button -- which cancels githubConnectJob --
+                        // has something real to cancel. By the time that dialog could ever
+                        // appear, the import itself has already finished, so cancelling this
+                        // outer job only ever interrupts the in-flight connect() poll, never
+                        // the import.
+                        githubConnectJob = scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
                                     HolderNative.importRecoveryTokenGlobal(pin, token)
@@ -249,22 +299,10 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                         busy = githubBusy,
                         error = githubError,
                         actionUrl = githubActionUrl,
-                        onConnect = {
-                            githubError = null
-                            githubBusy = true
-                            githubConnectJob = scope.launch {
-                                runCatching {
-                                    GitHubConnection.connect(context) { authorization -> pendingGithubAuth = authorization }
-                                }.onSuccess {
-                                    pendingGithubAuth = null
-                                    continueGithubRecovery(r.projectId, owner, repo)
-                                }.onFailure { failure ->
-                                    pendingGithubAuth = null
-                                    githubError = failure.message ?: "Could not connect to GitHub"
-                                    githubBusy = false
-                                }
-                            }
-                        },
+                        // Only reachable if continueGithubRecovery's own auto-connect attempt
+                        // (see its doc comment) already failed -- a manual fallback, not the
+                        // primary path.
+                        onConnect = { githubConnectJob = scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                         onOpenUrl = { url -> openUrlExternally(context, url) },
                         onRetry = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                     )
@@ -277,6 +315,13 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                                 pendingGithubAuth = null
                                 githubBusy = false
                             },
+                        )
+                    }
+
+                    backfillCandidates?.let { candidates ->
+                        GitHubBackfillDialog(
+                            projects = candidates,
+                            onFinished = { backfillCandidates = null },
                         )
                     }
                 }
