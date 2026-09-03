@@ -136,8 +136,10 @@ object GitHubConnection {
      * repo names up to 100 characters, so a 40-character slug cap plus the 36-character
      * UUID leaves comfortable room either way. See [ensureProjectRepo]'s doc comment for why
      * the slug itself carries no correctness weight -- [slugify] only needs to be
-     * best-effort, not exact or reversible. */
-    private fun repoNameFor(project: HolderProject): String {
+     * best-effort, not exact or reversible. Internal rather than private so
+     * GitHubConnectionTest can exercise it directly, same as GitIdentity's
+     * ensureKnownHosts. */
+    internal fun repoNameFor(project: HolderProject): String {
         val slug = slugify(project.name)
         return if (slug.isEmpty()) "holder-${project.projectId}" else "holder-$slug-${project.projectId}"
     }
@@ -146,7 +148,7 @@ object GitHubConnection {
      * and most punctuation are simply dropped rather than transliterated -- there's no
      * requirement this be reversible or even meaningfully similar to [name], just readable
      * enough to be a nicer sight than a bare UUID on GitHub's own repo list. */
-    private fun slugify(name: String): String =
+    internal fun slugify(name: String): String =
         name.lowercase()
             .replace(Regex("[^a-z0-9]+"), "-")
             .trim('-')
