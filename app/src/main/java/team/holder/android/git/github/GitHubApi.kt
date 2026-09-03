@@ -67,7 +67,7 @@ internal object GitHubApi {
         }.getOrElse { networkFailure(it) }
 
     /** `POST /user/repos`, private, with [description] set to the project's own
-     * human-readable name (the repo's own `name` is a `holder-<project id>` slug instead --
+     * human-readable name (the repo's own `name` is a `holder-<slug>-<project id>` name instead --
      * see [GitHubConnection.ensureProjectRepo]'s doc comment for why a Holder project's
      * freeform display name, e.g. containing spaces or apostrophes, is never used directly
      * as a GitHub repo name). On a `422` name collision, follows up with `GET

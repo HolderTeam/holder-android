@@ -109,12 +109,14 @@ object GitHubConnection {
      * here beyond that, since [createRepository]'s own name-collision handling already
      * finds and reuses the same repo a previous attempt created.
      *
-     * The repo's GitHub `name` is `holder-<project id>`, not [HolderProject.name] --
-     * Holder project names are freeform (spaces, apostrophes, emoji) and GitHub repo names
-     * are not, and `project.projectId` is already a unique UUID (see
-     * `holder-core`'s `uuid_v4()`), so deriving from it needs no sanitizing or
-     * collision-avoidance logic at all. The human-readable project name still ends up on
-     * GitHub, just as the repo's `description` instead.
+     * The repo's GitHub `name` is `holder-<slug>-<project id>` ([repoNameFor]) -- Holder
+     * project names are freeform (spaces, apostrophes, emoji) and GitHub repo names are
+     * not, so the slug is a best-effort, lossy readability aid only; uniqueness always
+     * comes from the trailing `project.projectId` (already a unique UUID, see
+     * `holder-core`'s `uuid_v4()`), never the slug, so an empty or heavily-mangled slug
+     * (an all-emoji project name, say) is harmless -- it just falls back to no slug at all.
+     * The full, unmangled project name still ends up on GitHub either way, as the repo's
+     * `description`.
      *
      * Refreshes once for the whole compound call, not once per REST call underneath -- see
      * the plan's Storage section for why that granularity matters (it's the difference
@@ -130,7 +132,26 @@ object GitHubConnection {
             }
         }
 
-    private fun repoNameFor(project: HolderProject) = "holder-${project.projectId}"
+    /** `holder-<slug>-<project id>`, e.g. "holder-taylor-swifts-hair-3fa8...". GitHub allows
+     * repo names up to 100 characters, so a 40-character slug cap plus the 36-character
+     * UUID leaves comfortable room either way. See [ensureProjectRepo]'s doc comment for why
+     * the slug itself carries no correctness weight -- [slugify] only needs to be
+     * best-effort, not exact or reversible. */
+    private fun repoNameFor(project: HolderProject): String {
+        val slug = slugify(project.name)
+        return if (slug.isEmpty()) "holder-${project.projectId}" else "holder-$slug-${project.projectId}"
+    }
+
+    /** Lossy on purpose: GitHub repo names allow only `[A-Za-z0-9_.-]`, so unicode, emoji,
+     * and most punctuation are simply dropped rather than transliterated -- there's no
+     * requirement this be reversible or even meaningfully similar to [name], just readable
+     * enough to be a nicer sight than a bare UUID on GitHub's own repo list. */
+    private fun slugify(name: String): String =
+        name.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .take(40)
+            .trim('-')
 
     private fun addDeployKey(
         client: OkHttpClient,
