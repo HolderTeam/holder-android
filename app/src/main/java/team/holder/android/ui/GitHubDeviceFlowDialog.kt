@@ -12,7 +12,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import team.holder.android.git.github.DeviceAuthorization
 
@@ -28,18 +30,26 @@ import team.holder.android.git.github.DeviceAuthorization
  * [onCancel] is expected to also cancel the coroutine actually running `connect` (the
  * caller owns that `Job`, not this dialog) -- dismissing this dialog without doing so
  * would leave a Device Flow poll running invisibly in the background.
+ *
+ * GitHub's Device Flow response has no `verification_uri_complete` (a code-pre-filled
+ * URL) -- confirmed with a real request, not assumed -- so there's no way to skip manual
+ * code entry on GitHub's own page. The one thing this dialog *can* do about that: copy the
+ * code to the clipboard the moment "Open GitHub" is tapped, so a single-phone user who has
+ * to switch away from Holder to approve can paste rather than having to remember/retype it.
  */
 @Composable
 fun GitHubDeviceFlowDialog(authorization: DeviceAuthorization, onCancel: () -> Unit) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("Connect to GitHub") },
         text = {
             Column {
                 Text(
-                    "Enter this code at github.com, then approve access. Holder continues " +
-                        "automatically once you do.",
+                    "Tap \"Open GitHub\" -- this code is copied for you, so you can just paste " +
+                        "it in. Approve access, then come back here; Holder continues " +
+                        "automatically.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -54,7 +64,12 @@ fun GitHubDeviceFlowDialog(authorization: DeviceAuthorization, onCancel: () -> U
             }
         },
         confirmButton = {
-            TextButton(onClick = { openUrlExternally(context, authorization.verificationUri) }) { Text("Open GitHub") }
+            TextButton(
+                onClick = {
+                    clipboard.setText(AnnotatedString(authorization.userCode))
+                    openUrlExternally(context, authorization.verificationUri)
+                },
+            ) { Text("Open GitHub") }
         },
         dismissButton = {
             TextButton(onClick = onCancel) { Text("Cancel") }

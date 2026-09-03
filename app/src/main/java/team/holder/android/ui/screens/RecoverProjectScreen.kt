@@ -2,6 +2,7 @@ package team.holder.android.ui.screens
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -163,7 +164,12 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                 value = token,
                 onValueChange = { token = it },
                 label = { Text("Recovery token") },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                textStyle = MaterialTheme.typography.bodySmall,
+                // A real token is long enough (a few hundred bytes of JSON/base64) that
+                // without a height cap this field grows to fit all of it, pushing Recover
+                // -- and everything below it -- off screen. Capped and internally
+                // scrollable instead; the field's own drag-to-scroll still works normally.
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(max = 160.dp),
             )
             Button(
                 enabled = !isBusy && pin.isNotBlank() && token.isNotBlank(),
