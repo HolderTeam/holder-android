@@ -68,8 +68,8 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text("Prepare backup snapshot")
-            Text("Make your latest data ready for Android Auto Backup.")
+            Text("Backup snapshot")
+            Text("Normally kept up to date automatically.")
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                 Button(
                     enabled = !preparingBackup,
@@ -88,7 +88,7 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
                             preparingBackup = false
                         }
                     },
-                ) { Text("Prepare now") }
+                ) { Text("Prepare") }
                 if (preparingBackup) {
                     CircularProgressIndicator(modifier = Modifier.padding(start = 8.dp).size(20.dp))
                 }
