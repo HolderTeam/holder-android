@@ -27,6 +27,19 @@ data class HolderCard(
     val deletedAt: Long? = null,
 )
 
+/** One page of [HolderNative.backupSnapshotPage]: a project's cards, most-recently-updated
+ * first. [cards] are kept as raw [JSONObject]s rather than reshaped into a typed data class --
+ * [team.holder.android.git.backup.SnapshotWriter] writes each one straight through as one
+ * JSONL line, unchanged, so restore can read the same fields back (card_id, project_id,
+ * project_name, privacy_mode, title, body, created_at, updated_at, links, milestones) without
+ * a round trip through a Kotlin model that would risk silently dropping a field. */
+data class BackupSnapshotPage(
+    val cards: List<JSONObject>,
+    val nextCursor: BackupSnapshotCursor?,
+)
+
+data class BackupSnapshotCursor(val updatedAt: Long, val cardId: String)
+
 data class HolderOutgoingLink(
     val toCardId: String,
     val toType: String,
@@ -232,6 +245,13 @@ object HolderNative {
     private external fun nativeDatabaseRebuild(dataDir: String, schemaSql: String, dryRun: Boolean): String
     private external fun nativeProjectList(contextHandle: Long): String
     private external fun nativeCardList(contextHandle: Long, projectId: String): String
+    private external fun nativeBackupSnapshotPage(
+        contextHandle: Long,
+        projectId: String,
+        cursorUpdatedAt: Long,
+        cursorCardId: String?,
+        limit: Int,
+    ): String
     private external fun nativeCardGetContent(contextHandle: Long, cardId: String): String
     private external fun nativeProjectCreate(
         contextHandle: Long,
@@ -457,6 +477,27 @@ object HolderNative {
 
     fun getCardContent(cardId: String): String {
         return nativeCardGetContent(requireContext(), cardId)
+    }
+
+    /** One page of projectId's cards, most-recently-updated first, for
+     * [team.holder.android.git.backup.SnapshotWriter]. Pass cursorCardId = null for the first
+     * page; for later pages, pass back the previous page's [BackupSnapshotPage.nextCursor]. */
+    fun backupSnapshotPage(
+        projectId: String,
+        cursorUpdatedAt: Long,
+        cursorCardId: String?,
+        limit: Int,
+    ): BackupSnapshotPage {
+        val json = JSONObject(
+            nativeBackupSnapshotPage(requireContext(), projectId, cursorUpdatedAt, cursorCardId, limit),
+        )
+        val cardsJson = json.getJSONArray("cards")
+        val cards = List(cardsJson.length()) { cardsJson.getJSONObject(it) }
+        val cursorJson = json.optJSONObject("next_cursor")
+        val nextCursor = cursorJson?.let {
+            BackupSnapshotCursor(updatedAt = it.getLong("updated_at"), cardId = it.getString("card_id"))
+        }
+        return BackupSnapshotPage(cards = cards, nextCursor = nextCursor)
     }
 
     /** privacyMode null defaults (server-side) to "plain". "encrypted_git" is also valid. */

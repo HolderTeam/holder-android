@@ -15,7 +15,13 @@
        key never leaves this device's secure hardware, so a restored copy of this file would be
        ciphertext nothing can ever decrypt again, worse than losing it outright, since it would
        look "connected" in Settings while silently unable to do anything, rather than plainly
-       needing to be reconnected. -->
+       needing to be reconnected.
+
+     Included (no rule needed, it's just not inside an exclusion above): files/backup/
+     snapshot.jsonl.gz, SnapshotWriter's gzip-compressed rolling export of recent cards. This
+     is the one piece of card content deliberately NOT excluded; unlike files/holder/, it's
+     a purpose-built, self-contained export rather than a live index, so it doesn't carry
+     either of the two risks above. See git/backup/SnapshotWriter.kt. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="holder/" />

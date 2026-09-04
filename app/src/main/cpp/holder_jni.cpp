@@ -304,6 +304,46 @@ Java_team_holder_android_HolderNative_nativeCardList(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeBackupSnapshotPage(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jlong cursor_updated_at,
+    jstring cursor_card_id,
+    jint limit
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars cursor_card_id_chars(env, cursor_card_id);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_backup_snapshot_page(
+      context,
+      project_id_chars.get(),
+      static_cast<long long>(cursor_updated_at),
+      cursor_card_id_chars.get(),
+      static_cast<int>(limit),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardGetContent(
     JNIEnv* env,
     jobject /* thiz */,
