@@ -59,8 +59,8 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Use Markdown heading as title")
-                    Text("Use the first line instead of a separate title field.")
+                    Text("Use first line as title")
+                    Text("Instead of a separate title field.")
                 }
                 // Inverted at this boundary only -- HolderSettings.separateTitleEnabled (and its
                 // "true" default) stays exactly as CardEditScreen/CardViewScreen already read it
