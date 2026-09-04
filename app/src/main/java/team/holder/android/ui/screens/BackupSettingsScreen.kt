@@ -98,7 +98,7 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             Text("Restore from backup")
-            Text("Use this if Android restored a backup but Holder didn't load it automatically.")
+            Text("Normally loaded automatically.")
             Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Restore")
             }
