@@ -40,6 +40,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.resource.s3.S3Connection
+import team.holder.android.ui.openUrlExternally
+
+// Mirrors BackupSettingsScreen's/SyncSettingsScreen's own help-link constants -- same
+// website, same /android/<topic> shape.
+private const val STORAGE_HELP_URL = "https://www.holder.team/android/storage"
 
 /** Where attachments (photos, files) live -- Google Drive or S3-compatible storage. Not
  * project sync (see SyncSettingsScreen for git/GitHub): these providers store Resource/Asset
@@ -92,7 +97,7 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
             StorageProviderConnectionRow(
                 title = "Google Drive",
                 connectedSubtitle = driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected",
-                disconnectedSubtitle = "Store photo attachments in your own Google Drive.",
+                disconnectedSubtitle = "Attachments in your account.",
                 connected = driveConnected,
                 connecting = driveConnecting,
                 error = driveError,
@@ -121,7 +126,7 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
             StorageProviderConnectionRow(
                 title = "S3-compatible storage",
                 connectedSubtitle = "Connected to ${s3ConnectedBucket.orEmpty()}",
-                disconnectedSubtitle = "Store attachments in your own S3-compatible bucket (AWS S3, MinIO, ...).",
+                disconnectedSubtitle = "Attachments in your bucket.",
                 connected = s3ConnectedBucket != null,
                 connecting = s3Connecting,
                 error = s3Error,
@@ -153,6 +158,11 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
                     },
                 )
             }
+
+            TextButton(
+                onClick = { openUrlExternally(context, STORAGE_HELP_URL) },
+                modifier = Modifier.padding(top = 16.dp),
+            ) { Text("Learn more about storage.") }
         }
     }
 }
