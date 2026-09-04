@@ -3,8 +3,10 @@ package team.holder.android.ui.screens
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -130,6 +132,7 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
                     Text("Background git sync")
                     Text("Periodically pull and push projects with a remote configured, even when Holder isn't open. Uses battery and data.")
                 }
+                Spacer(modifier = Modifier.width(16.dp))
                 Switch(
                     checked = backgroundSyncEnabled,
                     onCheckedChange = { enabled ->

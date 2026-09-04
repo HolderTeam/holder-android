@@ -2,8 +2,10 @@ package team.holder.android.ui.screens
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -62,6 +64,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                     Text("Use first line as title")
                     Text("Instead of a separate title field.")
                 }
+                Spacer(modifier = Modifier.width(16.dp))
                 // Inverted at this boundary only -- HolderSettings.separateTitleEnabled (and its
                 // "true" default) stays exactly as CardEditScreen/CardViewScreen already read it
                 // everywhere else; this row just presents and toggles its opposite, since the
@@ -82,6 +85,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                     Text("Preserve trailing whitespace")
                     Text("Keeps spaces and tabs at the ends of lines.")
                 }
+                Spacer(modifier = Modifier.width(16.dp))
                 Switch(
                     checked = preserveTrailingWhitespace,
                     onCheckedChange = { enabled ->
@@ -96,6 +100,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                         Text("Trim two-space hard breaks")
                         Text("Two invisible trailing spaces can force a Markdown line break.")
                     }
+                    Spacer(modifier = Modifier.width(16.dp))
                     Switch(
                         checked = trimTwoSpaceLineEndings,
                         onCheckedChange = { enabled ->
@@ -109,6 +114,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                         Text("Trim trailing whitespace in code")
                         Text("Code blocks normally preserve their contents literally.")
                     }
+                    Spacer(modifier = Modifier.width(16.dp))
                     Switch(
                         checked = trimWhitespaceInCodeBlocks,
                         onCheckedChange = { enabled ->
