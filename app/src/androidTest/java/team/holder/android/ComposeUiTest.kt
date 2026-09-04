@@ -161,7 +161,7 @@ class ComposeUiTest {
             SyncSettingsScreen(onBack = {})
         }
 
-        composeRule.onNodeWithText("Background git sync").assertIsDisplayed()
+        composeRule.onNodeWithText("Automatic background sync").assertIsDisplayed()
         composeRule.onNodeWithText("GitHub").performScrollTo().assertIsDisplayed()
     }
 }

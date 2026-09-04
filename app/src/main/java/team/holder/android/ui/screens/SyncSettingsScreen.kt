@@ -51,6 +51,10 @@ import team.holder.android.ui.openUrlExternally
 
 private val BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES = listOf(15, 30, 60, 120)
 
+// Mirrors BackupSettingsScreen's ANDROID_BACKUPS_HELP_URL -- same website, same
+// /android/<topic> shape.
+private const val SYNC_HELP_URL = "https://www.holder.team/android/sync"
+
 /** Keeping projects in sync with somewhere else: background git sync's own schedule, and the
  * GitHub paved-road connection. Google Drive/S3 (attachment storage, not project sync) live in
  * StorageSettingsScreen instead. */
@@ -129,8 +133,8 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Background git sync")
-                    Text("Periodically pull and push projects with a remote configured, even when Holder isn't open. Uses battery and data.")
+                    Text("Automatic background sync")
+                    Text("Uses battery and Wi-Fi/Data.")
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Switch(
@@ -201,6 +205,11 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
                 onRetryInstallCheck = { recheckGithubStatus() },
             )
 
+            TextButton(
+                onClick = { openUrlExternally(context, SYNC_HELP_URL) },
+                modifier = Modifier.padding(top = 16.dp),
+            ) { Text("Learn more about syncing.") }
+
             backfillCandidates?.let { candidates ->
                 GitHubBackfillDialog(
                     projects = candidates,
@@ -246,8 +255,7 @@ private fun GitHubConnectionSection(
             Text(
                 when (status) {
                     null -> "Checking..."
-                    GitHubStatus.NotConnected ->
-                        "Let Holder create and manage GitHub repositories for your projects."
+                    GitHubStatus.NotConnected -> "Let Holder manage repositories."
                     GitHubStatus.AuthorizationRequired -> "Your GitHub sign-in needs to be renewed."
                     is GitHubStatus.InstallationRequired -> "Signed in -- one more step is needed on GitHub."
                     is GitHubStatus.Connected -> "Connected as @${status.login}"

@@ -106,7 +106,7 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
             TextButton(
                 onClick = { openUrlExternally(context, ANDROID_BACKUPS_HELP_URL) },
                 modifier = Modifier.padding(top = 16.dp),
-            ) { Text("Learn about Android backups") }
+            ) { Text("Learn about Android backups.") }
         }
     }
 }
