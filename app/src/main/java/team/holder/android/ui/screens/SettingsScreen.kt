@@ -39,16 +39,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import team.holder.android.HolderProject
 import team.holder.android.HolderSettings
+import team.holder.android.git.backup.SnapshotWriter
 import team.holder.android.git.github.DeviceAuthorization
 import team.holder.android.git.github.GitHubBackfill
 import team.holder.android.git.github.GitHubConnection
@@ -76,6 +80,8 @@ fun SettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
     val backgroundSyncIntervalMinutes by HolderSettings.gitBackgroundSyncIntervalMinutes(context)
         .collectAsState(initial = HolderSettings.DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES)
     var intervalMenuExpanded by remember { mutableStateOf(false) }
+    var preparingBackup by remember { mutableStateOf(false) }
+    var prepareBackupResult by remember { mutableStateOf<String?>(null) }
     val themeOption by HolderSettings.themeOption(context).collectAsState(initial = HolderThemeOption.SYSTEM)
     var themeMenuExpanded by remember { mutableStateOf(false) }
     val fontSizeOption by HolderSettings.fontSizeOption(context).collectAsState(initial = HolderFontSizeOption.SYSTEM)
@@ -320,8 +326,41 @@ fun SettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
 
             Text("Backup")
             Text(
-                "If Android's Auto Backup restored a snapshot of your cards onto a new or " +
-                    "reinstalled phone, restore it here.",
+                "Holder keeps a small backup snapshot ready for Android's Auto Backup to pick " +
+                    "up on its own schedule -- there's no way for Holder to trigger an actual " +
+                    "backup itself, only your phone's Backup settings (usually under System) " +
+                    "can force one. This button just makes sure the snapshot itself is fresh " +
+                    "right now, in case Auto Backup happens to run soon.",
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Button(
+                    enabled = !preparingBackup,
+                    onClick = {
+                        preparingBackup = true
+                        prepareBackupResult = null
+                        scope.launch {
+                            prepareBackupResult = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    SnapshotWriter.regenerateAndRecordFreshness(context)
+                                }
+                            }.fold(
+                                onSuccess = { "Snapshot ready: ${it.cardCount} cards." },
+                                onFailure = { "Couldn't prepare the snapshot -- ${it.message ?: it::class.java.simpleName}" },
+                            )
+                            preparingBackup = false
+                        }
+                    },
+                ) { Text("Prepare backup now") }
+                if (preparingBackup) {
+                    CircularProgressIndicator(modifier = Modifier.padding(start = 8.dp).size(20.dp))
+                }
+            }
+            prepareBackupResult?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
+
+            Text(
+                "If Android's Auto Backup already restored a snapshot of your cards onto a " +
+                    "new or reinstalled phone, restore it here.",
+                modifier = Modifier.padding(top = 16.dp),
             )
             Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Restore from backup")

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -181,6 +182,19 @@ object HolderSettings {
         context.settingsDataStore.edit { it[RESTORE_OFFER_SHOWN] = shown }
     }
 
+    /** The largest card `updated_at` that was reflected in the most recently *successfully*
+     * regenerated backup snapshot -- compared against the device's current max (see
+     * `SnapshotWriter.deviceMaxUpdatedAt`) to decide whether a scheduled regeneration
+     * (`SnapshotWorker`) has anything new to write. 0, the default, means "no snapshot has
+     * ever been written," which compares as dirty against any real card. */
+    fun lastSnapshotMaxUpdatedAt(context: Context): Flow<Long> =
+        context.settingsDataStore.data.map { it[LAST_SNAPSHOT_MAX_UPDATED_AT] ?: 0L }
+
+    suspend fun setLastSnapshotMaxUpdatedAt(context: Context, updatedAt: Long) {
+        context.settingsDataStore.edit { it[LAST_SNAPSHOT_MAX_UPDATED_AT] = updatedAt }
+    }
+
     private val GITHUB_BACKFILL_OFFER_SHOWN = booleanPreferencesKey("github_backfill_offer_shown")
     private val RESTORE_OFFER_SHOWN = booleanPreferencesKey("restore_offer_shown")
+    private val LAST_SNAPSHOT_MAX_UPDATED_AT = longPreferencesKey("last_snapshot_max_updated_at")
 }

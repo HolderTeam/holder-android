@@ -3,6 +3,7 @@ package team.holder.android.git.backup
 import android.content.Context
 import org.json.JSONObject
 import team.holder.android.HolderNative
+import team.holder.android.HolderSettings
 import java.io.File
 import java.io.FilterOutputStream
 import java.io.OutputStream
@@ -17,8 +18,9 @@ const val SNAPSHOT_BUDGET_BYTES: Long = 20L * 1024 * 1024
  * inside) the files/holder/ directory data_extraction_rules.xml/backup_rules.xml exclude from
  * Auto Backup. Both rule files default to backing up everything under filesDir *not*
  * explicitly excluded, so this path needs no `<include>` of its own -- it only has to stay out
- * of that one exclusion. The restore side (not built yet -- see
- * BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9) looks for the file at this same path. */
+ * of that one exclusion. [team.holder.android.git.backup.SnapshotReader] and everything that
+ * reads a snapshot back (RestoreOffer, RestoreBackupScreen) looks for the file at this same
+ * path. */
 fun snapshotFile(context: Context): File = File(context.filesDir, "backup/snapshot.jsonl.gz")
 
 /** Comfortably more than a gzip trailer (CRC32 + ISIZE, 8 bytes) plus whatever [GZIPOutputStream]'s
@@ -59,6 +61,37 @@ object SnapshotWriter {
         pageSize: Int = 500,
     ): SnapshotWriteResult =
         writeLines(deviceCards(pageSize).map { it.toString() }, destination, budgetBytes)
+
+    /** The largest `updated_at` among any local project's cards right now, or null if there
+     * are no cards anywhere -- a cheap one-card-page-per-project check via
+     * [HolderNative.backupSnapshotPage] (`limit = 1`, not a full pull), used to decide whether
+     * a scheduled regeneration ([team.holder.android.git.backup.SnapshotWorker]) has anything
+     * new to write, and recorded by [regenerateAndRecordFreshness] after writing. Any card
+     * mutation that matters for a snapshot -- title/body, links, milestones, trash/restore --
+     * already bumps the card's own `updated_at` in holder-core itself (see `CardStore.cpp`'s
+     * `touch_updated` calls), so this needs no separate dirty-flag threaded through every
+     * mutating call site in the app; it's derived from the same source of truth the snapshot
+     * itself reads. */
+    fun deviceMaxUpdatedAt(): Long? =
+        HolderNative.listProjects()
+            .mapNotNull { project ->
+                HolderNative.backupSnapshotPage(project.projectId, 0, null, limit = 1)
+                    .cards.firstOrNull()?.getLong("updated_at")
+            }
+            .maxOrNull()
+
+    /** Regenerates the on-disk snapshot unconditionally (see [writeDeviceSnapshot]) and
+     * records [deviceMaxUpdatedAt] into [team.holder.android.HolderSettings], so
+     * [team.holder.android.git.backup.SnapshotWorker]'s own freshness check doesn't see
+     * stale-looking bookkeeping and redundantly regenerate again on its very next tick. Used
+     * directly by Settings' "Prepare Backup Now" button (deliberately unconditional -- a
+     * manual request always does the work, dirty or not), and by [SnapshotWorker] once *it*
+     * has already decided, via [deviceMaxUpdatedAt], that something changed. */
+    suspend fun regenerateAndRecordFreshness(context: Context): SnapshotWriteResult {
+        val result = writeDeviceSnapshot(snapshotFile(context))
+        deviceMaxUpdatedAt()?.let { HolderSettings.setLastSnapshotMaxUpdatedAt(context, it) }
+        return result
+    }
 
     /**
      * The tested core: streams [lines] (each the literal per-card JSON object

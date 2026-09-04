@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.git.backup.RestoreOffer
+import team.holder.android.git.backup.SnapshotScheduler
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.AddConnectionScreen
@@ -90,6 +91,10 @@ class MainActivity : ComponentActivity() {
             val intervalMinutes = HolderSettings.gitBackgroundSyncIntervalMinutes(applicationContext).first()
             GitSyncScheduler.reconcile(applicationContext, enabled, intervalMinutes)
         }
+
+        // Always on, no settings to read first -- see SnapshotScheduler's doc comment for why
+        // this doesn't need the same enabled/interval dance GitSyncScheduler's call above does.
+        SnapshotScheduler.reconcile(applicationContext)
 
         enableEdgeToEdge()
         setContent {
