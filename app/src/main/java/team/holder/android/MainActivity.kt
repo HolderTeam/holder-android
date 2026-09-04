@@ -32,13 +32,17 @@ import team.holder.android.git.backup.RestoreOffer
 import team.holder.android.git.backup.SnapshotScheduler
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.screens.AboutSettingsScreen
 import team.holder.android.ui.screens.AddConnectionScreen
 import team.holder.android.ui.screens.AddMilestoneScreen
+import team.holder.android.ui.screens.AppearanceSettingsScreen
+import team.holder.android.ui.screens.BackupSettingsScreen
 import team.holder.android.ui.screens.CalendarScreen
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
+import team.holder.android.ui.screens.EditorSettingsScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.resource.drive.GoogleDriveConnection
@@ -46,6 +50,8 @@ import team.holder.android.resource.s3.S3Connection
 import team.holder.android.ui.screens.RecoverProjectScreen
 import team.holder.android.ui.screens.RestoreBackupScreen
 import team.holder.android.ui.screens.SettingsScreen
+import team.holder.android.ui.screens.StorageSettingsScreen
+import team.holder.android.ui.screens.SyncSettingsScreen
 import team.holder.android.ui.screens.TagResultsScreen
 import team.holder.android.ui.screens.TrashScreen
 import team.holder.android.ui.theme.HolderTheme
@@ -198,8 +204,34 @@ private fun HolderNavHost(pendingRecoveryToken: String? = null) {
         composable("settings") {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
+                onAppearanceClick = { navController.navigate("settings/appearance") },
+                onEditorClick = { navController.navigate("settings/editor") },
+                onBackupClick = { navController.navigate("settings/backup") },
+                onSyncClick = { navController.navigate("settings/sync") },
+                onStorageClick = { navController.navigate("settings/storage") },
+                onAboutClick = { navController.navigate("settings/about") },
+            )
+        }
+        composable("settings/appearance") {
+            AppearanceSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("settings/editor") {
+            EditorSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("settings/backup") {
+            BackupSettingsScreen(
+                onBack = { navController.popBackStack() },
                 onRestoreBackupClick = { navController.navigate("restore-backup") },
             )
+        }
+        composable("settings/sync") {
+            SyncSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("settings/storage") {
+            StorageSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("settings/about") {
+            AboutSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("restore-backup") {
             RestoreBackupScreen(onBack = { navController.popBackStack() })

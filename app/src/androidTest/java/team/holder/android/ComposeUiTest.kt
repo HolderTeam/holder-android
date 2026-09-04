@@ -17,6 +17,8 @@ import org.junit.runner.RunWith
 import team.holder.android.ui.markdown.HolderMarkdownViewer
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.SettingsScreen
+import team.holder.android.ui.screens.StorageSettingsScreen
+import team.holder.android.ui.screens.SyncSettingsScreen
 
 @RunWith(AndroidJUnit4::class)
 class ComposeUiTest {
@@ -118,20 +120,48 @@ class ComposeUiTest {
     }
 
     @Test
-    fun settingsScreen_rendersWithoutCrashing() {
+    fun settingsScreen_rendersEveryCategoryRow() {
         composeRule.setContent {
-            SettingsScreen(onBack = {}, onRestoreBackupClick = {})
+            SettingsScreen(
+                onBack = {},
+                onAppearanceClick = {},
+                onEditorClick = {},
+                onBackupClick = {},
+                onSyncClick = {},
+                onStorageClick = {},
+                onAboutClick = {},
+            )
+        }
+
+        composeRule.onNodeWithText("Appearance").assertIsDisplayed()
+        composeRule.onNodeWithText("Editor").assertIsDisplayed()
+        composeRule.onNodeWithText("Backup").assertIsDisplayed()
+        composeRule.onNodeWithText("Sync").assertIsDisplayed()
+        composeRule.onNodeWithText("Storage").assertIsDisplayed()
+        composeRule.onNodeWithText("About").assertIsDisplayed()
+    }
+
+    @Test
+    fun storageSettingsScreen_rendersWithoutCrashing() {
+        composeRule.setContent {
+            StorageSettingsScreen(onBack = {})
         }
 
         // Not asserting Connect/Disconnect specifically -- Google Drive's connected state is
         // real local DataStore state that can carry over between test runs on the same
-        // device. The point of this test is that the whole screen, including the new Google
-        // Drive row, composes and renders without throwing.
+        // device. The point of this test is that the whole screen, including the S3 row below
+        // it, composes and renders without throwing.
         composeRule.onNodeWithText("Google Drive").assertIsDisplayed()
-        // performScrollTo() first: on a shorter screen (the CI managed devices' Pixel 2
-        // profile, unlike a local emulator with more vertical space) this row is below the
-        // fold by default -- scrolling to it is also a real regression check that the screen
-        // is genuinely scrollable, not just that this text exists somewhere in the tree.
-        composeRule.onNodeWithText("Background git sync").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("S3-compatible storage").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun syncSettingsScreen_rendersWithoutCrashing() {
+        composeRule.setContent {
+            SyncSettingsScreen(onBack = {})
+        }
+
+        composeRule.onNodeWithText("Background git sync").assertIsDisplayed()
+        composeRule.onNodeWithText("GitHub").performScrollTo().assertIsDisplayed()
     }
 }
