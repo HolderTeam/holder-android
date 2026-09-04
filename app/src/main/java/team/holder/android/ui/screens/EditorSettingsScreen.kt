@@ -59,19 +59,18 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Separate title field")
-                    Text(
-                        text = if (separateTitle) {
-                            "Cards have a distinct Title field, separate from the body."
-                        } else {
-                            "No Title field -- the first line of a card is its title."
-                        },
-                    )
+                    Text("Use Markdown heading as title")
+                    Text("Use the first line instead of a separate title field.")
                 }
+                // Inverted at this boundary only -- HolderSettings.separateTitleEnabled (and its
+                // "true" default) stays exactly as CardEditScreen/CardViewScreen already read it
+                // everywhere else; this row just presents and toggles its opposite, since the
+                // feature worth naming and defaulting off is the opt-in one (first line as
+                // title), not the default distinct-title-field behavior.
                 Switch(
-                    checked = separateTitle,
-                    onCheckedChange = { enabled ->
-                        scope.launch { HolderSettings.setSeparateTitleEnabled(context, enabled) }
+                    checked = !separateTitle,
+                    onCheckedChange = { useHeadingAsTitle ->
+                        scope.launch { HolderSettings.setSeparateTitleEnabled(context, !useHeadingAsTitle) }
                     },
                 )
             }
