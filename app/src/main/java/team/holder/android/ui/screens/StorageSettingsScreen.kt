@@ -126,7 +126,7 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
             StorageProviderConnectionRow(
                 title = "S3-compatible storage",
                 connectedSubtitle = "Connected to ${s3ConnectedBucket.orEmpty()}",
-                disconnectedSubtitle = "Bring your own bucket.",
+                disconnectedSubtitle = "Your own bucket.",
                 connected = s3ConnectedBucket != null,
                 connecting = s3Connecting,
                 error = s3Error,
