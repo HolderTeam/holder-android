@@ -98,9 +98,9 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             Text("Restore")
-            Text("Normally loaded automatically.")
+            Text("Normally automatic.")
             Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Restore")
+                Text("Load")
             }
 
             TextButton(
