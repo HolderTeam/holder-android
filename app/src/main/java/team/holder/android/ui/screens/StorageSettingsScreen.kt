@@ -97,7 +97,7 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
             StorageProviderConnectionRow(
                 title = "Google Drive",
                 connectedSubtitle = driveConnectedAccountEmail?.let { "Connected as $it" } ?: "Connected",
-                disconnectedSubtitle = "Attachments in your account.",
+                disconnectedSubtitle = "Use your account.",
                 connected = driveConnected,
                 connecting = driveConnecting,
                 error = driveError,
@@ -126,7 +126,7 @@ fun StorageSettingsScreen(onBack: () -> Unit) {
             StorageProviderConnectionRow(
                 title = "S3-compatible storage",
                 connectedSubtitle = "Connected to ${s3ConnectedBucket.orEmpty()}",
-                disconnectedSubtitle = "Attachments in your bucket.",
+                disconnectedSubtitle = "Use your bucket.",
                 connected = s3ConnectedBucket != null,
                 connecting = s3Connecting,
                 error = s3Error,
