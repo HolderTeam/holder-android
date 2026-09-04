@@ -12,10 +12,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,10 +33,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.git.backup.SnapshotWriter
+import team.holder.android.ui.openUrlExternally
 
-/** The Auto Backup snapshot: "Prepare backup now" (unconditional regeneration -- see
- * SnapshotWriter's doc comment for why this can't also trigger an actual Android backup) and
- * the entry point into RestoreBackupScreen. */
+/** The longer explanation of what Auto Backup is and isn't lives on the website now (see the
+ * "Learn about Android backups" link below), not as in-app paragraphs -- this screen is just
+ * the two actions (SnapshotWriter.regenerateAndRecordFreshness, and the entry point into
+ * RestoreBackupScreen) with a line of copy each. */
+private const val ANDROID_BACKUPS_HELP_URL = "https://www.holder.team/android/backups"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
@@ -62,13 +68,8 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text(
-                "Holder keeps a small backup snapshot ready for Android's Auto Backup to pick " +
-                    "up on its own schedule -- there's no way for Holder to trigger an actual " +
-                    "backup itself, only your phone's Backup settings (usually under System) " +
-                    "can force one. This button just makes sure the snapshot itself is fresh " +
-                    "right now, in case Auto Backup happens to run soon.",
-            )
+            Text("Prepare backup snapshot")
+            Text("Make your latest data ready for Android Auto Backup.")
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                 Button(
                     enabled = !preparingBackup,
@@ -87,21 +88,25 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
                             preparingBackup = false
                         }
                     },
-                ) { Text("Prepare backup now") }
+                ) { Text("Prepare now") }
                 if (preparingBackup) {
                     CircularProgressIndicator(modifier = Modifier.padding(start = 8.dp).size(20.dp))
                 }
             }
             prepareBackupResult?.let { Text(it, modifier = Modifier.padding(top = 4.dp)) }
 
-            Text(
-                "If Android's Auto Backup already restored a snapshot of your cards onto a " +
-                    "new or reinstalled phone, restore it here.",
-                modifier = Modifier.padding(top = 16.dp),
-            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("Restore from backup")
+            Text("Use this if Android restored a backup but Holder didn't load it automatically.")
             Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Restore from backup")
+                Text("Restore")
             }
+
+            TextButton(
+                onClick = { openUrlExternally(context, ANDROID_BACKUPS_HELP_URL) },
+                modifier = Modifier.padding(top = 16.dp),
+            ) { Text("Learn about Android backups") }
         }
     }
 }
