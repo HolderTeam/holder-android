@@ -68,7 +68,7 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text("Backup snapshot")
+            Text("Snapshot")
             Text("Normally kept up to date automatically.")
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                 Button(
@@ -97,7 +97,7 @@ fun BackupSettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-            Text("Restore from backup")
+            Text("Restore")
             Text("Normally loaded automatically.")
             Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Restore")
