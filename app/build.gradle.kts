@@ -178,6 +178,14 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)
+    // The real org.json, not the android.jar compile-time stub every other JVM unit test
+    // avoids relying on -- SnapshotReaderTest genuinely needs working JSONObject/JSONArray
+    // parsing, not just something that compiles. Same package name as the stub; whichever is
+    // first on the unit-test classpath wins, and testImplementation deps come before
+    // android.jar there. Real device code paths (HolderNative, SnapshotWriter/Reader in
+    // production) still use the platform's own real implementation, same as always -- this
+    // only affects the host-JVM test classpath.
+    testImplementation(libs.org.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

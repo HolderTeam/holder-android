@@ -120,7 +120,7 @@ class ComposeUiTest {
     @Test
     fun settingsScreen_rendersWithoutCrashing() {
         composeRule.setContent {
-            SettingsScreen(onBack = {})
+            SettingsScreen(onBack = {}, onRestoreBackupClick = {})
         }
 
         // Not asserting Connect/Disconnect specifically -- Google Drive's connected state is

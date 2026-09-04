@@ -344,6 +344,49 @@ Java_team_holder_android_HolderNative_nativeBackupSnapshotPage(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeBackupRestore(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_name,
+    jstring privacy_mode,
+    jstring cards_json,
+    jstring commit_message
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_name_chars(env, project_name);
+  UtfChars privacy_mode_chars(env, privacy_mode);
+  UtfChars cards_json_chars(env, cards_json);
+  UtfChars commit_message_chars(env, commit_message);
+  if (project_name_chars.get() == nullptr || cards_json_chars.get() == nullptr ||
+      commit_message_chars.get() == nullptr) {
+    throw_runtime(env, "project_name, cards_json and commit_message must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_backup_restore(
+      context,
+      project_name_chars.get(),
+      privacy_mode_chars.get(),
+      cards_json_chars.get(),
+      commit_message_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardGetContent(
     JNIEnv* env,
     jobject /* thiz */,

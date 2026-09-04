@@ -68,7 +68,7 @@ private val BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES = listOf(15, 30, 60, 120)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onRestoreBackupClick: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
@@ -314,6 +314,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("Backup")
+            Text(
+                "If Android's Auto Backup restored a snapshot of your cards onto a new or " +
+                    "reinstalled phone, restore it here.",
+            )
+            Button(onClick = onRestoreBackupClick, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Restore from backup")
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))

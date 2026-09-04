@@ -252,6 +252,13 @@ object HolderNative {
         cursorCardId: String?,
         limit: Int,
     ): String
+    private external fun nativeBackupRestore(
+        contextHandle: Long,
+        projectName: String,
+        privacyMode: String?,
+        cardsJson: String,
+        commitMessage: String,
+    ): String
     private external fun nativeCardGetContent(contextHandle: Long, cardId: String): String
     private external fun nativeProjectCreate(
         contextHandle: Long,
@@ -499,6 +506,21 @@ object HolderNative {
         }
         return BackupSnapshotPage(cards = cards, nextCursor = nextCursor)
     }
+
+    /** Bulk-restores one [team.holder.android.git.backup.SnapshotGroup]'s worth of cards
+     * (already `.toString()`'d as [cardsJson], a JSON array) into a brand-new project --
+     * fresh id, fresh git repo, no remote, one commit. See `holder_backup_restore` in
+     * holder.h for the full contract (fresh card_id per card, dangling-link handling,
+     * rollback on failure). */
+    fun backupRestore(
+        projectName: String,
+        privacyMode: String?,
+        cardsJson: String,
+        commitMessage: String,
+    ): HolderProject =
+        parseProject(
+            JSONObject(nativeBackupRestore(requireContext(), projectName, privacyMode, cardsJson, commitMessage)),
+        )
 
     /** privacyMode null defaults (server-side) to "plain". "encrypted_git" is also valid. */
     fun createProject(name: String, privacyMode: String? = null): HolderProject =

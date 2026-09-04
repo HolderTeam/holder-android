@@ -19,6 +19,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -27,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.git.backup.RestoreOffer
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.AddConnectionScreen
@@ -41,6 +43,7 @@ import team.holder.android.ui.screens.ProjectListScreen
 import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.resource.s3.S3Connection
 import team.holder.android.ui.screens.RecoverProjectScreen
+import team.holder.android.ui.screens.RestoreBackupScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.screens.TagResultsScreen
 import team.holder.android.ui.screens.TrashScreen
@@ -129,6 +132,7 @@ class MainActivity : ComponentActivity() {
 private fun HolderNavHost(pendingRecoveryToken: String? = null) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // rememberSaveable: these back the app-bar titles on CardListScreen/CardViewScreen, which
     // otherwise fall back to a generic label ("Cards"/"Card") until the next navigation if the
@@ -158,6 +162,19 @@ private fun HolderNavHost(pendingRecoveryToken: String? = null) {
         }
     }
 
+    // The automatic half of BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9: once per device,
+    // ever (see RestoreOffer), jump straight to Restore Backup if Auto Backup restored a
+    // snapshot before this install's first launch. Skipped entirely if a .hrk file already
+    // claimed the same first-launch moment above -- opening one implies she already has a
+    // real recovery path in hand, so this doesn't also compete for it. Unkeyed (LaunchedEffect
+    // (Unit)): this must run exactly once per process, not re-check on every recomposition --
+    // checkAndMarkOfferedOnce's own flag is what makes that safe across process restarts too.
+    LaunchedEffect(Unit) {
+        if (pendingRecoveryToken == null && RestoreOffer.checkAndMarkOfferedOnce(context)) {
+            navController.navigate("restore-backup")
+        }
+    }
+
     NavHost(navController = navController, startDestination = "projects") {
         composable("projects") {
             ProjectListScreen(
@@ -174,7 +191,13 @@ private fun HolderNavHost(pendingRecoveryToken: String? = null) {
             )
         }
         composable("settings") {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onRestoreBackupClick = { navController.navigate("restore-backup") },
+            )
+        }
+        composable("restore-backup") {
+            RestoreBackupScreen(onBack = { navController.popBackStack() })
         }
         composable("recover-project") {
             RecoverProjectScreen(
