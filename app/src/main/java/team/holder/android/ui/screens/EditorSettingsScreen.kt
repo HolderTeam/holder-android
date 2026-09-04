@@ -83,7 +83,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Preserve trailing whitespace")
-                    Text("Keeps spaces and tabs at the ends of lines.")
+                    Text("Keep end spaces and tabs.")
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Switch(
@@ -98,7 +98,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim two-space hard breaks")
-                        Text("Two invisible trailing spaces can force a Markdown line break.")
+                        Text("Two trailing spaces force a line break.")
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Switch(
@@ -112,7 +112,7 @@ fun EditorSettingsScreen(onBack: () -> Unit) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Trim trailing whitespace in code")
-                        Text("Code blocks normally preserve their contents literally.")
+                        Text("Code blocks are normally unchanged.")
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Switch(
