@@ -38,8 +38,19 @@ object SnapshotReader {
      * at all -- e.g. the very last line of a snapshot Auto Backup captured mid-write) is
      * skipped, not fatal: a snapshot is a best-effort recovery aid, and one bad line
      * shouldn't sink everything else in it.
+     *
+     * Returns an empty list, rather than throwing, when [source] doesn't exist at all -- by far
+     * the most common way this actually gets called: the manual "Restore from backup" button is
+     * an always-available, unconditional entry point (see
+     * BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9), so most real taps on it happen on a device
+     * that has never had anything to restore. Without this, that ordinary case surfaced as a
+     * raw `open failed: ENOENT (No such file or directory)` -- the internal file path and all --
+     * instead of [RestoreBackupScreen]'s own friendly "No backup snapshot found on this device."
+     * empty-groups message, which is exactly what this should look like instead.
      */
     fun readGroups(source: File): List<SnapshotGroup> {
+        if (!hasSnapshot(source)) return emptyList()
+
         val order = mutableListOf<String>()
         val cardsByProject = mutableMapOf<String, MutableList<JSONObject>>()
         val nameByProject = mutableMapOf<String, String>()

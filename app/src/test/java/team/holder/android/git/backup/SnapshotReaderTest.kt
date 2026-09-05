@@ -117,6 +117,16 @@ class SnapshotReaderTest {
     }
 
     @Test
+    fun readGroups_returnsEmptyList_ratherThanThrowing_whenNoFileExistsAtAll() {
+        // The common real case: the manual "Restore from backup" button has no guard of its
+        // own (see RestoreBackupScreen), so most taps on it happen on a device that's never had
+        // anything to restore. This used to surface as a raw FileNotFoundException instead of
+        // the same "nothing here" result an empty snapshot already produces above.
+        val file = File(tempFolder.newFolder("nope"), "snapshot.jsonl.gz")
+        assertTrue(SnapshotReader.readGroups(file).isEmpty())
+    }
+
+    @Test
     fun readGroups_defaultsProjectNameAndPrivacyMode_whenMissing() {
         val file = File(tempFolder.newFolder("snapshot"), "snapshot.jsonl.gz")
         val bareCard = JSONObject().apply {
