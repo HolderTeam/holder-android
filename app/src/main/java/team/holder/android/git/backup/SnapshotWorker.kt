@@ -40,18 +40,26 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
 
             val currentMax = SnapshotWriter.deviceMaxUpdatedAt()
             val lastMax = HolderSettings.lastSnapshotMaxUpdatedAt(applicationContext).first()
-            // SnapshotProtection.isArmed guards against a real data-loss race: right after a
-            // genuine "lost phone" reinstall, ensure_default_project's fresh "Home" card is
-            // enough on its own to make currentMax look newer than lastMax (itself restored
-            // from the OLD device's stale high-water mark, since HolderSettings' DataStore
-            // isn't excluded from backup) -- without this check, this worker's very first tick
-            // would overwrite the actual restorable snapshot before anyone reads it. See
-            // SnapshotProtection's doc comment for the full reasoning.
-            if (currentMax != null && currentMax > lastMax && !SnapshotProtection.isArmed(applicationContext.filesDir)) {
+            val armed = SnapshotProtection.isArmed(applicationContext.filesDir)
+            if (shouldRegenerate(currentMax, lastMax, armed)) {
                 SnapshotWriter.regenerateAndRecordFreshness(applicationContext)
             }
         }
 
         if (result.isSuccess) Result.success() else Result.retry()
+    }
+
+    companion object {
+        /**
+         * Pulled out of [doWork] as a pure function purely so it has a fast, deterministic unit
+         * test of its own ([SnapshotWorkerTest]) -- [armed] in particular guards against a real
+         * data-loss race (see [SnapshotProtection]'s doc comment), and that guard is exactly the
+         * kind of one-line condition a later refactor could silently drop without this test
+         * catching it. The rest of [doWork] (HolderNative.initialize, the actual file I/O) needs
+         * a real device and isn't unit-tested, matching this codebase's usual split (see
+         * `GitHubBackfillTest`'s doc comment).
+         */
+        fun shouldRegenerate(currentMax: Long?, lastMax: Long, armed: Boolean): Boolean =
+            currentMax != null && currentMax > lastMax && !armed
     }
 }
