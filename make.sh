@@ -10,12 +10,19 @@ Usage:
   ./make.sh [command]
 
 Commands:
-  test      Run JVM unit tests and connected Compose UI tests
-  help      Show this help
+  test                     Run JVM unit tests and connected Compose UI tests
+  backup-restore-regression
+                           Real-device Auto Backup/Restore regression check --
+                           slow (several minutes), needs one connected
+                           device/emulator. Run by hand before a release, not
+                           on every commit. See scripts/backup_restore_regression.sh
+                           for what it covers and why.
+  help                     Show this help
 
 Examples:
   ./make.sh
   ./make.sh test
+  ./make.sh backup-restore-regression
 EOF
 }
 
@@ -28,6 +35,10 @@ run_unit_tests() {
 case "${MODE}" in
   test|"")
     run_unit_tests
+    ;;
+  backup-restore-regression)
+    shift || true
+    "${SCRIPT_DIR}/scripts/backup_restore_regression.sh" "$@"
     ;;
   help|-h|--help)
     print_usage
