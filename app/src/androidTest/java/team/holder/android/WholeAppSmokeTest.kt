@@ -3,6 +3,7 @@ package team.holder.android
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -80,6 +81,16 @@ class WholeAppSmokeTest {
                 .isNotEmpty()
         }
 
+        // Unlike every other click in this test, this one previously had no wait in front of
+        // it -- the preceding wait above only confirms the edited text is showing somewhere,
+        // which a mid-navigation-transition frame can already satisfy (both the outgoing and
+        // incoming screens can briefly coexist during a NavHost crossfade) before the incoming
+        // screen's own TopAppBar, and its Back icon, has actually settled. That gap is what
+        // made this specific click flaky on CI (`Expected exactly '1' node ... ContentDescription
+        // = 'Back'`), passing on a rerun once timing happened to line up.
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().size == 1
+        }
         composeRule.onNodeWithContentDescription("Back").performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
