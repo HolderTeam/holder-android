@@ -10,6 +10,10 @@
        rebuildable cache, not a copy of record (Git is); restoring a stale one on a different
        install could also resurrect plaintext local state for an encrypted_git project onto a
        device that never had it.
+     - files/local_state/, small Android-side markers that must never survive a restore onto a
+       different install, e.g. SnapshotProtection's guard against SnapshotWorker overwriting
+       an unread inbound snapshot (see git/backup/SnapshotProtection.kt), which only works
+       *because* it can't be carried over the way HolderSettings' DataStore prefs (below) are.
      - shared_prefs/holder_platform_keyring.xml, AndroidKeyringStore's secrets (Git signing
        keys, S3 credentials), AES-GCM encrypted with a non-exportable AndroidKeyStore key. That
        key never leaves this device's secure hardware, so a restored copy of this file would be
@@ -17,18 +21,24 @@
        look "connected" in Settings while silently unable to do anything, rather than plainly
        needing to be reconnected.
 
-     Included (no rule needed, it's just not inside an exclusion above): files/backup/
-     snapshot.jsonl.gz, SnapshotWriter's gzip-compressed rolling export of recent cards. This
-     is the one piece of card content deliberately NOT excluded; unlike files/holder/, it's
-     a purpose-built, self-contained export rather than a live index, so it doesn't carry
-     either of the two risks above. See git/backup/SnapshotWriter.kt. -->
+     Included (no rule needed, it's just not inside an exclusion above):
+     - files/backup/snapshot.jsonl.gz, SnapshotWriter's gzip-compressed rolling export of recent
+       cards. This is the one piece of card content deliberately NOT excluded; unlike
+       files/holder/, it's a purpose-built, self-contained export rather than a live index, so
+       it doesn't carry either of the two risks above. See git/backup/SnapshotWriter.kt.
+     - files/datastore/, HolderSettings' own DataStore preferences (theme, font, sync interval,
+       and the one-time offer flags), deliberately small, low-stakes UI state, fine to carry
+       over. See git/backup/SnapshotProtection.kt's doc comment for the one place this default
+       inclusion needed a *separate*, non-backed-up guard rather than just living with it. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="holder/" />
+        <exclude domain="file" path="local_state/" />
         <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="holder/" />
+        <exclude domain="file" path="local_state/" />
         <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
     </device-transfer>
 </data-extraction-rules>

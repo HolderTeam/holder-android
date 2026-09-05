@@ -40,7 +40,14 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
 
             val currentMax = SnapshotWriter.deviceMaxUpdatedAt()
             val lastMax = HolderSettings.lastSnapshotMaxUpdatedAt(applicationContext).first()
-            if (currentMax != null && currentMax > lastMax) {
+            // SnapshotProtection.isArmed guards against a real data-loss race: right after a
+            // genuine "lost phone" reinstall, ensure_default_project's fresh "Home" card is
+            // enough on its own to make currentMax look newer than lastMax (itself restored
+            // from the OLD device's stale high-water mark, since HolderSettings' DataStore
+            // isn't excluded from backup) -- without this check, this worker's very first tick
+            // would overwrite the actual restorable snapshot before anyone reads it. See
+            // SnapshotProtection's doc comment for the full reasoning.
+            if (currentMax != null && currentMax > lastMax && !SnapshotProtection.isArmed(applicationContext.filesDir)) {
                 SnapshotWriter.regenerateAndRecordFreshness(applicationContext)
             }
         }

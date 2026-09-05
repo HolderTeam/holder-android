@@ -29,7 +29,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.git.backup.RestoreOffer
+import team.holder.android.git.backup.SnapshotProtection
 import team.holder.android.git.backup.SnapshotScheduler
+import team.holder.android.git.backup.snapshotFile
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.screens.AboutSettingsScreen
@@ -70,14 +72,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
 
+        // Captured before initialize() below, which creates this directory if it's missing --
+        // its absence right now is the exact, one-shot signal that this is the first launch
+        // this install has ever done. See SnapshotProtection's doc comment for why that matters.
+        val holderDataDir = File(filesDir, "holder")
+        val dataDirExistedBeforeInit = holderDataDir.exists()
+
         val initError = runCatching {
             HolderNative.initialize(
                 context = this,
-                dataDir = File(filesDir, "holder"),
+                dataDir = holderDataDir,
                 schemaSql = assets.open("schema.sql").bufferedReader().use { it.readText() },
                 welcomeContent = assets.open("WELCOME.md").bufferedReader().use { it.readText() },
             )
         }.exceptionOrNull()
+
+        // Only meaningful right after a successful initialize -- a failed one never gets far
+        // enough to seed the fresh "Home" project SnapshotProtection is guarding against, and
+        // there's nothing here worth doing on top of an already-broken launch.
+        if (initError == null) {
+            SnapshotProtection.armIfFreshInstallHasAnUnseenSnapshot(filesDir, snapshotFile(this), dataDirExistedBeforeInit)
+        }
 
         // Safe and cheap regardless of initError or whether Drive/S3 is actually connected --
         // holder-core only ever calls into either for a project that has a matching Location,

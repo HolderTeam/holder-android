@@ -37,6 +37,7 @@ import team.holder.android.git.backup.BackupRestore
 import team.holder.android.git.backup.RestoreOutcome
 import team.holder.android.git.backup.RestoreResult
 import team.holder.android.git.backup.SnapshotGroup
+import team.holder.android.git.backup.SnapshotProtection
 import team.holder.android.git.backup.SnapshotReader
 import team.holder.android.git.backup.snapshotFile
 import team.holder.android.git.github.GitHubBackfill
@@ -83,6 +84,12 @@ fun RestoreBackupScreen(onBack: () -> Unit) {
             onSuccess = { LoadState.Success(it) },
             onFailure = { LoadState.Error(it.message ?: it::class.java.simpleName) },
         )
+        // This is the exact moment SnapshotProtection's guard (see its doc comment) exists to
+        // protect: a human has now actually seen whatever was at snapshotFile, on every path
+        // through this screen -- automatic offer or manual entry, successful read or not -- so
+        // it's safe to let SnapshotWorker's automatic regeneration resume. A no-op if never
+        // armed (the overwhelmingly common case: no pending inbound snapshot at all).
+        SnapshotProtection.disarm(context.filesDir)
     }
 
     Scaffold(

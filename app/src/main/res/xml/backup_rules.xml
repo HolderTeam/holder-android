@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Pre-API-31 equivalent of data_extraction_rules.xml's cloud-backup section, ignored on
-     API 31+, which reads that file instead. Same two exclusions, same reasoning, and the
+     API 31+, which reads that file instead. Same three exclusions, same reasoning, and the
      same files/backup/snapshot.jsonl.gz left un-excluded on purpose: see that file's comment.
      This one still matters: minSdk is 28. -->
 <full-backup-content>
     <exclude domain="file" path="holder/" />
+    <exclude domain="file" path="local_state/" />
     <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
 </full-backup-content>
