@@ -87,28 +87,56 @@ jobs:
           path: .vcpkg-binary-cache
           key: vcpkg-android-x86_64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
 
+      # ANDROID_AVD_HOME pinned explicitly and identically for this step and the next -- first
+      # real run of this workflow hit `avdmanager create avd` reporting success with no error,
+      # then `emulator -avd backup_regression` failing outright with "Unknown AVD name... no
+      # file backup_regression.ini in $HOME/.android/avd", i.e. the two tools disagreed on
+      # where an AVD lives. Also dropped `-d pixel_5`: nothing here depends on a specific
+      # device skin (every tap target is found dynamically via uiautomator dump, not hardcoded
+      # coordinates), so it's one less variable in a step that just failed once for an
+      # unexplained reason.
       - name: Create AVD
+        env:
+          ANDROID_AVD_HOME: ${{ github.workspace }}/.android/avd
         run: |
+          mkdir -p "$ANDROID_AVD_HOME"
           echo "no" | avdmanager create avd \
             -n backup_regression \
             -k "system-images;android-33;google_apis;x86_64" \
-            -d pixel_5 \
             --force
+          echo "--- avdmanager list avd (confirming it's actually there) ---"
+          avdmanager list avd
 
       - name: Boot emulator
+        env:
+          ANDROID_AVD_HOME: ${{ github.workspace }}/.android/avd
         run: |
           "$ANDROID_HOME/emulator/emulator" -avd backup_regression \
-            -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot &
-          adb wait-for-device
+            -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot \
+            > emulator.log 2>&1 &
+          emulator_pid=$!
 
+          # Bounded and liveness-checked -- the first real run of this workflow hung here for
+          # the full 60-minute job timeout: `adb wait-for-device` blocks forever if the
+          # emulator process died right after backgrounding (as it did, from the AVD-lookup
+          # mismatch above) rather than ever actually starting. Checking the process is still
+          # alive on every iteration turns that failure mode into a fast, clear one instead of
+          # a silent hour-long hang. `adb shell` against no device yet just errors immediately
+          # rather than blocking, so no separate wait-for-device call is needed at all.
           boot_completed=""
           for _ in $(seq 1 60); do
+            if ! kill -0 "${emulator_pid}" 2>/dev/null; then
+              echo "Emulator process exited early -- emulator.log:" >&2
+              cat emulator.log >&2
+              exit 1
+            fi
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
             [[ "${boot_completed}" == "1" ]] && break
             sleep 5
           done
           if [[ "${boot_completed}" != "1" ]]; then
-            echo "Emulator did not finish booting within the timeout" >&2
+            echo "Emulator did not finish booting within the timeout -- emulator.log:" >&2
+            cat emulator.log >&2
             exit 1
           fi
           # Clears the lock screen some system images boot with, which would otherwise sit in
@@ -126,7 +154,9 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: holder-android-backup-restore-regression-logcat
-          path: logcat.txt
+          name: holder-android-backup-restore-regression-diagnostics
+          path: |
+            logcat.txt
+            emulator.log
           if-no-files-found: ignore
           retention-days: 7
