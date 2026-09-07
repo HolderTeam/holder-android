@@ -93,9 +93,17 @@ android {
             optimization {
                 enable = false
             }
+            // The OAuth callback App Link's host -- see the matching intent-filter in
+            // AndroidManifest.xml. Real production traffic only ever goes through
+            // holder-github-service's production deployment.
+            manifestPlaceholders["oauthHost"] = "auth.holder.ws"
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
+            // See the release block's identical comment -- debug builds authorize against
+            // holder-github-service's development deployment (its own GitHub App, its own
+            // client_id -- see GitHubEnvironment.kt), never production's.
+            manifestPlaceholders["oauthHost"] = "auth-dev.holder.ws"
             // Distinct applicationId so a locally-built debug APK installs alongside a real
             // release install rather than overwriting it -- Android sandboxes app data per
             // applicationId, so this gets the debug build a fully separate data directory,
@@ -120,6 +128,9 @@ android {
     }
     buildFeatures {
         compose = true
+        // Off by default since AGP 8 -- needed for GitHubEnvironment.kt's BuildConfig.DEBUG
+        // branch (debug vs. release picking a different GitHub App/relay deployment).
+        buildConfig = true
     }
     externalNativeBuild {
         cmake {
@@ -133,6 +144,7 @@ android {
         }
     }
     testOptions {
+        unitTests.isReturnDefaultValues = true
         managedDevices {
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
@@ -176,6 +188,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.play.services.auth)
     implementation(libs.okhttp)
+    implementation(libs.androidx.browser)
     implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)
     // The real org.json, not the android.jar compile-time stub every other JVM unit test

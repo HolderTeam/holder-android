@@ -60,6 +60,13 @@ import team.holder.android.ui.theme.HolderTheme
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.UUID
+import androidx.browser.auth.AuthTabIntent
+import team.holder.android.git.github.GitHubActivityBrowserLauncher
+import team.holder.android.git.github.GitHubConnection
+import team.holder.android.git.github.GitHubConnectionCoordinator
+
+private const val KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID = "authTabOutstandingAttemptId"
 
 class MainActivity : ComponentActivity() {
     // Set from a .hrk file opened directly (Files app, email attachment, etc. -- see the
@@ -68,9 +75,35 @@ class MainActivity : ComponentActivity() {
     // writable from onNewIntent, which runs outside the setContent{} composition entirely.
     private var pendingRecoveryToken by mutableStateOf<String?>(null)
 
+    // The bare, non-secret attempt id an outstanding AuthTabIntent launch is waiting on -- the
+    // one piece of GitHubConnectionCoordinator's OAuth state that's allowed to survive process
+    // death, via this Activity's own SavedState (the same lifecycle boundary
+    // ActivityResultRegistry itself uses to restore its own outstanding-launch bookkeeping; see
+    // GitHubActivityBrowserLauncher's doc comment for why not DataStore). A plain field, not
+    // Compose state -- restored in onCreate below, saved in onSaveInstanceState, read/written
+    // from GitHubActivityBrowserLauncher's callback-injected accessors, never from Compose.
+    private var authTabOutstandingAttemptId: String? = null
+
+    // Registered unconditionally, as a field initializer -- must happen before this Activity
+    // reaches STARTED, and must never be created conditionally inside a Composable (see
+    // GitHubActivityBrowserLauncher's doc comment for why: "at most one unresolved AuthTabIntent
+    // launch per registration, ever" is the policy GitHubConnectionCoordinator's own design
+    // relies on to disambiguate a late result).
+    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result ->
+        GitHubConnection.handleAuthTabResult(result) {
+            authTabOutstandingAttemptId?.let(UUID::fromString).also { authTabOutstandingAttemptId = null }
+        }
+    }
+
+    private val githubBrowserLauncher = GitHubActivityBrowserLauncher(authTabLauncher) { attemptId ->
+        authTabOutstandingAttemptId = attemptId?.toString()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        authTabOutstandingAttemptId = savedInstanceState?.getString(KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID)
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
+        handleGitHubIntent(intent)
 
         // Captured before initialize() below, which creates this directory if it's missing --
         // its absence right now is the exact, one-shot signal that this is the first launch
@@ -127,18 +160,41 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    HolderNavHost(pendingRecoveryToken = pendingRecoveryToken)
+                    HolderNavHost(pendingRecoveryToken = pendingRecoveryToken, githubBrowserLauncher = githubBrowserLauncher)
                 }
             }
         }
     }
 
-    // Fires when a .hrk file is opened while this activity is already running (launchMode
-    // "singleTop" in the manifest routes it here instead of spinning up a second instance).
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID, authTabOutstandingAttemptId)
+    }
+
+    // Fires when a .hrk file is opened, or a GitHub App Link fallback delivery arrives, while
+    // this activity is already running (launchMode "singleTop" in the manifest routes it here
+    // instead of spinning up a second instance).
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
+        handleGitHubIntent(intent)
+    }
+
+    /** Forwards a matching GitHub App Link `VIEW` intent -- the OAuth callback's Custom Tab/
+     * browser fallback delivery path, or a Setup URL installation return -- to
+     * GitHubConnectionCoordinator. Silently does nothing for any other intent (the normal case:
+     * a plain launcher-icon tap, or a .hrk file open). Auth Tab's own `ActivityResultCallback`
+     * (see [authTabLauncher] above) is a separate delivery path that never reaches this method
+     * at all -- both funnel into the same coordinator completion logic regardless. */
+    private fun handleGitHubIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        when (uri.path) {
+            "/android/oauth-callback" -> lifecycleScope.launch { GitHubConnection.handleOAuthCallbackUri(uri) }
+            "/github/install-complete" ->
+                lifecycleScope.launch { GitHubConnection.handleInstallationReturn(this@MainActivity, uri.getQueryParameter("state")) }
+        }
     }
 
     /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
@@ -155,7 +211,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun HolderNavHost(pendingRecoveryToken: String? = null) {
+private fun HolderNavHost(
+    pendingRecoveryToken: String? = null,
+    githubBrowserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher,
+) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -240,7 +299,7 @@ private fun HolderNavHost(pendingRecoveryToken: String? = null) {
             )
         }
         composable("settings/sync") {
-            SyncSettingsScreen(onBack = { navController.popBackStack() })
+            SyncSettingsScreen(onBack = { navController.popBackStack() }, browserLauncher = githubBrowserLauncher)
         }
         composable("settings/storage") {
             StorageSettingsScreen(onBack = { navController.popBackStack() })
@@ -254,6 +313,7 @@ private fun HolderNavHost(pendingRecoveryToken: String? = null) {
         composable("recover-project") {
             RecoverProjectScreen(
                 onBack = { navController.popBackStack() },
+                browserLauncher = githubBrowserLauncher,
                 initialToken = pendingRecoveryToken,
             )
         }

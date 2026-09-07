@@ -36,17 +36,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import team.holder.android.HolderProject
 import team.holder.android.HolderSettings
-import team.holder.android.git.github.DeviceAuthorization
 import team.holder.android.git.github.GitHubBackfill
 import team.holder.android.git.github.GitHubConnection
+import team.holder.android.git.github.GitHubConnectionCoordinator
+import team.holder.android.git.github.GitHubResult
 import team.holder.android.git.github.GitHubStatus
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.GitHubBackfillDialog
-import team.holder.android.ui.GitHubDeviceFlowDialog
+import team.holder.android.ui.githubErrorMessage
 import team.holder.android.ui.openUrlExternally
 
 private val BACKGROUND_SYNC_INTERVAL_OPTIONS_MINUTES = listOf(15, 30, 60, 120)
@@ -60,22 +60,20 @@ private const val SYNC_HELP_URL = "https://www.holder.team/android/sync"
  * StorageSettingsScreen instead. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SyncSettingsScreen(onBack: () -> Unit) {
+fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val backgroundSyncEnabled by HolderSettings.gitBackgroundSyncEnabled(context).collectAsState(initial = false)
     val backgroundSyncIntervalMinutes by HolderSettings.gitBackgroundSyncIntervalMinutes(context)
         .collectAsState(initial = HolderSettings.DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES)
     var intervalMenuExpanded by remember { mutableStateOf(false) }
-    // null while the initial check is in flight -- see GitHubConnectionSection for how that
-    // (as opposed to a genuine NotConnected) is rendered.
-    var githubStatus by remember { mutableStateOf<GitHubStatus?>(null) }
+    // The coordinator's own published state, updated automatically by any completed connect()/
+    // disconnect()/status() call from anywhere -- including an OAuth callback or Setup URL
+    // return handled in MainActivity, not just this screen's own recheckGithubStatus() below.
+    // Starts as NotConnected until the initial recheck (LaunchedEffect below) resolves.
+    val githubStatus by GitHubConnection.statusFlow.collectAsState()
     var githubBusy by remember { mutableStateOf(false) }
     var githubError by remember { mutableStateOf<String?>(null) }
-    var pendingGithubAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
-    // Cancelling the dialog needs to cancel the actual in-flight Device Flow poll too, not
-    // just hide the dialog -- see GitHubDeviceFlowDialog's doc comment.
-    var githubConnectJob by remember { mutableStateOf<Job?>(null) }
     // Non-null only while the one-time "sync your existing projects?" offer is showing --
     // see GitHubBackfill.checkAndMarkOfferedOnce, called below every time this screen learns
     // status is Connected. Idempotent (no-ops after the first real time), so it's safe to
@@ -95,10 +93,7 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
         githubBusy = true
         scope.launch {
             runCatching { GitHubConnection.status(context) }
-                .onSuccess {
-                    githubStatus = it
-                    maybeOfferBackfill(it)
-                }
+                .onSuccess { maybeOfferBackfill(it) }
                 .onFailure { githubError = it.message ?: "Could not check GitHub status" }
             githubBusy = false
         }
@@ -181,26 +176,19 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
                 onConnect = {
                     githubError = null
                     githubBusy = true
-                    githubConnectJob = scope.launch {
-                        runCatching {
-                            GitHubConnection.connect(context) { authorization -> pendingGithubAuth = authorization }
-                        }.onSuccess { newStatus ->
-                            pendingGithubAuth = null
-                            githubStatus = newStatus
-                            maybeOfferBackfill(newStatus)
-                        }.onFailure { failure ->
-                            pendingGithubAuth = null
-                            githubError = failure.message ?: "Could not connect to GitHub"
-                        }
+                    scope.launch {
+                        runCatching { GitHubConnection.connect(context, browserLauncher) }
+                            .onSuccess { result ->
+                                when (result) {
+                                    is GitHubResult.Success -> maybeOfferBackfill(result.value)
+                                    is GitHubResult.Failure -> githubError = githubErrorMessage(result.error)
+                                }
+                            }
+                            .onFailure { failure -> githubError = failure.message ?: "Could not connect to GitHub" }
                         githubBusy = false
                     }
                 },
-                onDisconnect = {
-                    scope.launch {
-                        GitHubConnection.disconnect(context)
-                        githubStatus = GitHubStatus.NotConnected
-                    }
-                },
+                onDisconnect = { scope.launch { GitHubConnection.disconnect(context) } },
                 onOpenUrl = { url -> openUrlExternally(context, url) },
                 onRetryInstallCheck = { recheckGithubStatus() },
             )
@@ -214,17 +202,6 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
                 GitHubBackfillDialog(
                     projects = candidates,
                     onFinished = { backfillCandidates = null },
-                )
-            }
-
-            pendingGithubAuth?.let { authorization ->
-                GitHubDeviceFlowDialog(
-                    authorization = authorization,
-                    onCancel = {
-                        githubConnectJob?.cancel()
-                        pendingGithubAuth = null
-                        githubBusy = false
-                    },
                 )
             }
         }
@@ -241,7 +218,7 @@ fun SyncSettingsScreen(onBack: () -> Unit) {
  */
 @Composable
 private fun GitHubConnectionSection(
-    status: GitHubStatus?,
+    status: GitHubStatus,
     busy: Boolean,
     error: String?,
     onConnect: () -> Unit,
@@ -254,9 +231,8 @@ private fun GitHubConnectionSection(
             Text("GitHub")
             Text(
                 when (status) {
-                    null -> "Checking..."
                     GitHubStatus.NotConnected -> "Let Holder manage repositories."
-                    GitHubStatus.AuthorizationRequired -> "Your GitHub sign-in needs to be renewed."
+                    is GitHubStatus.AuthorizationRequired -> "Your GitHub sign-in needs to be renewed."
                     is GitHubStatus.InstallationRequired -> "Signed in -- one more step is needed on GitHub."
                     is GitHubStatus.Connected -> "Connected as @${status.login}"
                 },
@@ -265,7 +241,6 @@ private fun GitHubConnectionSection(
         }
         when {
             busy -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
-            status == null -> {}
             status is GitHubStatus.Connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
             status is GitHubStatus.InstallationRequired ->
                 Button(onClick = { onOpenUrl(status.installUrl) }) { Text("Finish setup") }

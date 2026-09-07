@@ -64,6 +64,55 @@
                 <data android:scheme="content" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
+
+            <!-- holder-github-service's two App Link return paths (see that repo's
+                 GITHUB_SETUP_SERVICE_PLAN.md, "Redirect mechanism" and "Setup URL,
+                 reconsidered"). ${oauthHost} is a manifestPlaceholder set per buildType in
+                 app/build.gradle.kts (production vs. development relay/GitHub App).
+                 (Note: this comment avoids a literal double hyphen anywhere in its text, since
+                 that breaks XML comment parsing.)
+
+                 Both delivery paths (an ordinary Custom Tab/browser fallback arriving here via
+                 this filter, or Auth Tab's own ActivityResultCallback delivering its result
+                 directly to whichever Activity launched it) funnel into the SAME completion
+                 logic in GitHubConnectionCoordinator (handleOAuthCallbackUri /
+                 handleAuthTabResult). This filter is specifically the delivery mechanism for
+                 the non Auth Tab case, not a claim that Auth Tab results are handled by
+                 different logic.
+
+                 Five separate data elements, one attribute each, deliberately: Android merges
+                 all data elements in one intent filter together, so this declares exactly
+                 {http,https} x {oauthHost} x {both paths}, matching the plan's own recipe. Both
+                 http and https must be declared for Digital Asset Links verification itself to
+                 work at all, even though this app only ever acts on an https navigation,
+                 confirmed directly against Android's own App Links docs, which are explicit
+                 that an intent filter must include data elements for both http and https
+                 schemes for verification to succeed. The runtime callback validator
+                 (GitHubConnectionCoordinator.isOAuthCallbackEndpoint) continues to accept the
+                 exact https endpoint only, never http; declaring the scheme here is a
+                 verification requirement, not a relaxation of what's actually delivered.
+
+                 autoVerify requires holder github service's ANDROID_SHA256_CERT_FINGERPRINTS
+                 (and, for the debug build specifically, ANDROID_PACKAGE_NAME matching this
+                 build's own applicationIdSuffix) to be real to actually pass Digital Asset
+                 Links verification. This is load bearing security, not a cosmetic return path
+                 (see that repo's wrangler.jsonc): it's one of the three layers (App Link
+                 routing, local state correlation, PKCE) this design's actual security rests
+                 on. Development wires the real, checked in debug.keystore fingerprint;
+                 production remains a placeholder, genuinely blocked on a real Play Console app
+                 existing. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="${oauthHost}" />
+                <data android:path="/android/oauth-callback" />
+                <data android:path="/github/install-complete" />
+            </intent-filter>
         </activity>
 
         <!-- Grants other apps read-only, revocable access to a downloaded Resource

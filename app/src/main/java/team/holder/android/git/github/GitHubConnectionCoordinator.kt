@@ -1,0 +1,558 @@
+package team.holder.android.git.github
+
+import android.content.Context
+import android.net.Uri
+import android.os.SystemClock
+import androidx.browser.auth.AuthTabIntent
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+
+/**
+ * The single process-scoped owner of every piece of GitHub connection concurrency state --
+ * see GITHUB_SETUP_SERVICE_PLAN.md's `GitHubConnectionCoordinator` section (20+ review rounds
+ * closing races an earlier, much simpler draft of this file missed entirely; do not
+ * re-simplify this without re-reading that section first). A plain Kotlin `object`, same as
+ * [GitHubConnection]/[team.holder.android.resource.drive.GoogleDriveConnection] -- no DI
+ * framework exists in this codebase, and an `object`'s lifetime already matches exactly what
+ * this needs (process-scoped, survives any single caller's own scope being torn down).
+ *
+ * Two independent concerns, each with its own mutex, on purpose -- they answer different
+ * questions and must not share a lock:
+ *   - [connectStateMutex] guards *transaction bookkeeping* (which OAuth/installation ceremony
+ *     is currently outstanding, and the one shared in-flight `connect()` operation).
+ *   - [credentialMutationMutex] + [credentialEpoch] guard the *credential itself* (the stored
+ *     refresh token/cap and the cached access token).
+ *   - [controlPlaneMutex] is a third, orthogonal concern: serializing direct GitHub REST calls
+ *     so a refresh can never invalidate a token another call is actively using.
+ * Lock order, fixed here and never inverted anywhere in this file: `controlPlaneMutex` before
+ * `credentialMutationMutex`; `connectStateMutex` before `credentialMutationMutex`.
+ */
+object GitHubConnectionCoordinator {
+    private val coordinatorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // ---- connectStateMutex-protected fields ----
+    private val connectStateMutex = Mutex()
+    private var pendingOAuth: PendingOAuth? = null
+    private var connectInFlight: ConnectOperation? = null
+    private var pendingInstallationReturn: PendingInstallationReturn? = null
+
+    // ---- credential concern ----
+    private val credentialMutationMutex = Mutex()
+    private val credentialEpoch = AtomicLong(0L)
+    private var accessTokenCache: AccessTokenCache? = null
+    private val refreshInFlight = Mutex()
+
+    // ---- control-plane concern ----
+    private val controlPlaneMutex = Mutex()
+
+    /** Swapped only by tests (a plain JVM in-memory fake) -- see [GitHubCredentialStore]'s own
+     * doc comment for why this seam exists. Never swapped at runtime in production. */
+    internal var credentialStore: GitHubCredentialStore = RealGitHubCredentialStore
+
+    /** The coordinator is the sole publisher of authoritative observable connection state -- a
+     * bare per-call result is a result for that call, never an instruction to repaint global
+     * UI state on its own. */
+    private val mutableStatusFlow = MutableStateFlow<GitHubStatus>(GitHubStatus.NotConnected)
+    val statusFlow: StateFlow<GitHubStatus> = mutableStatusFlow.asStateFlow()
+
+    /** 10-15 minutes is plenty for an OAuth ceremony a user is actively watching. */
+    private const val PENDING_OAUTH_TIMEOUT_MILLIS = 12 * 60 * 1000L
+
+    /** Much shorter than the OAuth ceremony -- an installation round-trip through GitHub's own
+     * UI is far faster, and this only guards against wasted status() calls, not a forgeable
+     * security outcome. */
+    private const val PENDING_INSTALLATION_TIMEOUT_MILLIS = 5 * 60 * 1000L
+
+    /** Applied to a cached access token's `expires_in` before trusting it -- avoids a token
+     * expiring mid-flight to GitHub. */
+    private const val ACCESS_TOKEN_SAFETY_MARGIN_MILLIS = 60_000L
+
+    private data class PendingOAuth(
+        val attemptId: UUID,
+        val state: String,
+        val codeVerifier: String,
+        val startedAtMonotonic: Long,
+        /** Resolved by whichever entry point (App Link delivery, or an AuthTab
+         * ActivityResultCallback) observes a matching callback first -- the *one* coroutine
+         * running [runConnectOperation] awaits this and then does the actual exchange/commit
+         * work itself, so `job` in [ConnectOperation] genuinely represents the one coroutine
+         * doing all of it, not two coroutines splitting the work. */
+        val callbackOutcome: CompletableDeferred<CallbackOutcome>,
+    )
+
+    private sealed interface CallbackOutcome {
+        data class Code(val code: String) : CallbackOutcome
+        data class RecognizedError(val errorCode: String) : CallbackOutcome
+        data object AuthTabCancelled : CallbackOutcome
+        data object AuthTabVerificationFailed : CallbackOutcome
+    }
+
+    private data class ConnectOperation(
+        val attemptId: UUID,
+        val result: CompletableDeferred<GitHubResult<GitHubStatus>>,
+        val job: Job,
+    )
+
+    private data class PendingInstallationReturn(val state: String, val startedAtMonotonic: Long)
+
+    private data class AccessTokenCache(val accessToken: String, val expiresAtMonotonic: Long)
+
+    private val exchangeHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .retryOnConnectionFailure(false)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    // ================= connect() =================
+
+    /**
+     * See GITHUB_SETUP_SERVICE_PLAN.md's `connect()` state machine. [browserLauncher] is the
+     * UI layer's injected hook for anything Activity/Compose-specific (resolving a Custom
+     * Tabs/Auth Tab provider, actually launching an Activity, and persisting
+     * `authTabOutstandingAttemptId` via the launching Activity's own SavedState) -- kept out
+     * of this coordinator entirely, same separation [GoogleDriveAuth] already draws around
+     * its own `resolveConsent` callback.
+     */
+    suspend fun connect(context: Context, browserLauncher: GitHubBrowserLauncher): GitHubResult<GitHubStatus> {
+        val appContext = context.applicationContext
+
+        // Join-or-create must be the FIRST atomic step, before any credential/status work --
+        // otherwise two simultaneous callers could both observe "no connectInFlight yet" and
+        // both start independent work before either actually registers one. CoroutineStart
+        // .LAZY plus the explicit job.start() below (after connectInFlight is published, still
+        // inside the same critical section) closes a real, if narrow, race Dispatchers.IO's
+        // multiple real threads can otherwise hit: without it, the launched coroutine can begin
+        // running -- reaching a caller-supplied hook such as GitHubBrowserLauncher
+        // .resolveLaunchKind -- concurrently with this thread still finishing the
+        // connectInFlight assignment on the very next line, since nothing before that
+        // assignment actually synchronizes the two. A caller-visible side effect must never be
+        // able to run before connectInFlight is visible to any concurrent joiner.
+        val deferred = CompletableDeferred<GitHubResult<GitHubStatus>>()
+        val joined: Deferred<GitHubResult<GitHubStatus>>? = connectStateMutex.withLock {
+            val existing = connectInFlight
+            if (existing != null) {
+                existing.result
+            } else {
+                val attemptId = GitHubPkce.generateAttemptId()
+                val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
+                    runConnectOperation(appContext, attemptId, browserLauncher, deferred)
+                }
+                connectInFlight = ConnectOperation(attemptId, deferred, job)
+                job.start()
+                null
+            }
+        }
+        return (joined ?: deferred).await()
+    }
+
+    /** Runs exactly once per fresh `connect()` operation -- never re-entered by a joining
+     * caller, which just awaits [result] instead. */
+    private suspend fun runConnectOperation(
+        appContext: Context,
+        attemptId: UUID,
+        browserLauncher: GitHubBrowserLauncher,
+        result: CompletableDeferred<GitHubResult<GitHubStatus>>,
+    ) {
+        val hasStoredCredential = credentialStore.getRefreshToken(appContext) != null
+        if (hasStoredCredential) {
+            val resumeResult = statusAgainstStoredCredential(appContext)
+            val resumeStatus = (resumeResult as? GitHubResult.Success)?.value
+            if (resumeStatus !is GitHubStatus.AuthorizationRequired) {
+                // Connected/InstallationRequired, or an operational Failure downstream of a
+                // credential that's still perfectly good (the committed/uncommitted boundary:
+                // an operational failure here must never discard a good credential).
+                finishConnectOperation(attemptId, resumeResult)
+                return
+            }
+            // A stored credential that no longer works -- clear it and fall through into a
+            // fresh ceremony IN THE SAME operation (connect() is already exclusively
+            // user-initiated, so no second "tap Connect again" is warranted).
+            clearStoredCredential(appContext)
+        }
+
+        val launchKind = browserLauncher.resolveLaunchKind(appContext)
+        if (launchKind == null) {
+            finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
+            return
+        }
+
+        val state = GitHubPkce.generateState()
+        val codeVerifier = GitHubPkce.generateCodeVerifier()
+        val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
+        val callbackOutcome = CompletableDeferred<CallbackOutcome>()
+        connectStateMutex.withLock {
+            pendingOAuth = PendingOAuth(attemptId, state, codeVerifier, SystemClock.elapsedRealtime(), callbackOutcome)
+        }
+
+        val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
+        // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
+        // actually launching an Activity/ActivityResultLauncher is real UI work.
+        withContext(Dispatchers.Main.immediate) {
+            browserLauncher.launch(appContext, launchKind, authorizeUri, attemptId)
+        }
+
+        val outcome = withTimeoutOrNull(PENDING_OAUTH_TIMEOUT_MILLIS) { callbackOutcome.await() }
+        if (outcome == null) {
+            // (d) local timeout -- only expire pendingOAuth if it's still this operation's own.
+            val stillOurs = connectStateMutex.withLock {
+                if (pendingOAuth?.attemptId == attemptId) {
+                    pendingOAuth = null
+                    true
+                } else {
+                    false
+                }
+            }
+            if (stillOurs) {
+                finishConnectOperation(attemptId, GitHubResult.Success(GitHubStatus.AuthorizationRequired(null)))
+            }
+            // else: some other terminal path already handled this attempt between the check
+            // above and now -- finishConnectOperation's own attemptId-ownership check makes
+            // this harmless either way.
+            return
+        }
+
+        when (outcome) {
+            is CallbackOutcome.Code -> {
+                val finalResult = performExchange(appContext, outcome.code, codeVerifier)
+                finishConnectOperation(attemptId, finalResult)
+            }
+            is CallbackOutcome.RecognizedError -> {
+                val mapped = if (outcome.errorCode == "access_denied") {
+                    GitHubResult.Success(GitHubStatus.NotConnected)
+                } else {
+                    GitHubResult.Failure(GitHubError.Unexpected(null, outcome.errorCode))
+                }
+                finishConnectOperation(attemptId, mapped)
+            }
+            CallbackOutcome.AuthTabCancelled -> finishConnectOperation(attemptId, GitHubResult.Success(GitHubStatus.NotConnected))
+            CallbackOutcome.AuthTabVerificationFailed ->
+                finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.AuthorizationVerificationFailed))
+        }
+    }
+
+    /** `POST /v1/github/exchange`, attempted at most once ever for a given authorization code
+     * -- see "Transport-failure ambiguity" for why a transport failure here is not
+     * automatically `NetworkError`. */
+    private suspend fun performExchange(appContext: Context, code: String, codeVerifier: String): GitHubResult<GitHubStatus> {
+        val exchangeResult = GitHubOAuth.exchangeCode(exchangeHttpClient, code, codeVerifier)
+        return when (exchangeResult) {
+            is RelayResult.Success -> {
+                commitCredential(appContext, exchangeResult.tokens)
+                // Post-commit: a failure here is operational, not authorization -- the
+                // credential stays intact regardless of what status() reports next.
+                statusAgainstStoredCredential(appContext)
+            }
+            is RelayResult.Failure -> when (val error = exchangeResult.error) {
+                is RelayError.AuthorizationRequired ->
+                    GitHubResult.Success(GitHubStatus.AuthorizationRequired(error.reason))
+                RelayError.InvalidRequest, RelayError.OutcomeUnknown, RelayError.AmbiguousTransportFailure ->
+                    // A definite rejection, an ambiguous exchange outcome, or an ambiguous
+                    // transport failure -- all "tried, needs to try again," not a network-blip
+                    // retry prompt and not NotConnected's "chose not to."
+                    GitHubResult.Success(GitHubStatus.AuthorizationRequired(null))
+                is RelayError.RateLimited -> GitHubResult.Failure(GitHubError.RateLimited(error.retryAfterSeconds))
+                is RelayError.Unexpected -> GitHubResult.Failure(GitHubError.Unexpected(error.httpStatus, error.body))
+                is RelayError.NetworkError -> GitHubResult.Failure(GitHubError.NetworkError(error.cause))
+            }
+        }
+    }
+
+    private suspend fun commitCredential(appContext: Context, tokens: GitHubTokens) {
+        credentialMutationMutex.withLock {
+            credentialStore.store(appContext, tokens.refreshToken, tokens.refreshCap)
+            accessTokenCache = AccessTokenCache(
+                tokens.accessToken,
+                SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
+            )
+            credentialEpoch.incrementAndGet()
+        }
+    }
+
+    /** The sole finalizer of [connectInFlight], from any call site (the timeout branch above,
+     * [runConnectOperation]'s own terminal branches, or an external Cancel/Start-over/
+     * disconnect() action). This is NOT the only thing that ever clears [pendingOAuth] -- a
+     * valid, matching callback already consumed-and-cleared it the moment it was verified,
+     * *before* exchange ever ran (see [handleOAuthCallbackUri]); that one-shot consume is what
+     * stops the same callback being replayed while exchange is still in flight. This
+     * function's own clear of [pendingOAuth] is a conditional cleanup for every OTHER
+     * termination path -- a no-op when a valid callback already cleared it. */
+    private suspend fun finishConnectOperation(attemptId: UUID, outcome: GitHubResult<GitHubStatus>) {
+        val detached = connectStateMutex.withLock {
+            val current = connectInFlight
+            if (current == null || current.attemptId != attemptId) return  // not mine to finish
+            if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
+            connectInFlight = null
+            current
+        }
+        if (outcome is GitHubResult.Success) {
+            publishStatus(outcome.value)
+        }
+        // Completed AFTER the mutex is released -- a resumed caller's very next step
+        // re-entering coordinator code (a fresh connect()) must never risk self-deadlock on a
+        // mutex this function still held.
+        detached.result.complete(outcome)
+        detached.job.cancel()
+    }
+
+    private fun publishStatus(status: GitHubStatus) {
+        mutableStatusFlow.value = status
+    }
+
+    // ================= disconnect() / status() =================
+
+    suspend fun disconnect(context: Context) = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        controlPlaneMutex.withLock {
+            val inFlightAttemptId = connectStateMutex.withLock { connectInFlight?.attemptId }
+            if (inFlightAttemptId != null) {
+                finishConnectOperation(inFlightAttemptId, GitHubResult.Success(GitHubStatus.NotConnected))
+            }
+            credentialMutationMutex.withLock {
+                credentialStore.clear(appContext)
+                accessTokenCache = null
+                credentialEpoch.incrementAndGet()
+            }
+        }
+        publishStatus(GitHubStatus.NotConnected)
+    }
+
+    /** A cheap-ish probe -- callers with no reason to run a full `connect()` ceremony. Returns
+     * the coordinator's own published state if this call's result would otherwise be stale by
+     * completion time (a `disconnect()`/credential replacement raced ahead of it), rather than
+     * this call's own now-outdated answer. */
+    suspend fun status(context: Context): GitHubStatus = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val queriedEpoch = credentialEpoch.get()
+        val result = statusAgainstStoredCredential(appContext)
+        val currentEpoch = credentialEpoch.get()
+        if (currentEpoch != queriedEpoch) return@withContext mutableStatusFlow.value
+        val status = (result as? GitHubResult.Success)?.value ?: return@withContext mutableStatusFlow.value
+        publishStatus(status)
+        status
+    }
+
+    private suspend fun statusAgainstStoredCredential(appContext: Context): GitHubResult<GitHubStatus> =
+        withAccessToken(appContext) { accessToken ->
+            when (val installationsResult = GitHubApi.listInstallations(exchangeHttpClient, accessToken)) {
+                is GitHubResult.Success -> {
+                    val personal = installationsResult.value.firstOrNull { it.accountType == "User" }
+                    if (personal != null) {
+                        GitHubResult.Success(GitHubStatus.Connected(personal.accountLogin, personal.settingsUrl))
+                    } else {
+                        GitHubResult.Success(GitHubStatus.InstallationRequired(GitHubEnvironment.APP_URL))
+                    }
+                }
+                is GitHubResult.Failure -> GitHubResult.Failure(installationsResult.error)
+            }
+        }
+
+    private suspend fun clearStoredCredential(appContext: Context) {
+        credentialMutationMutex.withLock {
+            credentialStore.clear(appContext)
+            accessTokenCache = null
+            credentialEpoch.incrementAndGet()
+        }
+    }
+
+    // ================= refresh / single-flight / access-token cache =================
+
+    /** The gate every direct GitHub REST call (createRepository/registerDeployKey/
+     * listInstallations/etc.) goes through -- never called with a bare, unmanaged access
+     * token. If there is no stored credential at all, returns [GitHubError.AuthorizationRequired]
+     * without ever touching the network. */
+    suspend fun <T> withAccessToken(context: Context, block: suspend (accessToken: String) -> GitHubResult<T>): GitHubResult<T> =
+        withContext(Dispatchers.IO) {
+            val appContext = context.applicationContext
+            controlPlaneMutex.withLock {
+                val cached = accessTokenCache
+                val accessToken = if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
+                    cached.accessToken
+                } else {
+                    when (val refreshed = refreshAccessToken(appContext)) {
+                        is GitHubResult.Success -> refreshed.value
+                        is GitHubResult.Failure -> return@withContext GitHubResult.Failure(refreshed.error)
+                    }
+                }
+                block(accessToken)
+            }
+        }
+
+    private suspend fun refreshAccessToken(appContext: Context): GitHubResult<String> {
+        refreshInFlight.withLock {
+            // Re-check: a waiter might now see a fresh token another caller just refreshed.
+            val cached = accessTokenCache
+            if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
+                return GitHubResult.Success(cached.accessToken)
+            }
+            val refreshToken = credentialStore.getRefreshToken(appContext)
+            val refreshCap = credentialStore.getRefreshCap(appContext)
+            if (refreshToken == null || refreshCap == null) return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+
+            return when (val refreshResult = GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)) {
+                is RelayResult.Success -> {
+                    val committed = credentialMutationMutex.withLock {
+                        // Independent of epoch: only commit if the stored refresh_token still
+                        // equals the one just spent -- guards against committing a refresh
+                        // whose credential was superseded (disconnect(), a fresh connect())
+                        // while the relay call was in flight.
+                        if (credentialStore.getRefreshToken(appContext) != refreshToken) {
+                            false
+                        } else {
+                            val tokens = refreshResult.tokens
+                            credentialStore.store(appContext, tokens.refreshToken, tokens.refreshCap)
+                            accessTokenCache = AccessTokenCache(
+                                tokens.accessToken,
+                                SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
+                            )
+                            true
+                        }
+                    }
+                    if (committed) {
+                        GitHubResult.Success(accessTokenCache!!.accessToken)
+                    } else {
+                        GitHubResult.Failure(GitHubError.AuthorizationRequired)
+                    }
+                }
+                is RelayResult.Failure -> when (val error = refreshResult.error) {
+                    is RelayError.AuthorizationRequired -> GitHubResult.Failure(GitHubError.AuthorizationRequired)
+                    RelayError.InvalidRequest, RelayError.OutcomeUnknown, RelayError.AmbiguousTransportFailure ->
+                        // Does NOT force-clear the stored credential, and does NOT retry with
+                        // the same (possibly already-rotated) refresh_token -- the next
+                        // acquisition of refreshInFlight resolves the ambiguity for real.
+                        GitHubResult.Failure(GitHubError.Unexpected(null, "refresh outcome unknown"))
+                    is RelayError.RateLimited -> GitHubResult.Failure(GitHubError.RateLimited(error.retryAfterSeconds))
+                    is RelayError.Unexpected -> GitHubResult.Failure(GitHubError.Unexpected(error.httpStatus, error.body))
+                    is RelayError.NetworkError -> GitHubResult.Failure(GitHubError.NetworkError(error.cause))
+                }
+            }
+        }
+    }
+
+    // ================= OAuth callback delivery (App Link + AuthTab) =================
+
+    /** Called from either delivery path -- `MainActivity.onNewIntent`'s App Link handling, or
+     * forwarded from [handleAuthTabResult]'s own `RESULT_OK` case. Both funnel into this same
+     * validation/consumption logic; there is no separate "AuthTab never reaches here" path. */
+    suspend fun handleOAuthCallbackUri(uri: Uri) {
+        if (!isOAuthCallbackEndpoint(uri)) return
+        val callbackState = uri.getQueryParameter("state") ?: return
+        val code = uri.getQueryParameter("code")
+        val error = uri.getQueryParameter("error")
+        if ((code == null) == (error == null)) return  // must be exactly one of the two
+
+        val pending = connectStateMutex.withLock {
+            val current = pendingOAuth
+            if (current != null && current.state == callbackState) {
+                pendingOAuth = null // one-shot consume, before exchange ever runs
+                current
+            } else {
+                null
+            }
+        } ?: return
+
+        val outcome = if (code != null) CallbackOutcome.Code(code) else CallbackOutcome.RecognizedError(error!!)
+        pending.callbackOutcome.complete(outcome)
+    }
+
+    private fun isOAuthCallbackEndpoint(uri: Uri): Boolean =
+        uri.scheme == "https" && uri.host == oauthHost() && uri.path == "/android/oauth-callback"
+
+    private fun oauthHost(): String = Uri.parse(GitHubEnvironment.OAUTH_CALLBACK_URL).host.orEmpty()
+
+    /** [consumeOutstandingAttemptId] reads-and-clears the SavedState-persisted
+     * `authTabOutstandingAttemptId` -- called for *every* AuthTab result, matching or not (see
+     * the plan's "atomically reads and clears... for *any* result"); only the non-OK branch
+     * actually uses the returned id as a matching key, since a non-OK result carries no URI/
+     * state to check against `pendingOAuth` directly. */
+    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, consumeOutstandingAttemptId: () -> UUID?) {
+        val resolvedId = consumeOutstandingAttemptId()
+        if (result.resultCode == AuthTabIntent.RESULT_OK) {
+            val resultUri = result.resultUri ?: return
+            coordinatorScope.launch { handleOAuthCallbackUri(resultUri) }
+            return
+        }
+        if (resolvedId == null) return
+        val outcome = if (result.resultCode == AuthTabIntent.RESULT_CANCELED) {
+            CallbackOutcome.AuthTabCancelled
+        } else {
+            CallbackOutcome.AuthTabVerificationFailed
+        }
+        coordinatorScope.launch {
+            connectStateMutex.withLock {
+                val current = pendingOAuth
+                if (current != null && current.attemptId == resolvedId) {
+                    current.callbackOutcome.complete(outcome)
+                }
+                // else: discard -- current pendingOAuth (whatever it is) left untouched.
+            }
+        }
+    }
+
+    // ================= install_state / Setup URL return =================
+
+    suspend fun beginInstallationReturn(): String {
+        val state = GitHubPkce.generateInstallState()
+        connectStateMutex.withLock {
+            pendingInstallationReturn = PendingInstallationReturn(state, SystemClock.elapsedRealtime())
+        }
+        return state
+    }
+
+    /** `installation_id` is deliberately never read here -- GitHub's own docs call it
+     * spoofable; `status()`'s authenticated `GET /user/installations` is the only real
+     * authority. A missing/non-matching `state` makes NO automatic API call at all. */
+    suspend fun handleInstallationReturn(context: Context, returnedState: String?): GitHubStatus? {
+        val consumed = connectStateMutex.withLock {
+            val current = pendingInstallationReturn
+            val expired = current != null &&
+                SystemClock.elapsedRealtime() - current.startedAtMonotonic > PENDING_INSTALLATION_TIMEOUT_MILLIS
+            if (current != null && !expired && returnedState != null && current.state == returnedState) {
+                pendingInstallationReturn = null
+                true
+            } else {
+                if (expired) pendingInstallationReturn = null
+                false
+            }
+        }
+        if (!consumed) return null
+        return status(context)
+    }
+
+    // ================= Browser launch abstraction (UI-layer injected) =================
+
+    enum class LaunchKind { AuthTab, CustomTab, ExternalBrowser }
+
+    /** Everything Activity/Compose-specific that `connect()` needs, kept out of this
+     * coordinator entirely -- implemented by the UI layer (see `MainActivity`/the screens that
+     * call [connect]). */
+    interface GitHubBrowserLauncher {
+        /** Resolves a Custom Tabs provider first, then checks *that specific* provider's Auth
+         * Tab support -- capability check and eventual launch must use the same resolved
+         * package, always. Returns null when nothing can handle the URL at all. */
+        fun resolveLaunchKind(context: Context): LaunchKind?
+
+        /** For [LaunchKind.AuthTab]: must persist [attemptId] via the launching Activity's own
+         * SavedState *before* actually launching. Runs on the main thread (see `connect()`'s
+         * own `Dispatchers.Main.immediate` hop before calling this). */
+        fun launch(context: Context, kind: LaunchKind, uri: Uri, attemptId: UUID)
+    }
+}
