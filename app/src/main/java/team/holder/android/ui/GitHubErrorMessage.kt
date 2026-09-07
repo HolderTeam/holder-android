@@ -11,9 +11,11 @@ import team.holder.android.git.github.GitHubError
  * just the fallback description. */
 fun githubErrorMessage(error: GitHubError): String = when (error) {
     GitHubError.AuthorizationRequired -> "GitHub needs to be reconnected"
-    is GitHubError.InstallationRequired -> "Holder Sync isn't installed on your GitHub account yet"
+    is GitHubError.InstallationRequired -> "Holder Project Setup isn't installed on your GitHub account yet"
     is GitHubError.RepositoryNotAccessible -> "GitHub needs one more permission for this repository"
     is GitHubError.RateLimited -> "GitHub asked us to slow down -- try again shortly"
     is GitHubError.NetworkError -> error.cause.message ?: "Network error talking to GitHub"
     is GitHubError.Unexpected -> "Unexpected response from GitHub (HTTP ${error.httpStatus ?: "?"})"
+    GitHubError.AuthorizationVerificationFailed -> "GitHub sign-in verification failed -- try again"
+    GitHubError.BrowserUnavailable -> "No browser is available to sign in with GitHub"
 }

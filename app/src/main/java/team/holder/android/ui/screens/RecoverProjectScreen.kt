@@ -31,27 +31,29 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.HolderProject
 import team.holder.android.RecoveryTokenImportGlobalResult
-import team.holder.android.git.github.DeviceAuthorization
 import team.holder.android.git.github.GitHubBackfill
 import team.holder.android.git.github.GitHubConnection
+import team.holder.android.git.github.GitHubConnectionCoordinator
 import team.holder.android.git.github.GitHubError
 import team.holder.android.git.github.GitHubResult
 import team.holder.android.git.github.GitHubStatus
 import team.holder.android.git.github.parseGitHubOwnerRepo
 import team.holder.android.ui.GitHubBackfillDialog
-import team.holder.android.ui.GitHubDeviceFlowDialog
 import team.holder.android.ui.githubErrorMessage
 import team.holder.android.ui.openUrlExternally
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
+fun RecoverProjectScreen(
+    onBack: () -> Unit,
+    browserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher,
+    initialToken: String? = null,
+) {
     val context = LocalContext.current
     var pin by remember { mutableStateOf("") }
     // initialToken comes from opening a .hrk file directly (see MainActivity's ACTION_VIEW
@@ -82,8 +84,6 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
     // plan's "Selective-repository installations" section designed: a direct link to where
     // the user grants access, rather than just a generic error message.
     var githubActionUrl by remember { mutableStateOf<String?>(null) }
-    var pendingGithubAuth by remember { mutableStateOf<DeviceAuthorization?>(null) }
-    var githubConnectJob by remember { mutableStateOf<Job?>(null) }
     // Non-null only while the one-time "sync your existing projects?" offer is showing --
     // see GitHubBackfill.checkAndMarkOfferedOnce, called from continueGithubRecovery below.
     var backfillCandidates by remember { mutableStateOf<List<HolderProject>?>(null) }
@@ -146,12 +146,13 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
         githubStatus = status
 
         if (status is GitHubStatus.NotConnected || status is GitHubStatus.AuthorizationRequired) {
-            val connectResult = runCatching {
-                GitHubConnection.connect(context) { authorization -> pendingGithubAuth = authorization }
+            val connectOutcome = runCatching { GitHubConnection.connect(context, browserLauncher) }
+            connectOutcome.onFailure { failure -> githubError = failure.message ?: "Could not connect to GitHub" }
+            when (val connectResult = connectOutcome.getOrNull()) {
+                is GitHubResult.Success -> status = connectResult.value
+                is GitHubResult.Failure -> githubError = githubErrorMessage(connectResult.error)
+                null -> {} // exception already recorded above
             }
-            pendingGithubAuth = null
-            connectResult.onFailure { failure -> githubError = failure.message ?: "Could not connect to GitHub" }
-            status = connectResult.getOrNull()
             githubStatus = status
         }
 
@@ -224,15 +225,7 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                         githubOwnerRepo = null
                         githubStatus = null
                         githubError = null
-                        // Assigned unconditionally (most imports never touch GitHub at all,
-                        // and this sits unused for those) so that if continueGithubRecovery
-                        // below ends up auto-triggering connect() and showing the Device
-                        // Flow dialog, its Cancel button -- which cancels githubConnectJob --
-                        // has something real to cancel. By the time that dialog could ever
-                        // appear, the import itself has already finished, so cancelling this
-                        // outer job only ever interrupts the in-flight connect() poll, never
-                        // the import.
-                        githubConnectJob = scope.launch {
+                        scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
                                     HolderNative.importRecoveryTokenGlobal(pin, token)
@@ -302,21 +295,10 @@ fun RecoverProjectScreen(onBack: () -> Unit, initialToken: String? = null) {
                         // Only reachable if continueGithubRecovery's own auto-connect attempt
                         // (see its doc comment) already failed -- a manual fallback, not the
                         // primary path.
-                        onConnect = { githubConnectJob = scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
+                        onConnect = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                         onOpenUrl = { url -> openUrlExternally(context, url) },
                         onRetry = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                     )
-
-                    pendingGithubAuth?.let { authorization ->
-                        GitHubDeviceFlowDialog(
-                            authorization = authorization,
-                            onCancel = {
-                                githubConnectJob?.cancel()
-                                pendingGithubAuth = null
-                                githubBusy = false
-                            },
-                        )
-                    }
 
                     backfillCandidates?.let { candidates ->
                         GitHubBackfillDialog(
@@ -351,7 +333,7 @@ private fun GitHubRecoverySection(
     Text(
         when (status) {
             null -> "Checking GitHub..."
-            GitHubStatus.NotConnected, GitHubStatus.AuthorizationRequired ->
+            GitHubStatus.NotConnected, is GitHubStatus.AuthorizationRequired ->
                 "This project syncs through GitHub. Connect your GitHub account to finish " +
                     "recovering it on this device."
             is GitHubStatus.InstallationRequired ->
@@ -368,7 +350,7 @@ private fun GitHubRecoverySection(
         status == null -> {}
         status is GitHubStatus.InstallationRequired -> {
             Button(onClick = { onOpenUrl(status.installUrl) }, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Finish installing Holder Sync")
+                Text("Finish installing Holder Project Setup")
             }
             TextButton(onClick = onRetry) { Text("I've installed it -- continue") }
         }
