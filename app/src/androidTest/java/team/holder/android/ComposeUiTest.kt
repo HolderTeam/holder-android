@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import team.holder.android.git.github.GitHubConnectionCoordinator
 import team.holder.android.ui.markdown.HolderMarkdownViewer
 import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.SettingsScreen
@@ -24,6 +25,19 @@ import team.holder.android.ui.screens.SyncSettingsScreen
 class ComposeUiTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    // Never actually invoked by these render-only tests (nothing here taps "Connect GitHub") --
+    // just enough to satisfy SyncSettingsScreen/RecoverProjectScreen's real signature.
+    private val noOpGitHubBrowserLauncher = object : GitHubConnectionCoordinator.GitHubBrowserLauncher {
+        override fun resolveLaunchKind(context: android.content.Context): GitHubConnectionCoordinator.LaunchKind? =
+            error("not used by this test")
+        override fun launch(
+            context: android.content.Context,
+            kind: GitHubConnectionCoordinator.LaunchKind,
+            uri: android.net.Uri,
+            attemptId: java.util.UUID,
+        ) = error("not used by this test")
+    }
 
     @Test
     fun markdownViewer_rendersHeadingsListsAndWikilinkLabels() {
@@ -158,7 +172,7 @@ class ComposeUiTest {
     @Test
     fun syncSettingsScreen_rendersWithoutCrashing() {
         composeRule.setContent {
-            SyncSettingsScreen(onBack = {})
+            SyncSettingsScreen(onBack = {}, browserLauncher = noOpGitHubBrowserLauncher)
         }
 
         composeRule.onNodeWithText("Automatic background sync").assertIsDisplayed()
