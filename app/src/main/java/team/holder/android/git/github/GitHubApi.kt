@@ -1,5 +1,6 @@
 package team.holder.android.git.github
 
+import android.util.Log
 import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -88,13 +89,22 @@ internal object GitHubApi {
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             when {
-                response.isSuccessful -> GitHubResult.Success(JSONObject(body).toGitHubRepo())
+                response.isSuccessful -> {
+                    Log.d("GitHubApi", "createRepository: POST /user/repos succeeded for $name")
+                    GitHubResult.Success(JSONObject(body).toGitHubRepo())
+                }
                 // GitHub's actual message for this case (worth reconfirming against a live
                 // response before relying on it further): a top-level "message" of
                 // "Repository creation failed." with an errors[].message of
                 // "name already exists on this account".
-                response.code == 422 && body.contains("name already exists") -> getRepository(client, accessToken, login, name)
-                else -> mapGenericError(response.code, body)
+                response.code == 422 && body.contains("name already exists") -> {
+                    Log.d("GitHubApi", "createRepository: $name already exists, fetching it instead")
+                    getRepository(client, accessToken, login, name)
+                }
+                else -> {
+                    Log.w("GitHubApi", "createRepository: POST /user/repos returned HTTP ${response.code}: $body")
+                    mapGenericError(response.code, body)
+                }
             }
         }
     }.getOrElse { networkFailure(it) }
@@ -121,14 +131,25 @@ internal object GitHubApi {
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             when {
-                response.isSuccessful -> GitHubResult.Success(Unit)
+                response.isSuccessful -> {
+                    Log.d("GitHubApi", "addDeployKey: POST /repos/$owner/$repo/keys succeeded")
+                    GitHubResult.Success(Unit)
+                }
                 // GitHub's actual message for this case (same reconfirm-against-a-live-
                 // response caveat as createRepository's collision check above): an
                 // errors[].message of "key is already in use".
-                response.code == 422 && body.contains("key is already in use") -> GitHubResult.Success(Unit)
-                response.code == 403 || response.code == 404 ->
+                response.code == 422 && body.contains("key is already in use") -> {
+                    Log.d("GitHubApi", "addDeployKey: key already registered for $owner/$repo, treating as success")
+                    GitHubResult.Success(Unit)
+                }
+                response.code == 403 || response.code == 404 -> {
+                    Log.w("GitHubApi", "addDeployKey: $owner/$repo not accessible (HTTP ${response.code})")
                     GitHubResult.Failure(GitHubError.RepositoryNotAccessible("$owner/$repo", installationSettingsUrl))
-                else -> mapGenericError(response.code, body)
+                }
+                else -> {
+                    Log.w("GitHubApi", "addDeployKey: POST /repos/$owner/$repo/keys returned HTTP ${response.code}: $body")
+                    mapGenericError(response.code, body)
+                }
             }
         }
     }.getOrElse { networkFailure(it) }

@@ -75,6 +75,7 @@ class GitHubConnectionCoordinatorTest {
     @After
     fun resetCoordinator() {
         GitHubConnectionCoordinator.credentialStore = RealGitHubCredentialStore
+        GitHubConnectionCoordinator.accessTokenCache = null
     }
 
     @Test
@@ -147,5 +148,48 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.disconnect(fakeContext)
 
         assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+    }
+
+    @Test
+    fun disconnect_waitsForAnInFlightDirectGitHubCall_ratherThanRacingIt() = runBlocking(Dispatchers.IO) {
+        // Seeded directly (bypassing refreshAccessToken's real network call entirely) so
+        // withAccessToken's controlPlaneMutex gate is the only thing this test is exercising.
+        // expiresAtMonotonic is a large fixed value, not "now + margin" -- SystemClock.
+        // elapsedRealtime() is stubbed to always return 0 under this module's plain-JVM
+        // unitTests.isReturnDefaultValues setup (no Robolectric), so any positive value here
+        // reads back as "still valid" for the whole test.
+        GitHubConnectionCoordinator.accessTokenCache =
+            GitHubConnectionCoordinator.AccessTokenCache("gho_cached", expiresAtMonotonic = 60_000L)
+        fakeStore.refreshToken = "ghr_sometoken"
+        fakeStore.refreshCap = "somecap"
+
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val call = async {
+            GitHubConnectionCoordinator.withAccessToken(fakeContext) { token ->
+                started.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                GitHubResult.Success(token)
+            }
+        }
+        assertTrue("the direct GitHub call never started", started.await(5, TimeUnit.SECONDS))
+
+        val disconnectJob = async { GitHubConnectionCoordinator.disconnect(fakeContext) }
+        // A real, if small, window for disconnect() to run to completion if it wrongly raced
+        // the still-in-flight call instead of waiting on controlPlaneMutex behind it.
+        delay(300)
+        assertTrue(
+            "disconnect() completed while a direct GitHub call was still in flight -- it must " +
+                "wait on controlPlaneMutex behind that call, not race it",
+            disconnectJob.isActive,
+        )
+        assertEquals("gho_cached", GitHubConnectionCoordinator.accessTokenCache?.accessToken)
+
+        release.countDown() // let the in-flight call finish; disconnect() can now proceed
+        call.await()
+        disconnectJob.await()
+
+        assertNull(GitHubConnectionCoordinator.accessTokenCache)
+        assertNull(fakeStore.refreshToken)
     }
 }

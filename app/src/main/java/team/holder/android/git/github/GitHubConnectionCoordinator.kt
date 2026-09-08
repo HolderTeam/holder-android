@@ -58,7 +58,11 @@ object GitHubConnectionCoordinator {
     // ---- credential concern ----
     private val credentialMutationMutex = Mutex()
     private val credentialEpoch = AtomicLong(0L)
-    private var accessTokenCache: AccessTokenCache? = null
+    /** Internal, not private, only so a test can seed a pre-valid cache entry directly --
+     * exercising [withAccessToken]'s controlPlaneMutex barrier (e.g. against a concurrent
+     * [disconnect]) without needing a real/faked GitHubOAuth.refresh network call to get there.
+     * Never swapped/read from outside the coordinator in production. */
+    internal var accessTokenCache: AccessTokenCache? = null
     private val refreshInFlight = Mutex()
 
     // ---- control-plane concern ----
@@ -114,7 +118,7 @@ object GitHubConnectionCoordinator {
 
     private data class PendingInstallationReturn(val state: String, val startedAtMonotonic: Long)
 
-    private data class AccessTokenCache(val accessToken: String, val expiresAtMonotonic: Long)
+    internal data class AccessTokenCache(val accessToken: String, val expiresAtMonotonic: Long)
 
     private val exchangeHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
