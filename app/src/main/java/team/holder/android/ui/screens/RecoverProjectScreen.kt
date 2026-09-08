@@ -198,7 +198,7 @@ fun RecoverProjectScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "Paste the recovery key below, along with its PIN, to import the project onto this device.",
+                "Paste the recovery key below, and enter its PIN, to import the project onto this device.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp),
             )
