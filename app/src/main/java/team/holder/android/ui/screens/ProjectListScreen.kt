@@ -338,29 +338,45 @@ fun ProjectListScreen(
                     }
                 }
             },
-            pinnedContent = if (isSynced && !isPrivateRepo) {
-                {
-                    Text(
-                        if (isEncrypted) {
-                            "Your project's name and other metadata will still be visible to " +
-                                "anyone who can see your Git repository, even though its cards " +
-                                "are encrypted. This can be a legitimate choice with a " +
-                                "self-hosted Git server on a private network, but it is an " +
-                                "unusual combination, so think carefully before choosing it."
-                        } else {
-                            "Everything in this project — card titles, content, and metadata " +
-                                "— will be visible to anyone who can see your Git repository. " +
-                                "Make sure nothing sensitive ends up here. This project's " +
-                                "repository will be created on GitHub, a public website — " +
-                                "anyone can browse to it, even without a GitHub account."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+            pinnedContent = when {
+                githubConnected && !isSynced -> {
+                    {
+                        Text(
+                            "You won't be able to sync this project with your laptop or other " +
+                                "devices, or share it with family or friends — it will only " +
+                                "exist on this device. If this device is lost, damaged, or " +
+                                "reset, there's no copy to recover it from, unless you have " +
+                                "Google Drive backup enabled separately in Settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
-            } else {
-                null
+                isSynced && !isPrivateRepo -> {
+                    {
+                        Text(
+                            if (isEncrypted) {
+                                "Your project's name and other metadata will still be visible " +
+                                    "to anyone who can see your Git repository, even though its " +
+                                    "cards are encrypted. This can be a legitimate choice with a " +
+                                    "self-hosted Git server on a private network, but it is an " +
+                                    "unusual combination, so think carefully before choosing it."
+                            } else {
+                                "Everything in this project — card titles, content, and " +
+                                    "metadata — will be visible to anyone who can see your Git " +
+                                    "repository. Make sure nothing sensitive ends up here. This " +
+                                    "project's repository will be created on GitHub, a public " +
+                                    "website — anyone can browse to it, even without a GitHub " +
+                                    "account."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+                else -> null
             },
         )
     }
