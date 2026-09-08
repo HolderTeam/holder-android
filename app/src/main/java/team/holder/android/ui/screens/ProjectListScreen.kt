@@ -291,7 +291,7 @@ fun ProjectListScreen(
                         Text(
                             "Choose plain text if you want to open and edit your cards with " +
                                 "other software. Be careful not to store sensitive information " +
-                                "in plain-text cards.",
+                                "(passwords, personal data, private secrets) in plain-text cards.",
                             style = MaterialTheme.typography.bodySmall,
                         )
 
