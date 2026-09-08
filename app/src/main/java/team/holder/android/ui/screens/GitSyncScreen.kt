@@ -280,7 +280,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
             }) { Text(if (showDeviceKey) "Hide device key" else "See device key") }
             if (showDeviceKey) {
                 Text(
-                    "This is the device's SSH key, used as a deploy key for this project's remote repository.",
+                    "This is this device's SSH key for this project. It is used as a deploy key for the project's remote repository.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
