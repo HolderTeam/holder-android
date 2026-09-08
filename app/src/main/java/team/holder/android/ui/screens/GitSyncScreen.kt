@@ -308,7 +308,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
 
                 Text("Encryption recovery", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "This project's cards are encrypted. Export a PIN-protected recovery token " +
+                    "This project's cards are encrypted. Export a PIN-protected recovery key " +
                         "and keep it somewhere safe -- it's the only way to read this project's " +
                         "cards on another device.",
                     style = MaterialTheme.typography.bodySmall,
@@ -344,7 +344,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                             }
                         }
                     },
-                ) { Text("Export recovery token") }
+                ) { Text("Export recovery key") }
 
                 exportError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
@@ -353,7 +353,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                         Text(token, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                         IconButton(onClick = { clipboard.setText(AnnotatedString(token)) }) {
-                            Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy recovery token")
+                            Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy recovery key")
                         }
                     }
                 }
