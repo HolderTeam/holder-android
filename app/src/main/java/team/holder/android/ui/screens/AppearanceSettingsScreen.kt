@@ -121,7 +121,7 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                     Text("Font size")
                     Text(
                         if (fontSizeOption == HolderFontSizeOption.SYSTEM) {
-                            "Follows your device's font size setting."
+                            "Device's font size setting."
                         } else {
                             "Overrides your device's font size setting."
                         },
