@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.lerp
  * intentionally does not change with system light/dark.
  */
 enum class HolderThemeOption(val label: String, val description: String) {
-    SYSTEM("System", "Follows your device's light/dark setting."),
+    SYSTEM("System", "Device's light/dark setting."),
     HIGH_CONTRAST("High Contrast", "Accessibility theme: maximum contrast."),
     MONOCHROME("Monochrome", "Deliberately austere."),
     PAPER("Paper", "A classic index card."),
