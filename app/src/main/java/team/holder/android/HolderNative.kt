@@ -101,6 +101,76 @@ data class HolderMilestone(
     val cardTitle: String? = null,
 )
 
+/** One editing-session-grouped history entry (one saved card revision, e.g. one autosave). */
+data class HolderCardHistorySave(
+    val oid: String,
+    val parentOids: List<String>,
+    val authoredAt: Long,
+    val committedAt: Long,
+    val message: String,
+)
+
+/** One row of card_id's history timeline: either a single structural event (creation, move,
+ * trash, restore, merge...) or a burst of ordinary same-author saves grouped into one editing
+ * session -- see HISTORY_TOOL_PLAN.md's grouping rules. [saves] is chronological, first grouped
+ * save to last; a single-commit entry still carries exactly one. */
+data class HolderCardHistoryEntry(
+    val firstOid: String,
+    val lastOid: String,
+    val parentOids: List<String>,
+    /** Direct parents also present as another entry in this same page -- a missing link may
+     * cross filtered history or a page boundary and must never be drawn as a direct connection. */
+    val visibleParentOids: List<String>,
+    val authorName: String,
+    val authorEmail: String,
+    val startedAt: Long,
+    val endedAt: Long,
+    val kind: String,
+    val summary: String,
+    val commitCount: Int,
+    val isMerge: Boolean,
+    val saves: List<HolderCardHistorySave>,
+)
+
+/** One page of [HolderNative.listCardHistory], most-recent entry first. */
+data class HolderCardHistoryPage(
+    /** The commit OID HEAD pointed at when this page was loaded -- callers must keep using this
+     * exact OID for later "Since this version" comparisons rather than a live/moving HEAD, so an
+     * autosave landing after this call cannot silently change what a caller believes it sees. */
+    val headOid: String?,
+    val entries: List<HolderCardHistoryEntry>,
+    val nextCursor: String?,
+    /** True if the underlying scan hit its bound before finishing this page -- nextCursor still
+     * lets the caller continue rather than presenting an incomplete timeline as complete. */
+    val scanLimited: Boolean,
+)
+
+/** A card's read-only state at one specific commit, as returned by [HolderNative.compareCardHistory]. */
+data class HolderCardHistoryVersion(
+    /** False for the state before a card's creation event -- there is no earlier version. */
+    val exists: Boolean,
+    val oid: String,
+    val title: String,
+    val body: String,
+)
+
+data class HolderCardHistoryDiffLine(
+    /** One of " " (unchanged), "+" (added), or "-" (removed). */
+    val origin: String,
+    val text: String,
+    val oldLine: Long?,
+    val newLine: Long?,
+)
+
+data class HolderCardHistoryComparison(
+    val from: HolderCardHistoryVersion,
+    val to: HolderCardHistoryVersion,
+    val summary: String,
+    val lines: List<HolderCardHistoryDiffLine>,
+    /** True if the diff hit its bounded line count/length and was shortened. */
+    val truncated: Boolean,
+)
+
 /** A storage location a project's Resources/Assets can be placed in -- e.g. a Google Drive
  * folder. `configuration` is provider-specific and portable (git-synced, per-project); it
  * holds public locators like a Drive folder id, never secrets -- see AndroidStorageProvider
@@ -312,6 +382,25 @@ object HolderNative {
     private external fun nativeCardListTrashed(contextHandle: Long, projectId: String): String
     private external fun nativeCardRestore(contextHandle: Long, cardId: String): String
     private external fun nativeCardPurge(contextHandle: Long, cardId: String)
+    private external fun nativeCardHistoryList(
+        contextHandle: Long,
+        projectId: String,
+        cardId: String,
+        cursorOid: String?,
+        limit: Int,
+    ): String
+    private external fun nativeCardHistoryCompare(
+        contextHandle: Long,
+        projectId: String,
+        cardId: String,
+        fromOid: String?,
+        toOid: String,
+    ): String
+    private external fun nativeCardHistoryRestore(
+        contextHandle: Long,
+        cardId: String,
+        historicalOid: String,
+    ): String
     private external fun nativeCardListLinks(contextHandle: Long, cardId: String): String
     private external fun nativeCardLinkAdd(
         contextHandle: Long,
@@ -581,6 +670,56 @@ object HolderNative {
     fun purgeCard(cardId: String) {
         nativeCardPurge(requireContext(), cardId)
     }
+
+    /** cardId's editing-session-grouped history within projectId's repository, most-recent
+     * entry first, cursor-paginated (cursor null for the first page; for a later page, pass
+     * back the previous response's nextCursor). Follows both cardId's live and Trash paths
+     * automatically. Never mutates the repository, index, working tree, or database. */
+    fun listCardHistory(
+        projectId: String,
+        cardId: String,
+        cursor: String? = null,
+        limit: Int = 50,
+    ): HolderCardHistoryPage {
+        val json = JSONObject(nativeCardHistoryList(requireContext(), projectId, cardId, cursor, limit))
+        val entries = json.getJSONArray("entries")
+        return HolderCardHistoryPage(
+            headOid = json.optStringOrNull("head_oid"),
+            entries = List(entries.length()) { index -> parseCardHistoryEntry(entries.getJSONObject(index)) },
+            nextCursor = json.optStringOrNull("next_cursor"),
+            scanLimited = json.optBoolean("scan_limited", false),
+        )
+    }
+
+    /** Compares cardId's state at fromOid (null for a card's creation event, which has no
+     * earlier version) against its state at toOid, both read directly from their commit trees.
+     * toOid must be a real, previously-observed commit OID -- e.g. [HolderCardHistoryPage.headOid]
+     * or an entry's lastOid -- never a live/moving "current" concept of the caller's own, so an
+     * autosave landing between calls cannot silently change what is being compared. */
+    fun compareCardHistory(
+        projectId: String,
+        cardId: String,
+        fromOid: String?,
+        toOid: String,
+    ): HolderCardHistoryComparison {
+        val json = JSONObject(nativeCardHistoryCompare(requireContext(), projectId, cardId, fromOid, toOid))
+        val lines = json.getJSONArray("lines")
+        return HolderCardHistoryComparison(
+            from = parseCardHistoryVersion(json.getJSONObject("from")),
+            to = parseCardHistoryVersion(json.getJSONObject("to")),
+            summary = json.getString("summary"),
+            lines = List(lines.length()) { index -> parseCardHistoryDiffLine(lines.getJSONObject(index)) },
+            truncated = json.optBoolean("truncated", false),
+        )
+    }
+
+    /** Restores cardId to the whole card snapshot recorded at historicalOid -- title, body,
+     * links, milestones, hierarchy/location, tags, Resource references, and live/Trash state
+     * together -- through the ordinary write path (a new "Restore card ..." commit). Never
+     * checks out or rewrites Git history, so the pre-restore state remains its own, still-
+     * reachable history entry. Returns the restored card. */
+    fun restoreCardHistory(cardId: String, historicalOid: String): HolderCard =
+        parseCard(JSONObject(nativeCardHistoryRestore(requireContext(), cardId, historicalOid)))
 
     /** Explicit connections only -- not hierarchy (parent/child) or inline [[wikilinks]]. */
     fun listCardLinks(cardId: String): HolderCardLinks {
@@ -974,6 +1113,50 @@ object HolderNative {
         createdAt = json.getLong("created_at"),
         updatedAt = json.getLong("updated_at"),
         cardTitle = json.optStringOrNull("card_title"),
+    )
+
+    private fun JSONArray.toStringList(): List<String> = List(length()) { index -> getString(index) }
+
+    private fun parseCardHistorySave(json: JSONObject) = HolderCardHistorySave(
+        oid = json.getString("oid"),
+        parentOids = json.getJSONArray("parent_oids").toStringList(),
+        authoredAt = json.getLong("authored_at"),
+        committedAt = json.getLong("committed_at"),
+        message = json.getString("message"),
+    )
+
+    private fun parseCardHistoryEntry(json: JSONObject): HolderCardHistoryEntry {
+        val author = json.getJSONObject("author")
+        val saves = json.getJSONArray("saves")
+        return HolderCardHistoryEntry(
+            firstOid = json.getString("first_oid"),
+            lastOid = json.getString("last_oid"),
+            parentOids = json.getJSONArray("parent_oids").toStringList(),
+            visibleParentOids = json.getJSONArray("visible_parent_oids").toStringList(),
+            authorName = author.getString("name"),
+            authorEmail = author.getString("email"),
+            startedAt = json.getLong("started_at"),
+            endedAt = json.getLong("ended_at"),
+            kind = json.getString("kind"),
+            summary = json.getString("summary"),
+            commitCount = json.getInt("commit_count"),
+            isMerge = json.getBoolean("is_merge"),
+            saves = List(saves.length()) { index -> parseCardHistorySave(saves.getJSONObject(index)) },
+        )
+    }
+
+    private fun parseCardHistoryVersion(json: JSONObject) = HolderCardHistoryVersion(
+        exists = json.getBoolean("exists"),
+        oid = json.getString("oid"),
+        title = json.getString("title"),
+        body = json.getString("body"),
+    )
+
+    private fun parseCardHistoryDiffLine(json: JSONObject) = HolderCardHistoryDiffLine(
+        origin = json.getString("origin"),
+        text = json.getString("text"),
+        oldLine = json.optLongOrNull("old_line"),
+        newLine = json.optLongOrNull("new_line"),
     )
 
     private fun JSONObject.optStringOrNull(name: String): String? =

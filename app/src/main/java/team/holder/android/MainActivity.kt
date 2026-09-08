@@ -41,6 +41,7 @@ import team.holder.android.ui.screens.AppearanceSettingsScreen
 import team.holder.android.ui.screens.BackupSettingsScreen
 import team.holder.android.ui.screens.CalendarScreen
 import team.holder.android.ui.screens.CardEditScreen
+import team.holder.android.ui.screens.CardHistoryScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
@@ -433,6 +434,9 @@ private fun HolderNavHost(
                 onConnectionsClick = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections")
                 },
+                onHistoryClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/history")
+                },
                 onCreateChildCard = {
                     saveError = null
                     pendingParentCardId = cardId
@@ -490,6 +494,23 @@ private fun HolderNavHost(
                     cardViewRefreshKey++
                     navController.popBackStack()
                 },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/history") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            CardHistoryScreen(
+                cardId = cardId,
+                projectId = projectId,
+                cardTitle = selectedCardTitle,
+                onRestored = {
+                    // A restore rewrites this card's content (and possibly its title), so
+                    // CardViewScreen must reload when it's revealed again -- same rationale as
+                    // Connections' onBack bump above. The list's summary/title can change too.
+                    cardViewRefreshKey++
+                    cardListRefreshKey++
+                },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("projects/{projectId}/cards/{cardId}/connections/add") { backStackEntry ->

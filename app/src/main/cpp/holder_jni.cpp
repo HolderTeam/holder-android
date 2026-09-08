@@ -615,6 +615,126 @@ Java_team_holder_android_HolderNative_nativeCardPurge(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardHistoryList(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring card_id,
+    jstring cursor_oid,
+    jint limit
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars card_id_chars(env, card_id);
+  if (project_id_chars.get() == nullptr || card_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id and card_id must not be null");
+    return nullptr;
+  }
+  // cursor_oid is nullable -- UtfChars(env, nullptr) leaves get() == nullptr, which
+  // holder_card_history_list already treats as "no cursor: first page."
+  UtfChars cursor_oid_chars(env, cursor_oid);
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_history_list(
+      context,
+      project_id_chars.get(),
+      card_id_chars.get(),
+      cursor_oid_chars.get(),
+      static_cast<int>(limit),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardHistoryCompare(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring card_id,
+    jstring from_oid,
+    jstring to_oid
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars card_id_chars(env, card_id);
+  UtfChars to_oid_chars(env, to_oid);
+  if (project_id_chars.get() == nullptr || card_id_chars.get() == nullptr ||
+      to_oid_chars.get() == nullptr) {
+    throw_runtime(env, "project_id, card_id and to_oid must not be null");
+    return nullptr;
+  }
+  // from_oid is nullable -- absent for a card's creation event, which has no earlier
+  // version to compare against.
+  UtfChars from_oid_chars(env, from_oid);
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_history_compare(
+      context,
+      project_id_chars.get(),
+      card_id_chars.get(),
+      from_oid_chars.get(),
+      to_oid_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardHistoryRestore(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jstring historical_oid
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  UtfChars historical_oid_chars(env, historical_oid);
+  if (card_id_chars.get() == nullptr || historical_oid_chars.get() == nullptr) {
+    throw_runtime(env, "card_id and historical_oid must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_history_restore(
+      context, card_id_chars.get(), historical_oid_chars.get(), &json, &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardListLinks(
     JNIEnv* env,
     jobject /* thiz */,

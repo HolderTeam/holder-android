@@ -326,6 +326,54 @@ class HolderNativeIntegrationTest {
         assertTrue(HolderNative.listMilestonesInRange(project.projectId, start - 3600, end + 3600).isEmpty())
     }
 
+    @Test
+    fun history_roundTripsListCompareAndRestoreThroughTheFullJniBoundary() {
+        initialize("# Welcome\n\nWelcome")
+        val project = HolderNative.createProject("History test project")
+        val card = HolderNative.createCard(project.projectId, "Knife care", "Sharpen at 15 degrees")
+
+        val firstPage = HolderNative.listCardHistory(project.projectId, card.cardId)
+        assertEquals(1, firstPage.entries.size)
+        assertEquals("created", firstPage.entries.single().kind)
+        assertNotNull(firstPage.headOid)
+        val creationOid = firstPage.entries.single().lastOid
+
+        HolderNative.updateCard(card.cardId, "Knife care", "Sharpen at 15-20 degrees")
+
+        val page = HolderNative.listCardHistory(project.projectId, card.cardId)
+        assertEquals(2, page.entries.size)
+        assertEquals(page.headOid, page.entries.first().lastOid)
+
+        // "Since this version": the creation event's own state through to the current saved
+        // version -- from is the state AT creationOid, which exists, not the absent state
+        // before it (that's the separate creationComparison case below).
+        val sinceComparison = HolderNative.compareCardHistory(
+            project.projectId, card.cardId, creationOid, page.headOid!!,
+        )
+        assertTrue(sinceComparison.from.exists)
+        assertEquals("Sharpen at 15 degrees", sinceComparison.from.body)
+        assertTrue(sinceComparison.to.exists)
+        assertEquals("Sharpen at 15-20 degrees", sinceComparison.to.body)
+
+        // The card's creation event has no earlier version: fromOid omitted entirely.
+        val creationComparison = HolderNative.compareCardHistory(
+            project.projectId, card.cardId, null, creationOid,
+        )
+        assertFalse(creationComparison.from.exists)
+        assertEquals("", creationComparison.from.oid)
+        assertEquals("Sharpen at 15 degrees", creationComparison.to.body)
+
+        // Restoration is a new forward commit -- never a rewrite -- so the pre-restore edit
+        // remains its own reachable history entry afterwards.
+        val restored = HolderNative.restoreCardHistory(card.cardId, creationOid)
+        assertEquals(card.cardId, restored.cardId)
+        assertEquals("Sharpen at 15 degrees", HolderNative.getCardContent(card.cardId))
+
+        val afterRestore = HolderNative.listCardHistory(project.projectId, card.cardId)
+        assertEquals(3, afterRestore.entries.size)
+        assertEquals("restored", afterRestore.entries.first().kind)
+    }
+
     private fun initialize(welcomeContent: String) {
         HolderNative.initialize(
             context = context,
