@@ -147,4 +147,22 @@ class HolderModelTest {
         assertEquals(1, pull.conflictsResolved)
         assertEquals("", pull.errorMessage)
     }
+
+    @Test
+    fun gitSyncIfDueResult_preservesNullableErrorsAndConflictCount() {
+        val result = GitSyncIfDueResult(
+            pullAttempted = true,
+            pullStatus = "succeeded",
+            pullError = null,
+            pullConflictsResolved = 2,
+            pushAttempted = false,
+            pushStatus = null,
+            pushError = null,
+        )
+
+        assertNull(result.pullError)
+        assertEquals(2, result.pullConflictsResolved)
+        assertFalse(result.pushAttempted)
+        assertNull(result.pushStatus)
+    }
 }

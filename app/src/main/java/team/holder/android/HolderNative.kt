@@ -257,8 +257,13 @@ data class GitSyncStatus(
 data class GitSyncIfDueResult(
     val pullAttempted: Boolean,
     val pullStatus: String?,
+    val pullError: String?,
+    /** Non-zero only when pullStatus is "succeeded" after a divergent remote -- Holder's
+     * remote-wins conflict merge, not a user-facing merge tool. */
+    val pullConflictsResolved: Int,
     val pushAttempted: Boolean,
     val pushStatus: String?,
+    val pushError: String?,
 )
 
 data class EncryptionCheckResult(
@@ -941,8 +946,11 @@ object HolderNative {
         GitSyncIfDueResult(
             pullAttempted = json.getBoolean("pull_attempted"),
             pullStatus = json.optStringOrNull("pull_status"),
+            pullError = json.optStringOrNull("pull_error"),
+            pullConflictsResolved = json.optInt("pull_conflicts_resolved", 0),
             pushAttempted = json.getBoolean("push_attempted"),
             pushStatus = json.optStringOrNull("push_status"),
+            pushError = json.optStringOrNull("push_error"),
         )
     }
 

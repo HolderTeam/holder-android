@@ -189,6 +189,10 @@ class ComposeUiTest {
             DiagnosticsSettingsScreen(onBack = {})
         }
 
-        composeRule.onNodeWithText("No activity recorded yet.").assertIsDisplayed()
+        // The log file read happens on a background dispatcher the compose test clock doesn't
+        // track, unlike the composition itself -- wait for it explicitly rather than racing it.
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("No activity recorded yet.").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }
