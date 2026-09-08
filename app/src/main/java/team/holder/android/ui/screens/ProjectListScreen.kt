@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -223,9 +224,14 @@ fun ProjectListScreen(
 
     if (showCreateDialog) {
         // Scoped to this block, not hoisted with the rest of this screen's state -- resets
-        // to unticked every time the dialog is freshly opened, which is what we want (no
-        // reason a previous "keep local" choice should carry over to the next project).
+        // to unticked/Private every time the dialog is freshly opened, which is what we want
+        // (no reason a previous choice should carry over to the next project).
         var keepLocalOnly by remember { mutableStateOf(false) }
+        // Matches the desktop app's own New Project dialog default (see its "Private"/
+        // "Shared" radio choice) -- an independent axis from keepLocalOnly above: privacy is
+        // about who can *read* the project's cards, sync is about whether they leave this
+        // device at all.
+        var isPrivate by remember { mutableStateOf(true) }
         TextInputDialog(
             title = "New project",
             label = "Name",
@@ -236,7 +242,9 @@ fun ProjectListScreen(
                     showCreateDialog = false
                     scope.launch {
                         val created = runCatching {
-                            withContext(Dispatchers.IO) { HolderNative.createProject(name) }
+                            withContext(Dispatchers.IO) {
+                                HolderNative.createProject(name, if (isPrivate) "encrypted_git" else "plain")
+                            }
                         }.getOrNull()
                         // Remote-backed by default once GitHub is connected -- see the plan's
                         // wiring point 2 for why this decision happens before any GitHub call
@@ -266,21 +274,43 @@ fun ProjectListScreen(
                 }
             },
             onDismiss = { showCreateDialog = false },
-            extraContent = if (githubConnected) {
-                {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+            extraContent = {
+                Column {
+                    Text(
+                        "Choose project visibility",
+                        style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 8.dp),
-                    ) {
-                        Checkbox(checked = keepLocalOnly, onCheckedChange = { keepLocalOnly = it })
-                        Text(
-                            "Keep this project on this device only",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = isPrivate, onClick = { isPrivate = true })
+                        Text("Private", modifier = Modifier.padding(end = 16.dp))
+                        RadioButton(selected = !isPrivate, onClick = { isPrivate = false })
+                        Text("Shared")
+                    }
+                    Text(
+                        "A private project is encrypted, only you can read it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "A shared project is useful for collaboration. You must be very careful " +
+                            "not to store sensitive information (passwords, personal data, " +
+                            "private notes).",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    if (githubConnected) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Checkbox(checked = keepLocalOnly, onCheckedChange = { keepLocalOnly = it })
+                            Text(
+                                "Keep this project on this device only",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
-            } else {
-                null
             },
         )
     }
