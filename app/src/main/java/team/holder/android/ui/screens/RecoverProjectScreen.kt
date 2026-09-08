@@ -213,7 +213,7 @@ fun RecoverProjectScreen(
             OutlinedTextField(
                 value = token,
                 onValueChange = { token = it },
-                label = { Text("Recovery token") },
+                label = { Text("Recovery key") },
                 textStyle = MaterialTheme.typography.bodySmall,
                 // A real token is long enough (a few hundred bytes of JSON/base64) that
                 // without a height cap this field grows to fit all of it, pushing Recover
@@ -265,7 +265,7 @@ fun RecoverProjectScreen(
                         }
                     }
                 },
-            ) { Text("Recover") }
+            ) { Text("Import") }
 
             if (isBusy) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
@@ -276,7 +276,7 @@ fun RecoverProjectScreen(
             result?.let { r ->
                 Column(modifier = Modifier.padding(top = 16.dp)) {
                     Text(
-                        if (r.projectCreated) "Project recovered (newly created)." else "Project key re-imported.",
+                        if (r.projectCreated) "Project imported (newly created)." else "Project key re-imported.",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     if (r.remoteHintPresent) {
@@ -365,7 +365,7 @@ private fun GitHubRecoverySection(
             null -> "Checking GitHub..."
             GitHubStatus.NotConnected, is GitHubStatus.AuthorizationRequired ->
                 "This project syncs through GitHub. Connect your GitHub account to finish " +
-                    "recovering it on this device."
+                    "importing it on this device."
             is GitHubStatus.InstallationRequired ->
                 "Signed in to GitHub -- one more step is needed before this device can sync."
             is GitHubStatus.Connected -> "Registering this device with GitHub..."
