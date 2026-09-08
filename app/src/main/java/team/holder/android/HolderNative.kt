@@ -239,6 +239,27 @@ object HolderNative {
     @Volatile
     private var contextHandle: Long = 0L
 
+    /** Set once by [initialize], reused by [selectGitSignerForProject] -- the native signer
+     * can be re-registered any number of times after the context is first opened (each project
+     * gets its own alias, see [gitSignerLock]'s doc comment), and every one of those
+     * re-registrations needs the same homedir [team.holder.android.git.GitIdentity
+     * .registerWithNative] was originally given. */
+    @Volatile
+    private var dataDir: File? = null
+
+    /** Guards "point the one native git signer at project X's key, then actually perform
+     * project X's git network operation" as a single atomic unit -- see [selectGitSignerForProject]'s
+     * doc comment for why this pairing has to be atomic at all: holder-core's native context
+     * holds exactly one registered signer for the whole app, not one per project, so switching
+     * which project's key it signs with and running that project's own push/pull/sync must
+     * never interleave with another project doing the same, or one project's git operation
+     * could get silently signed with a different project's key. A plain JVM lock, not a
+     * coroutine Mutex -- every function this guards ([pushGit]/[pullGit]/[gitSyncIfDue]/
+     * [testGitRemote]) is already a plain blocking call (real native/network I/O), never a
+     * suspend function, so a lock that blocks the calling thread is the correct match, not a
+     * mismatch to work around. */
+    private val gitSignerLock = Any()
+
     private external fun nativeVersion(): String
     private external fun nativeContextOpen(dataDir: String, schemaSql: String): Long
     private external fun nativeContextClose(contextHandle: Long)
@@ -413,9 +434,12 @@ object HolderNative {
             // will fail closed if reconstruction actually needs an unavailable key.
             runCatching { team.holder.android.keyring.AndroidKeyringStore.registerWithNative(context) }
             contextHandle = nativeContextOpen(dataDir.absolutePath, schemaSql)
-            // Best-effort: git sync still falls back to the (nonexistent, on Android)
-            // default ssh-agent/~/.ssh lookup if this fails, so a Keystore hiccup here
-            // shouldn't block the rest of the app from opening.
+            this.dataDir = dataDir
+            // Best-effort, and deliberately not project-scoped here: this just points libgit2
+            // at dataDir for ~/.ssh/known_hosts and installs *some* signer so the context has
+            // one at all; selectGitSignerForProject re-registers with the right per-project
+            // alias immediately before any actual git network operation, which is what
+            // matters -- see gitSignerLock's doc comment.
             runCatching { team.holder.android.git.GitIdentity.registerWithNative(contextHandle, dataDir) }
         }
         nativeEnsureDefaultProject(
@@ -697,18 +721,37 @@ object HolderNative {
     fun updateProjectGitRemote(projectId: String, remoteUrl: String?): HolderProject =
         parseProject(JSONObject(nativeProjectUpdateGitRemote(requireContext(), projectId, remoteUrl)))
 
-    fun testGitRemote(projectId: String, branch: String? = null): GitTestRemoteResult {
+    /** Re-registers the native git signer with [projectId]'s own key -- must only ever be
+     * called while holding [gitSignerLock], immediately before the one native call it's
+     * preparing for, never any earlier. Best-effort, matching [initialize]'s own policy: a
+     * Keystore hiccup here shouldn't crash a sync, it should just fail that one push/pull with
+     * whatever auth error the native side reports -- same failure shape as a real key mismatch
+     * would produce. */
+    private fun selectGitSignerForProject(projectId: String) {
+        val dir = dataDir ?: return
+        runCatching {
+            team.holder.android.git.GitIdentity.registerWithNative(
+                requireContext(),
+                dir,
+                alias = team.holder.android.git.GitIdentity.aliasForProject(projectId),
+            )
+        }
+    }
+
+    fun testGitRemote(projectId: String, branch: String? = null): GitTestRemoteResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
         val json = JSONObject(nativeGitTestRemote(requireContext(), projectId, branch))
-        return GitTestRemoteResult(
+        GitTestRemoteResult(
             status = json.getString("status"),
             remoteHasHead = json.optBoolean("remote_has_head", false),
             errorMessage = json.optStringOrNull("error_message"),
         )
     }
 
-    fun pushGit(projectId: String, branch: String? = null, setUpstream: Boolean = true): GitPushResult {
+    fun pushGit(projectId: String, branch: String? = null, setUpstream: Boolean = true): GitPushResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
         val json = JSONObject(nativeGitPush(requireContext(), projectId, branch, setUpstream))
-        return GitPushResult(
+        GitPushResult(
             status = json.getString("status"),
             aheadCount = json.optInt("ahead_count", 0),
             behindCount = json.optInt("behind_count", 0),
@@ -716,9 +759,10 @@ object HolderNative {
         )
     }
 
-    fun pullGit(projectId: String): GitPullResult {
+    fun pullGit(projectId: String): GitPullResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
         val json = JSONObject(nativeGitPull(requireContext(), projectId))
-        return GitPullResult(
+        GitPullResult(
             status = json.getString("status"),
             errorMessage = json.optStringOrNull("error_message"),
             conflictsResolved = json.optInt("conflicts_resolved", 0),
@@ -750,11 +794,12 @@ object HolderNative {
         projectId: String,
         pushIntervalSeconds: Int = 0,
         pullIntervalSeconds: Int = 0,
-    ): GitSyncIfDueResult {
+    ): GitSyncIfDueResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
         val json = JSONObject(
             nativeGitSyncIfDue(requireContext(), projectId, pushIntervalSeconds, pullIntervalSeconds),
         )
-        return GitSyncIfDueResult(
+        GitSyncIfDueResult(
             pullAttempted = json.getBoolean("pull_attempted"),
             pullStatus = json.optStringOrNull("pull_status"),
             pushAttempted = json.getBoolean("push_attempted"),

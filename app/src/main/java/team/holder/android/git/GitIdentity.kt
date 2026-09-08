@@ -46,6 +46,14 @@ internal val BUNDLED_KNOWN_HOSTS = listOf(
  * JNI to Keystore's Signature API -- see holder_git_signer.cpp for the native half.
  */
 object GitIdentity {
+    /** Each Holder project gets its own Keystore keypair/deploy key -- GitHub (and every other
+     * git host that supports deploy keys) rejects the same public key being registered as a
+     * deploy key on more than one repository, so a single shared device-wide key only ever
+     * actually works for the first project connected. See [team.holder.android.HolderNative]'s
+     * git push/pull/sync entry points for where this drives which key the native signer
+     * actually uses for a given project's git network operation. */
+    fun aliasForProject(projectId: String): String = "$DEFAULT_KEY_ALIAS-$projectId"
+
     private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
     fun ensureKeyPair(alias: String = DEFAULT_KEY_ALIAS): ECPublicKey {

@@ -6,6 +6,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val API_BASE = "https://api.github.com"
@@ -112,9 +113,13 @@ internal object GitHubApi {
     /** `POST /repos/{owner}/{repo}/keys`. On a `403`/`404` -- the installation doesn't cover
      * this specific repo, see the plan's "Selective-repository installations" section --
      * maps to [GitHubError.RepositoryNotAccessible] rather than a bare failure. On a `422`
-     * "key already in use" (this exact device already registered, e.g. a retried call),
-     * treats it as success rather than an error -- the other half of
-     * [GitHubConnection.registerDeployKey]'s idempotency guarantee. */
+     * "key already in use", GitHub's message doesn't distinguish "already a deploy key on
+     * *this* repo" (a genuine retried call -- success) from "already a deploy key on some
+     * *other* repo" (this key can never work here at all -- a real failure, not an idempotency
+     * case) -- these are two very different outcomes with the identical response shape, so
+     * [verifyKeyAlreadyOnThisRepo] actually checks which one it is via `GET .../keys` rather
+     * than assuming the friendlier one. See [GitHubConnection.registerDeployKey]'s doc comment:
+     * this is the other half of its idempotency guarantee, now verified instead of assumed. */
     fun addDeployKey(
         client: OkHttpClient,
         accessToken: String,
@@ -139,8 +144,23 @@ internal object GitHubApi {
                 // response caveat as createRepository's collision check above): an
                 // errors[].message of "key is already in use".
                 response.code == 422 && body.contains("key is already in use") -> {
-                    Log.d("GitHubApi", "addDeployKey: key already registered for $owner/$repo, treating as success")
-                    GitHubResult.Success(Unit)
+                    if (verifyKeyAlreadyOnThisRepo(client, accessToken, owner, repo, publicKeyLine)) {
+                        Log.d("GitHubApi", "addDeployKey: verified key is already registered for $owner/$repo, treating as success")
+                        GitHubResult.Success(Unit)
+                    } else {
+                        // This key is a deploy key on a DIFFERENT repository -- GitHub will
+                        // never let it become a deploy key here too, no retry fixes this. The
+                        // caller needs a fresh, actually-unused key (see GitIdentity
+                        // .aliasForProject -- each project's own alias exists specifically so
+                        // this case shouldn't occur in the first place; hitting it for real
+                        // means something upstream reused an alias that already has a repo).
+                        Log.w(
+                            "GitHubApi",
+                            "addDeployKey: key already in use, but NOT on $owner/$repo -- it's a deploy key " +
+                                "on a different repository and can never be added here",
+                        )
+                        GitHubResult.Failure(GitHubError.Unexpected(422, body))
+                    }
                 }
                 response.code == 403 || response.code == 404 -> {
                     Log.w("GitHubApi", "addDeployKey: $owner/$repo not accessible (HTTP ${response.code})")
@@ -153,6 +173,36 @@ internal object GitHubApi {
             }
         }
     }.getOrElse { networkFailure(it) }
+
+    /** `GET /repos/{owner}/{repo}/keys` -- the actual check behind addDeployKey's `422`
+     * verification. GitHub's list response gives each key's `key` field as just
+     * `"<algorithm> <base64>"`, no comment, so compare against [publicKeyLine]'s own first two
+     * space-separated fields, never the raw strings (our own line always carries a trailing
+     * comment the list response never does). Fails closed: any error listing the repo's keys
+     * (network, auth, whatever) means "not verified," never "assume it's fine." */
+    private fun verifyKeyAlreadyOnThisRepo(
+        client: OkHttpClient,
+        accessToken: String,
+        owner: String,
+        repo: String,
+        publicKeyLine: String,
+    ): Boolean {
+        val ourKeyValue = publicKeyLine.trim().split(Regex("\\s+")).take(2).joinToString(" ")
+        val request = authedRequest(accessToken, "$API_BASE/repos/$owner/$repo/keys").build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching false
+                val keys = JSONArray(response.body?.string().orEmpty())
+                (0 until keys.length()).any { index ->
+                    val theirKeyValue = keys.getJSONObject(index).getString("key").trim().split(Regex("\\s+")).take(2).joinToString(" ")
+                    theirKeyValue == ourKeyValue
+                }
+            }
+        }.getOrElse {
+            Log.w("GitHubApi", "verifyKeyAlreadyOnThisRepo: couldn't list $owner/$repo's keys to verify", it)
+            false
+        }
+    }
 
     private fun getRepository(client: OkHttpClient, accessToken: String, owner: String, repo: String): GitHubResult<GitHubRepo> {
         val request = authedRequest(accessToken, "$API_BASE/repos/$owner/$repo").build()

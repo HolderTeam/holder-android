@@ -84,11 +84,14 @@ object GitHubConnection {
             GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name)
         }
 
-    /** `POST /repos/{owner}/{repo}/keys` with this device's [GitIdentity] public key.
-     * Idempotent: GitHub's "key already in use" response (this exact device having already
-     * been registered) is treated as success, not an error. */
-    suspend fun registerDeployKey(context: Context, owner: String, repo: String): GitHubResult<Unit> =
-        withPersonalInstallation(context) { accessToken, installation -> addDeployKey(accessToken, installation, owner, repo) }
+    /** `POST /repos/{owner}/{repo}/keys` with [projectId]'s own [GitIdentity] public key --
+     * each project gets its own device keypair (see [GitIdentity.aliasForProject]), since
+     * GitHub rejects the same public key being a deploy key on more than one repository.
+     * Idempotent: GitHub's "key already in use" response is only ever treated as success once
+     * actually verified as *this* key already being on *this* repo (see [GitHubApi.addDeployKey]) --
+     * never assumed just because the response shape matches. */
+    suspend fun registerDeployKey(context: Context, projectId: String, owner: String, repo: String): GitHubResult<Unit> =
+        withPersonalInstallation(context) { accessToken, installation -> addDeployKey(accessToken, installation, projectId, owner, repo) }
 
     /** The actual paved-road compound operation: [createRepository] then [registerDeployKey],
      * returning the resulting `ssh_url` for `HolderNative.updateProjectGitRemote`. Safe to
@@ -101,7 +104,7 @@ object GitHubConnection {
     suspend fun ensureProjectRepo(context: Context, project: HolderProject): GitHubResult<String> =
         withPersonalInstallation(context) { accessToken, installation ->
             GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name)
-                .flatMap { repo -> addDeployKey(accessToken, installation, repo.ownerLogin, repo.name).map { repo.sshUrl } }
+                .flatMap { repo -> addDeployKey(accessToken, installation, project.projectId, repo.ownerLogin, repo.name).map { repo.sshUrl } }
         }
 
     internal fun repoNameFor(project: HolderProject): String {
@@ -119,12 +122,13 @@ object GitHubConnection {
     private fun addDeployKey(
         accessToken: String,
         installation: GitHubInstallation,
+        projectId: String,
         owner: String,
         repo: String,
     ): GitHubResult<Unit> = GitHubApi.addDeployKey(
         githubApiHttpClient, accessToken, owner, repo,
         title = "Holder — $repo",
-        publicKeyLine = GitIdentity.sshPublicKeyLine(),
+        publicKeyLine = GitIdentity.sshPublicKeyLine(alias = GitIdentity.aliasForProject(projectId)),
         installationSettingsUrl = installation.settingsUrl,
     )
 

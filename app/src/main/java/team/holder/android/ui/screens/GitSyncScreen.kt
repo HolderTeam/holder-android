@@ -81,7 +81,11 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
 
     LaunchedEffect(project.projectId) {
         pubkeyLine = runCatching {
-            withContext(Dispatchers.IO) { GitIdentity.sshPublicKeyLine() }
+            // This project's own key, not a device-wide one -- most git hosts (GitHub
+            // included) reject the same public key being registered as a deploy key on more
+            // than one repository, so a shared key would only ever actually work for
+            // whichever project registered it first.
+            withContext(Dispatchers.IO) { GitIdentity.sshPublicKeyLine(alias = GitIdentity.aliasForProject(project.projectId)) }
         }.getOrElse { "Unavailable: ${it.message ?: it::class.java.simpleName}" }
         refreshSyncStatus()
     }

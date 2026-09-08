@@ -96,7 +96,7 @@ fun RecoverProjectScreen(
      * "register device → resync" half of the plan's authorize → install → register →
      * resync chain. Only reached once [githubStatus] is already [GitHubStatus.Connected]. */
     suspend fun registerAndRetryPull(projectId: String, owner: String, repo: String) {
-        when (val keyResult = GitHubConnection.registerDeployKey(context, owner, repo)) {
+        when (val keyResult = GitHubConnection.registerDeployKey(context, projectId, owner, repo)) {
             is GitHubResult.Success -> {
                 runCatching {
                     withContext(Dispatchers.IO) { HolderNative.pullGit(projectId) }
