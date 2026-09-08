@@ -105,7 +105,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Git Sync") },
+                title = { Text("Project Sync") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
