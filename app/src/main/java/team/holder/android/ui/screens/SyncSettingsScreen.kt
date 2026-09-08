@@ -190,7 +190,17 @@ fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoor
                 },
                 onDisconnect = { scope.launch { GitHubConnection.disconnect(context) } },
                 onOpenUrl = { url -> openUrlExternally(context, url) },
-                onRetryInstallCheck = { recheckGithubStatus() },
+                onFinishSetup = { installUrl ->
+                    scope.launch {
+                        // install_state correlates the Setup URL return -- once it arrives,
+                        // MainActivity forwards it to GitHubConnection.handleInstallationReturn,
+                        // which re-checks status() and updates statusFlow on its own. This
+                        // screen is already collecting that Flow, so it picks up Connected
+                        // automatically with no second button to press.
+                        val state = GitHubConnection.beginInstallationReturn()
+                        openUrlExternally(context, "$installUrl/installations/new?state=$state")
+                    }
+                },
             )
 
             TextButton(
@@ -224,7 +234,7 @@ private fun GitHubConnectionSection(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    onRetryInstallCheck: () -> Unit,
+    onFinishSetup: (String) -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
@@ -243,14 +253,9 @@ private fun GitHubConnectionSection(
             busy -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
             status is GitHubStatus.Connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
             status is GitHubStatus.InstallationRequired ->
-                Button(onClick = { onOpenUrl(status.installUrl) }) { Text("Finish setup") }
+                Button(onClick = { onFinishSetup(status.installUrl) }) { Text("Finish setup") }
             status is GitHubStatus.AuthorizationRequired -> Button(onClick = onConnect) { Text("Reconnect") }
             else -> Button(onClick = onConnect) { Text("Connect") }
-        }
-    }
-    if (status is GitHubStatus.InstallationRequired && !busy) {
-        TextButton(onClick = onRetryInstallCheck, modifier = Modifier.padding(top = 4.dp)) {
-            Text("I've installed it -- check again")
         }
     }
     if (status is GitHubStatus.Connected) {

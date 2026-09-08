@@ -21,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -286,6 +288,22 @@ fun RecoverProjectScreen(
                 val ownerRepo = githubOwnerRepo
                 if (ownerRepo != null && pullStatus != "succeeded") {
                     val (owner, repo) = ownerRepo
+
+                    // Unlike SyncSettingsScreen, this screen drives its own multi-step recovery
+                    // chain (continueGithubRecovery) rather than just mirroring GitHubConnection
+                    // .statusFlow directly -- so it watches that Flow itself here, and re-runs
+                    // the chain once when it sees Connected arrive while still waiting on
+                    // installation. MainActivity forwards the Setup URL return (see
+                    // onFinishSetup below) into GitHubConnectionCoordinator, which is what
+                    // actually updates statusFlow -- this effect is just what turns that
+                    // update into finishing recovery, with no second button to press.
+                    val coordinatorStatus by GitHubConnection.statusFlow.collectAsState()
+                    LaunchedEffect(coordinatorStatus) {
+                        if (githubStatus is GitHubStatus.InstallationRequired && coordinatorStatus is GitHubStatus.Connected) {
+                            continueGithubRecovery(r.projectId, owner, repo)
+                        }
+                    }
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                     GitHubRecoverySection(
                         status = githubStatus,
@@ -297,6 +315,12 @@ fun RecoverProjectScreen(
                         // primary path.
                         onConnect = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                         onOpenUrl = { url -> openUrlExternally(context, url) },
+                        onFinishSetup = { installUrl ->
+                            scope.launch {
+                                val state = GitHubConnection.beginInstallationReturn()
+                                openUrlExternally(context, "$installUrl/installations/new?state=$state")
+                            }
+                        },
                         onRetry = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                     )
 
@@ -327,6 +351,7 @@ private fun GitHubRecoverySection(
     actionUrl: String?,
     onConnect: () -> Unit,
     onOpenUrl: (String) -> Unit,
+    onFinishSetup: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
     Text("GitHub sync", style = MaterialTheme.typography.titleMedium)
@@ -349,10 +374,9 @@ private fun GitHubRecoverySection(
         busy -> CircularProgressIndicator(modifier = Modifier.padding(top = 12.dp))
         status == null -> {}
         status is GitHubStatus.InstallationRequired -> {
-            Button(onClick = { onOpenUrl(status.installUrl) }, modifier = Modifier.padding(top = 8.dp)) {
+            Button(onClick = { onFinishSetup(status.installUrl) }, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Finish installing Holder Project Setup")
             }
-            TextButton(onClick = onRetry) { Text("I've installed it -- continue") }
         }
         status is GitHubStatus.NotConnected || status is GitHubStatus.AuthorizationRequired ->
             Button(onClick = onConnect, modifier = Modifier.padding(top = 8.dp)) { Text("Connect to GitHub") }
