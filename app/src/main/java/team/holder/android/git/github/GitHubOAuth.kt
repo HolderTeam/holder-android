@@ -10,7 +10,9 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import org.json.JSONObject
 
 private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
@@ -95,7 +97,11 @@ internal object GitHubOAuth {
         val request = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")
-            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            // Both authorization-code exchange and refresh pass through this one path.  They
+            // are credential-spending operations, so make the body explicitly non-replayable
+            // as a second line of defence alongside the dedicated client's no-retry/no-
+            // redirect settings.
+            .post(oneShotJsonBody(payload))
             .build()
 
         val response = try {
@@ -171,4 +177,23 @@ internal object GitHubOAuth {
             else -> RelayError.Unexpected(httpStatus, body)
         }
     }
+
+    /**
+     * OkHttp consults [RequestBody.isOneShot] before connection recovery and HTTP follow-up
+     * handling.  Wrapping its ordinary byte-string body retains the exact JSON bytes and
+     * content metadata while preventing a code or rotating refresh credential being sent twice.
+     * Internal visibility keeps the transport guarantee directly regression-testable.
+     */
+    internal fun oneShotJsonBody(payload: String): RequestBody =
+        object : RequestBody() {
+            private val delegate = payload.toRequestBody(JSON_MEDIA_TYPE)
+
+            override fun contentType() = delegate.contentType()
+
+            override fun contentLength() = delegate.contentLength()
+
+            override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+
+            override fun isOneShot() = true
+        }
 }
