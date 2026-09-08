@@ -103,9 +103,6 @@ fun ProjectListScreen(
             TopAppBar(
                 title = { Text("Holder") },
                 actions = {
-                    IconButton(onClick = onRecoverProjectClick) {
-                        Icon(painterResource(R.drawable.ic_restore), contentDescription = "Recover project")
-                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
@@ -145,8 +142,26 @@ fun ProjectListScreen(
                     }
                     is LoadState.Success -> {
                         if (current.value.isEmpty()) {
+                            // Recovering a project onto a fresh device -- or a device that
+                            // simply doesn't have this particular project yet -- is the likely
+                            // next action right here, so it gets a real button in exactly this
+                            // moment instead of a permanent top-bar icon competing with
+                            // Settings on every screen open. It's still reachable afterward via
+                            // Settings (see SettingsScreen's own "Recover project" row) for the
+                            // less common case of recovering onto a device with other projects
+                            // already on it.
                             CenteredMessage {
-                                Text("No projects yet")
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("No projects yet")
+                                    TextButton(onClick = onRecoverProjectClick, modifier = Modifier.padding(top = 8.dp)) {
+                                        Icon(
+                                            painterResource(R.drawable.ic_restore),
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(end = 8.dp),
+                                        )
+                                        Text("Recover a project")
+                                    }
+                                }
                             }
                         } else {
                             LazyColumn {

@@ -144,6 +144,7 @@ class ComposeUiTest {
                 onSyncClick = {},
                 onStorageClick = {},
                 onAboutClick = {},
+                onRecoverProjectClick = {},
             )
         }
 

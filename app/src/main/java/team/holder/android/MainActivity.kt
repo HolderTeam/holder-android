@@ -284,6 +284,7 @@ private fun HolderNavHost(
                 onSyncClick = { navController.navigate("settings/sync") },
                 onStorageClick = { navController.navigate("settings/storage") },
                 onAboutClick = { navController.navigate("settings/about") },
+                onRecoverProjectClick = { navController.navigate("recover-project") },
             )
         }
         composable("settings/appearance") {
