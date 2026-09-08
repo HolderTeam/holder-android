@@ -1,6 +1,7 @@
 package team.holder.android.git.github
 
 import android.net.Uri
+import android.util.Log
 import java.io.IOException
 import java.net.ConnectException
 import java.net.UnknownHostException
@@ -100,39 +101,54 @@ internal object GitHubOAuth {
         val response = try {
             client.newCall(request).execute()
         } catch (e: UnknownHostException) {
+            Log.w("GitHubOAuth", "postRelay: $url never reached (UnknownHostException)", e)
             return RelayResult.Failure(RelayError.NetworkError(e))
         } catch (e: ConnectException) {
+            Log.w("GitHubOAuth", "postRelay: $url never reached (ConnectException)", e)
             return RelayResult.Failure(RelayError.NetworkError(e))
         } catch (e: IOException) {
             // Anything past connection establishment (a timeout awaiting the response, a
             // connection reset mid-read, ...) -- the request may already have been received
             // and processed. See "Transport-failure ambiguity": never assume this is safely
             // retryable.
+            Log.w("GitHubOAuth", "postRelay: $url ambiguous transport failure (${e::class.simpleName}: ${e.message})", e)
             return RelayResult.Failure(RelayError.AmbiguousTransportFailure)
         }
 
         response.use { resp ->
             val responseBody = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
+                Log.w("GitHubOAuth", "postRelay: $url returned HTTP ${resp.code}: $responseBody")
                 return RelayResult.Failure(mapErrorBody(resp.code, responseBody))
             }
             val json = try {
                 JSONObject(responseBody)
             } catch (e: org.json.JSONException) {
+                Log.w("GitHubOAuth", "postRelay: $url returned unparseable JSON: $responseBody", e)
                 return RelayResult.Failure(RelayError.Unexpected(resp.code, responseBody))
             }
             if (!json.has("access_token")) {
+                Log.w("GitHubOAuth", "postRelay: $url response missing access_token: $responseBody")
                 return RelayResult.Failure(RelayError.Unexpected(resp.code, responseBody))
             }
-            return RelayResult.Success(
-                GitHubTokens(
+            // A JSONException from any of these (a field missing/wrong-typed) must never
+            // propagate uncaught -- confirmed live: this exact gap crashed the whole app
+            // instead of surfacing as an ordinary Failure, since access_token's own presence
+            // was checked above but the other four fields' presence never was.
+            return try {
+                val tokens = GitHubTokens(
                     accessToken = json.getString("access_token"),
                     expiresInSeconds = json.getInt("expires_in"),
                     refreshToken = json.getString("refresh_token"),
                     refreshCap = json.getString("refresh_cap"),
                     refreshTokenExpiresInSeconds = json.getInt("refresh_token_expires_in"),
-                ),
-            )
+                )
+                Log.d("GitHubOAuth", "postRelay: $url succeeded")
+                RelayResult.Success(tokens)
+            } catch (e: org.json.JSONException) {
+                Log.w("GitHubOAuth", "postRelay: $url response missing/malformed an expected field: $responseBody", e)
+                RelayResult.Failure(RelayError.Unexpected(resp.code, responseBody))
+            }
         }
     }
 

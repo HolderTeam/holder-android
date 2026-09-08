@@ -3,6 +3,7 @@ package team.holder.android.git.github
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.browser.auth.AuthTabIntent
 import java.io.IOException
 import java.util.UUID
@@ -45,6 +46,7 @@ import okhttp3.OkHttpClient
  * `credentialMutationMutex`; `connectStateMutex` before `credentialMutationMutex`.
  */
 object GitHubConnectionCoordinator {
+    private const val LOG_TAG = "GitHubConnection"
     private val coordinatorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // ---- connectStateMutex-protected fields ----
@@ -165,12 +167,34 @@ object GitHubConnectionCoordinator {
     }
 
     /** Runs exactly once per fresh `connect()` operation -- never re-entered by a joining
-     * caller, which just awaits [result] instead. */
+     * caller, which just awaits [result] instead. Wraps the real body in a catch-all: an
+     * uncaught exception here must never do either of two things it can otherwise do --
+     * crash the whole process (confirmed live: a JSONException from a malformed relay
+     * response did exactly this before GitHubOAuth's own parsing was hardened) or leave
+     * `connectInFlight` stuck forever with nothing left to complete its `result` (every
+     * joining/original caller hangs). Either way, finishConnectOperation is still the sole
+     * path that clears state and completes the result -- this is not a second such path,
+     * just a guaranteed fallback into the same one. */
     private suspend fun runConnectOperation(
         appContext: Context,
         attemptId: UUID,
         browserLauncher: GitHubBrowserLauncher,
         result: CompletableDeferred<GitHubResult<GitHubStatus>>,
+    ) {
+        try {
+            runConnectOperationBody(appContext, attemptId, browserLauncher)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // structured-concurrency cancellation, not a real failure -- never swallow this
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "runConnectOperation: uncaught exception, failing this attempt rather than hanging/crashing", e)
+            finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.Unexpected(null, e.message ?: e::class.java.simpleName)))
+        }
+    }
+
+    private suspend fun runConnectOperationBody(
+        appContext: Context,
+        attemptId: UUID,
+        browserLauncher: GitHubBrowserLauncher,
     ) {
         val hasStoredCredential = credentialStore.getRefreshToken(appContext) != null
         if (hasStoredCredential) {
@@ -254,12 +278,14 @@ object GitHubConnectionCoordinator {
      * automatically `NetworkError`. */
     private suspend fun performExchange(appContext: Context, code: String, codeVerifier: String): GitHubResult<GitHubStatus> {
         val exchangeResult = GitHubOAuth.exchangeCode(exchangeHttpClient, code, codeVerifier)
+        // Never log a Success case's own body -- it carries live access/refresh tokens.
+        Log.d(LOG_TAG, "performExchange: relay result = " + if (exchangeResult is RelayResult.Success) "Success" else exchangeResult.toString())
         return when (exchangeResult) {
             is RelayResult.Success -> {
                 commitCredential(appContext, exchangeResult.tokens)
                 // Post-commit: a failure here is operational, not authorization -- the
                 // credential stays intact regardless of what status() reports next.
-                statusAgainstStoredCredential(appContext)
+                statusAgainstStoredCredential(appContext).also { Log.d(LOG_TAG, "performExchange: post-commit status = $it") }
             }
             is RelayResult.Failure -> when (val error = exchangeResult.error) {
                 is RelayError.AuthorizationRequired ->
@@ -453,11 +479,21 @@ object GitHubConnectionCoordinator {
      * forwarded from [handleAuthTabResult]'s own `RESULT_OK` case. Both funnel into this same
      * validation/consumption logic; there is no separate "AuthTab never reaches here" path. */
     suspend fun handleOAuthCallbackUri(uri: Uri) {
-        if (!isOAuthCallbackEndpoint(uri)) return
-        val callbackState = uri.getQueryParameter("state") ?: return
+        if (!isOAuthCallbackEndpoint(uri)) {
+            Log.d(LOG_TAG, "handleOAuthCallbackUri: not our endpoint ($uri), ignoring")
+            return
+        }
+        val callbackState = uri.getQueryParameter("state")
+        if (callbackState == null) {
+            Log.w(LOG_TAG, "handleOAuthCallbackUri: no state param, ignoring")
+            return
+        }
         val code = uri.getQueryParameter("code")
         val error = uri.getQueryParameter("error")
-        if ((code == null) == (error == null)) return  // must be exactly one of the two
+        if ((code == null) == (error == null)) {
+            Log.w(LOG_TAG, "handleOAuthCallbackUri: must have exactly one of code/error, ignoring")
+            return
+        }
 
         val pending = connectStateMutex.withLock {
             val current = pendingOAuth
@@ -467,8 +503,13 @@ object GitHubConnectionCoordinator {
             } else {
                 null
             }
-        } ?: return
+        }
+        if (pending == null) {
+            Log.w(LOG_TAG, "handleOAuthCallbackUri: no matching pendingOAuth for this state, discarding")
+            return
+        }
 
+        Log.d(LOG_TAG, "handleOAuthCallbackUri: matched pendingOAuth, code=${code != null} error=$error")
         val outcome = if (code != null) CallbackOutcome.Code(code) else CallbackOutcome.RecognizedError(error!!)
         pending.callbackOutcome.complete(outcome)
     }

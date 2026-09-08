@@ -4,6 +4,23 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Package visibility (Android 11/API 30+): without this, PackageManager hides other
+         installed apps from our own queries by default, including a genuinely installed
+         browser. GitHubActivityBrowserLauncher.resolveLaunchKind's CustomTabsClient
+         .getPackageName and its ordinary-browser fallback both silently see nothing without
+         this, misreporting BrowserUnavailable even when Chrome is actually installed.
+         Confirmed live: this exact failure reproduced on real emulators (API 33/37) before
+         this was added. One query shape covers both Custom Tabs provider detection and the
+         plain-browser fallback: CustomTabsClient's own resolution logic queries for this
+         identical intent shape internally. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

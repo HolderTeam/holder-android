@@ -8,7 +8,6 @@ import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import java.util.UUID
-import team.holder.android.ui.openUrlExternally
 
 /**
  * Implements [GitHubConnectionCoordinator.GitHubBrowserLauncher] for a real Activity --
@@ -36,8 +35,15 @@ internal class GitHubActivityBrowserLauncher(
                 GitHubConnectionCoordinator.LaunchKind.CustomTab
             }
         }
-        val resolvesOrdinaryBrowser = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com"))
-            .resolveActivity(context.packageManager) != null
+        // Intent.resolveActivity() is the wrong check here: it returns null whenever there's
+        // no single unambiguous default, even if one or more real handlers exist (confirmed
+        // live -- this exact call returned null on a real emulator with Chrome genuinely
+        // installed, simply because nothing had been chosen as the default browser yet).
+        // queryIntentActivities asks the actual question this needs answered: does *anything*
+        // resolve at all.
+        val resolvesOrdinaryBrowser = context.packageManager
+            .queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com")), 0)
+            .isNotEmpty()
         return if (resolvesOrdinaryBrowser) GitHubConnectionCoordinator.LaunchKind.ExternalBrowser else null
     }
 
@@ -50,8 +56,17 @@ internal class GitHubActivityBrowserLauncher(
                 val redirect = Uri.parse(GitHubEnvironment.OAUTH_CALLBACK_URL)
                 AuthTabIntent.Builder().build().launch(authTabLauncher, uri, redirect.host.orEmpty(), redirect.path.orEmpty())
             }
-            GitHubConnectionCoordinator.LaunchKind.CustomTab -> CustomTabsIntent.Builder().build().launchUrl(context, uri)
-            GitHubConnectionCoordinator.LaunchKind.ExternalBrowser -> openUrlExternally(context, uri.toString())
+            GitHubConnectionCoordinator.LaunchKind.CustomTab -> {
+                // GitHubConnectionCoordinator deliberately passes its own applicationContext
+                // here (its operations can outlive any single screen), but starting an
+                // Activity from a non-Activity Context requires this flag or it throws --
+                // confirmed live: this exact call crashed on a real device without it.
+                val customTabsIntent = CustomTabsIntent.Builder().build()
+                customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                customTabsIntent.launchUrl(context, uri)
+            }
+            GitHubConnectionCoordinator.LaunchKind.ExternalBrowser ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }
