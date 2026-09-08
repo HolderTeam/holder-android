@@ -175,7 +175,7 @@ fun RecoverProjectScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Recover Project") },
+                title = { Text("Import Project") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
