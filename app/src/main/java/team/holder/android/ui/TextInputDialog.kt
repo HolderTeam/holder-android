@@ -8,6 +8,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,17 @@ fun TextInputDialog(
     pinnedContent: (@Composable () -> Unit)? = null,
 ) {
     var value by remember { mutableStateOf(initialValue) }
+    val scrollState = rememberScrollState()
+    // The moment pinnedContent appears, it eats into the scrollable region's own share of the
+    // dialog's height (see the weight(1f, fill = false) below) -- so whatever was last visible
+    // in that region (e.g. ProjectListScreen's Visibility radios, right where the Encrypted+
+    // Public warning appears) can end up freshly cut off by it, exactly when the user might
+    // want to reach back up and change that choice. Scroll to reveal the tail of the
+    // scrollable content the instant pinnedContent shows up, so it's never hidden behind it.
+    val hasPinnedContent = pinnedContent != null
+    LaunchedEffect(hasPinnedContent) {
+        if (hasPinnedContent) scrollState.animateScrollTo(scrollState.maxValue)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -50,7 +62,7 @@ fun TextInputDialog(
             // whatever's left, regardless of which one is declared first.
             Column {
                 Column(
-                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(scrollState),
                 ) {
                     OutlinedTextField(
                         value = value,
