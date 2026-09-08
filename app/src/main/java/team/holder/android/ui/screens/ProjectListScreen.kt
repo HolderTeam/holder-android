@@ -345,8 +345,8 @@ fun ProjectListScreen(
                             "You won't be able to sync this project with your laptop or other " +
                                 "devices, or share it with family or friends — it will only " +
                                 "exist on this device. If this device is lost, damaged, or " +
-                                "reset, there's no copy to recover it from, unless you have " +
-                                "Google Drive backup enabled separately in Settings.",
+                                "reset, there's no copy to recover it from, unless Android's " +
+                                "own device backup happens to have one.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(top = 8.dp),
