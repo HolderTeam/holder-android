@@ -56,7 +56,7 @@ fun SettingsScreen(
             SettingsIndexRow("Backup", "Auto Backup snapshot, restore from backup", onBackupClick)
             SettingsIndexRow("Sync", "Background git sync, GitHub", onSyncClick)
             SettingsIndexRow("Storage", "Google Drive, S3-compatible storage", onStorageClick)
-            SettingsIndexRow("Import Project", "Import an existing project from a remote repository", onRecoverProjectClick)
+            SettingsIndexRow("Import Project", "Import an existing project", onRecoverProjectClick)
             SettingsIndexRow("About", "Version", onAboutClick)
         }
     }
