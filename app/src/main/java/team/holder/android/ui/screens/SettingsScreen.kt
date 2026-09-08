@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 /**
  * The Settings index -- one row per subpage, each its own screen/back-stack entry
  * (AppearanceSettingsScreen, EditorSettingsScreen, BackupSettingsScreen, SyncSettingsScreen,
- * StorageSettingsScreen, AboutSettingsScreen). Split out of what used to be one long scrolling
+ * StorageSettingsScreen, DiagnosticsSettingsScreen, AboutSettingsScreen). Split out of what used to be one long scrolling
  * screen once it grew too long to navigate comfortably -- Theme, Font, Editor prefs, Backup,
  * GitHub, Google Drive and S3 all stacked in a single Column. Each subpage now owns its own
  * scroll position and remembered dialog/menu state instead of all of it living together
@@ -35,6 +35,7 @@ fun SettingsScreen(
     onBackupClick: () -> Unit,
     onSyncClick: () -> Unit,
     onStorageClick: () -> Unit,
+    onDiagnosticsClick: () -> Unit,
     onAboutClick: () -> Unit,
     onRecoverProjectClick: () -> Unit,
 ) {
@@ -57,6 +58,7 @@ fun SettingsScreen(
             SettingsIndexRow("Sync", "Background git sync, GitHub", onSyncClick)
             SettingsIndexRow("Storage", "Google Drive, S3-compatible storage", onStorageClick)
             SettingsIndexRow("Import Project", "Import an existing project", onRecoverProjectClick)
+            SettingsIndexRow("Diagnostics", "Activity log", onDiagnosticsClick)
             SettingsIndexRow("About", "Version", onAboutClick)
         }
     }
