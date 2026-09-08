@@ -23,11 +23,15 @@ import java.io.File
  * is a cheap no-op if the app already opened it.
  *
  * Records a Settings > Diagnostics line per project per direction actually attempted (see
- * [syncLogMessages]) -- this is the one place that matters most: a failed background sync is
- * otherwise silent, with nothing in the UI to notice it happened.
+ * [syncLogMessages]), and one for any failure -- either one project's own sync call throwing
+ * outright (rare: the C ABI converts most real sync failures into a structured failed status,
+ * not an exception, so [syncLogMessages] already covers those) or this whole run never reaching
+ * the per-project loop at all (e.g. HolderNative.initialize itself failing). A failed background
+ * sync is otherwise silent, with nothing in the UI to notice it happened.
  */
 class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val logFile = diagnosticsLogFile(applicationContext)
         val result = runCatching {
             HolderNative.initialize(
                 context = applicationContext,
@@ -39,7 +43,6 @@ class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             val intervalSeconds =
                 HolderSettings.gitBackgroundSyncIntervalMinutes(applicationContext).first() * 60
 
-            val logFile = diagnosticsLogFile(applicationContext)
             for (project in HolderNative.listProjects()) {
                 if (!project.gitRemoteUrl.isNullOrEmpty()) {
                     // Best-effort per project: one project's failure shouldn't stop the rest.
@@ -50,9 +53,27 @@ class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                         for (message in syncLogMessages(project.name, syncResult)) {
                             DiagnosticsLog.append(logFile, DiagnosticsEntry(now, message))
                         }
+                    }.onFailure { error ->
+                        DiagnosticsLog.append(
+                            logFile,
+                            DiagnosticsEntry(
+                                System.currentTimeMillis() / 1000,
+                                "${project.name} sync failed: ${error.message}",
+                            ),
+                        )
                     }
                 }
             }
+        }
+
+        // Reached only if something failed before or between per-project attempts above (e.g.
+        // HolderNative.initialize, or listProjects itself) -- every per-project failure is
+        // already logged individually inside the loop.
+        result.onFailure { error ->
+            DiagnosticsLog.append(
+                logFile,
+                DiagnosticsEntry(System.currentTimeMillis() / 1000, "Sync failed: ${error.message}"),
+            )
         }
 
         if (result.isSuccess) Result.success() else Result.retry()
