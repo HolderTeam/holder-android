@@ -17,6 +17,7 @@ import org.junit.runner.RunWith
 import team.holder.android.git.github.GitHubConnectionCoordinator
 import team.holder.android.ui.markdown.HolderMarkdownViewer
 import team.holder.android.ui.screens.CardEditScreen
+import team.holder.android.ui.screens.DiagnosticsSettingsScreen
 import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.screens.StorageSettingsScreen
 import team.holder.android.ui.screens.SyncSettingsScreen
@@ -143,6 +144,7 @@ class ComposeUiTest {
                 onBackupClick = {},
                 onSyncClick = {},
                 onStorageClick = {},
+                onDiagnosticsClick = {},
                 onAboutClick = {},
                 onRecoverProjectClick = {},
             )
@@ -153,6 +155,7 @@ class ComposeUiTest {
         composeRule.onNodeWithText("Backup").assertIsDisplayed()
         composeRule.onNodeWithText("Sync").assertIsDisplayed()
         composeRule.onNodeWithText("Storage").assertIsDisplayed()
+        composeRule.onNodeWithText("Diagnostics").assertIsDisplayed()
         composeRule.onNodeWithText("About").assertIsDisplayed()
     }
 
@@ -178,5 +181,18 @@ class ComposeUiTest {
 
         composeRule.onNodeWithText("Automatic background sync").assertIsDisplayed()
         composeRule.onNodeWithText("GitHub").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun diagnosticsSettingsScreen_showsEmptyState() {
+        composeRule.setContent {
+            DiagnosticsSettingsScreen(onBack = {})
+        }
+
+        // The log file read happens on a background dispatcher the compose test clock doesn't
+        // track, unlike the composition itself -- wait for it explicitly rather than racing it.
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("No activity recorded yet.").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }

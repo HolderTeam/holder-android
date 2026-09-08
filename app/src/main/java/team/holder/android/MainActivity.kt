@@ -45,6 +45,7 @@ import team.holder.android.ui.screens.CardHistoryScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
 import team.holder.android.ui.screens.CardViewScreen
+import team.holder.android.ui.screens.DiagnosticsSettingsScreen
 import team.holder.android.ui.screens.EditorSettingsScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
@@ -284,6 +285,7 @@ private fun HolderNavHost(
                 onBackupClick = { navController.navigate("settings/backup") },
                 onSyncClick = { navController.navigate("settings/sync") },
                 onStorageClick = { navController.navigate("settings/storage") },
+                onDiagnosticsClick = { navController.navigate("settings/diagnostics") },
                 onAboutClick = { navController.navigate("settings/about") },
                 onRecoverProjectClick = { navController.navigate("recover-project") },
             )
@@ -305,6 +307,9 @@ private fun HolderNavHost(
         }
         composable("settings/storage") {
             StorageSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable("settings/diagnostics") {
+            DiagnosticsSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("settings/about") {
             AboutSettingsScreen(onBack = { navController.popBackStack() })

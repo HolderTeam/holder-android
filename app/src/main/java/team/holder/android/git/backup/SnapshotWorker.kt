@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
+import team.holder.android.diagnostics.DiagnosticsEntry
+import team.holder.android.diagnostics.DiagnosticsLog
+import team.holder.android.diagnostics.diagnosticsLogFile
 import java.io.File
 
 /**
@@ -27,9 +30,15 @@ import java.io.File
  * Runs in the app's own process, same as GitSyncWorker -- initializes HolderNative itself,
  * since WorkManager may start it without any Activity having run first (e.g. after the process
  * was killed).
+ *
+ * Records a Settings > Diagnostics line for every regeneration this runs, and for any failure
+ * that stops one from completing -- this is arguably the single most important thing
+ * Diagnostics logs at all: a broken backup safety net that fails silently is only ever
+ * discovered at restore time, when it's too late to do anything about it.
  */
 class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val logFile = diagnosticsLogFile(applicationContext)
         val result = runCatching {
             HolderNative.initialize(
                 context = applicationContext,
@@ -42,8 +51,22 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
             val lastMax = HolderSettings.lastSnapshotMaxUpdatedAt(applicationContext).first()
             val armed = SnapshotProtection.isArmed(applicationContext.filesDir)
             if (shouldRegenerate(currentMax, lastMax, armed)) {
-                SnapshotWriter.regenerateAndRecordFreshness(applicationContext)
+                val writeResult = SnapshotWriter.regenerateAndRecordFreshness(applicationContext)
+                DiagnosticsLog.append(
+                    logFile,
+                    DiagnosticsEntry(System.currentTimeMillis() / 1000, snapshotLogMessage(writeResult)),
+                )
             }
+        }
+
+        // This is the one failure mode Diagnostics exists to catch: the backup safety net
+        // breaking silently, discovered only at restore time -- by then it's too late to do
+        // anything but note that this run never even reached regenerateAndRecordFreshness.
+        result.onFailure { error ->
+            DiagnosticsLog.append(
+                logFile,
+                DiagnosticsEntry(System.currentTimeMillis() / 1000, "Backup snapshot failed: ${error.message}"),
+            )
         }
 
         if (result.isSuccess) Result.success() else Result.retry()
@@ -61,5 +84,14 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
          */
         fun shouldRegenerate(currentMax: Long?, lastMax: Long, armed: Boolean): Boolean =
             currentMax != null && currentMax > lastMax && !armed
+
+        /** The Diagnostics line for one successful regeneration -- [SnapshotWriteResult.truncated]
+         * is the important part: it means some of the device's cards did NOT make it into the
+         * snapshot, so the backup this run produced is incomplete, without that ever surfacing
+         * as an error (writeLines stops cleanly at the budget, it doesn't fail). */
+        fun snapshotLogMessage(result: SnapshotWriteResult): String {
+            val truncatedNote = if (result.truncated) " (truncated -- some cards did not fit)" else ""
+            return "Backup snapshot: ${result.cardCount} card(s), ${result.compressedBytes / 1024} KB$truncatedNote"
+        }
     }
 }

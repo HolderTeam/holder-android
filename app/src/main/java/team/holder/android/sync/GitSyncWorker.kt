@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
+import team.holder.android.diagnostics.DiagnosticsEntry
+import team.holder.android.diagnostics.DiagnosticsLog
+import team.holder.android.diagnostics.diagnosticsLogFile
 import java.io.File
 
 /**
@@ -18,9 +21,17 @@ import java.io.File
  * Runs in the app's own process (WorkManager may start it without any Activity having run
  * first, e.g. after the process was killed), so it initializes HolderNative itself; that call
  * is a cheap no-op if the app already opened it.
+ *
+ * Records a Settings > Diagnostics line per project per direction actually attempted (see
+ * [syncLogMessages]), and one for any failure -- either one project's own sync call throwing
+ * outright (rare: the C ABI converts most real sync failures into a structured failed status,
+ * not an exception, so [syncLogMessages] already covers those) or this whole run never reaching
+ * the per-project loop at all (e.g. HolderNative.initialize itself failing). A failed background
+ * sync is otherwise silent, with nothing in the UI to notice it happened.
  */
 class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val logFile = diagnosticsLogFile(applicationContext)
         val result = runCatching {
             HolderNative.initialize(
                 context = applicationContext,
@@ -35,9 +46,34 @@ class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             for (project in HolderNative.listProjects()) {
                 if (!project.gitRemoteUrl.isNullOrEmpty()) {
                     // Best-effort per project: one project's failure shouldn't stop the rest.
-                    runCatching { HolderNative.gitSyncIfDue(project.projectId, intervalSeconds, intervalSeconds) }
+                    runCatching {
+                        HolderNative.gitSyncIfDue(project.projectId, intervalSeconds, intervalSeconds)
+                    }.onSuccess { syncResult ->
+                        val now = System.currentTimeMillis() / 1000
+                        for (message in syncLogMessages(project.name, syncResult)) {
+                            DiagnosticsLog.append(logFile, DiagnosticsEntry(now, message))
+                        }
+                    }.onFailure { error ->
+                        DiagnosticsLog.append(
+                            logFile,
+                            DiagnosticsEntry(
+                                System.currentTimeMillis() / 1000,
+                                "${project.name} sync failed: ${error.message}",
+                            ),
+                        )
+                    }
                 }
             }
+        }
+
+        // Reached only if something failed before or between per-project attempts above (e.g.
+        // HolderNative.initialize, or listProjects itself) -- every per-project failure is
+        // already logged individually inside the loop.
+        result.onFailure { error ->
+            DiagnosticsLog.append(
+                logFile,
+                DiagnosticsEntry(System.currentTimeMillis() / 1000, "Sync failed: ${error.message}"),
+            )
         }
 
         if (result.isSuccess) Result.success() else Result.retry()

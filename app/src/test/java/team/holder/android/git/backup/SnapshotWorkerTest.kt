@@ -1,5 +1,6 @@
 package team.holder.android.git.backup
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,5 +36,24 @@ class SnapshotWorkerTest {
     fun doesNotRegenerate_whenTheDeviceHasNoCardsAtAll() {
         // deviceMaxUpdatedAt() returns null when there are no cards anywhere to measure.
         assertFalse(SnapshotWorker.shouldRegenerate(currentMax = null, lastMax = 0, armed = false))
+    }
+
+    @Test
+    fun snapshotLogMessage_reportsCardCountAndSize() {
+        val result = SnapshotWriteResult(cardCount = 42, compressedBytes = 10 * 1024, truncated = false)
+
+        assertEquals("Backup snapshot: 42 card(s), 10 KB", SnapshotWorker.snapshotLogMessage(result))
+    }
+
+    @Test
+    fun snapshotLogMessage_flagsTruncation() {
+        // The one case worth calling out specifically: some of the device's cards did not make
+        // it into this snapshot, and writeLines stops cleanly at the budget rather than failing
+        // -- without this note, an incomplete backup would look identical to a complete one.
+        val result = SnapshotWriteResult(cardCount = 500, compressedBytes = 20 * 1024 * 1024, truncated = true)
+
+        val message = SnapshotWorker.snapshotLogMessage(result)
+        assertTrue(message.contains("truncated"))
+        assertTrue(message.contains("500 card(s)"))
     }
 }
