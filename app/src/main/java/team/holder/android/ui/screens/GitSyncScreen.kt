@@ -283,7 +283,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     "If you used Holder's automatic GitHub Setup service, you can safely ignore the " +
                         "technical details below. The following text is this device's SSH key for this " +
                         "project. It is used as a deploy key for the project's remote repository. You " +
-                        "only need it if you're setting up a custom Git setup yourself.",
+                        "only need it if you're configuring Git yourself.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
