@@ -180,7 +180,7 @@ fun ProjectListScreen(
                                                         },
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Git Sync") },
+                                                        text = { Text("Sync") },
                                                         onClick = {
                                                             menuOpenFor = null
                                                             onGitSyncClick(project)
