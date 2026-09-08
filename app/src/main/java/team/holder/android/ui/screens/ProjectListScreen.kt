@@ -338,14 +338,22 @@ fun ProjectListScreen(
                     }
                 }
             },
-            pinnedContent = if (isEncrypted && isSynced && !isPrivateRepo) {
+            pinnedContent = if (isSynced && !isPrivateRepo) {
                 {
                     Text(
-                        "Your project's name and other metadata will still be visible to " +
-                            "anyone who can see your Git repository, even though its cards are " +
-                            "encrypted. This can be a legitimate choice with a self-hosted Git " +
-                            "server on a private network, but it is an unusual combination, so " +
-                            "think carefully before choosing it.",
+                        if (isEncrypted) {
+                            "Your project's name and other metadata will still be visible to " +
+                                "anyone who can see your Git repository, even though its cards " +
+                                "are encrypted. This can be a legitimate choice with a " +
+                                "self-hosted Git server on a private network, but it is an " +
+                                "unusual combination, so think carefully before choosing it."
+                        } else {
+                            "Everything in this project — card titles, content, and metadata " +
+                                "— will be visible to anyone who can see your Git repository. " +
+                                "Make sure nothing sensitive ends up here. This project's " +
+                                "repository will be created on GitHub, a public website — " +
+                                "anyone can browse to it, even without a GitHub account."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 8.dp),
