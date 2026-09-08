@@ -54,9 +54,9 @@ fun SettingsScreen(
             SettingsIndexRow("Appearance", "Theme, font size, font", onAppearanceClick)
             SettingsIndexRow("Editor", "Title field, trailing whitespace handling", onEditorClick)
             SettingsIndexRow("Backup", "Auto Backup snapshot, restore from backup", onBackupClick)
-            SettingsIndexRow("Recover project", "Recover an existing project from a remote repository", onRecoverProjectClick)
             SettingsIndexRow("Sync", "Background git sync, GitHub", onSyncClick)
             SettingsIndexRow("Storage", "Google Drive, S3-compatible storage", onStorageClick)
+            SettingsIndexRow("Import Project", "Import an existing project from a remote repository", onRecoverProjectClick)
             SettingsIndexRow("About", "Version", onAboutClick)
         }
     }
