@@ -198,9 +198,7 @@ fun RecoverProjectScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "Paste a recovery token exported from another device, along with its PIN, to " +
-                    "recover that project here. If this device doesn't already have the " +
-                    "project, it will be created.",
+                "Paste the recovery key below, along with its PIN, to import the project onto this device.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp),
             )
