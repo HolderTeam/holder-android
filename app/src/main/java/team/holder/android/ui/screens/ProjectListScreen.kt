@@ -173,17 +173,17 @@ fun ProjectListScreen(
                                                     onDismissRequest = { menuOpenFor = null },
                                                 ) {
                                                     DropdownMenuItem(
-                                                        text = { Text("Rename") },
-                                                        onClick = {
-                                                            menuOpenFor = null
-                                                            projectPendingRename = project
-                                                        },
-                                                    )
-                                                    DropdownMenuItem(
                                                         text = { Text("Sync") },
                                                         onClick = {
                                                             menuOpenFor = null
                                                             onGitSyncClick(project)
+                                                        },
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Rename") },
+                                                        onClick = {
+                                                            menuOpenFor = null
+                                                            projectPendingRename = project
                                                         },
                                                     )
                                                     DropdownMenuItem(
