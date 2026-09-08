@@ -142,13 +142,13 @@ fun ProjectListScreen(
                     }
                     is LoadState.Success -> {
                         if (current.value.isEmpty()) {
-                            // Recovering a project onto a fresh device -- or a device that
+                            // Importing a project onto a fresh device -- or a device that
                             // simply doesn't have this particular project yet -- is the likely
                             // next action right here, so it gets a real button in exactly this
                             // moment instead of a permanent top-bar icon competing with
                             // Settings on every screen open. It's still reachable afterward via
-                            // Settings (see SettingsScreen's own "Recover project" row) for the
-                            // less common case of recovering onto a device with other projects
+                            // Settings (see SettingsScreen's own "Import Project" row) for the
+                            // less common case of importing onto a device with other projects
                             // already on it.
                             CenteredMessage {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -159,7 +159,7 @@ fun ProjectListScreen(
                                             contentDescription = null,
                                             modifier = Modifier.padding(end = 8.dp),
                                         )
-                                        Text("Recover a project")
+                                        Text("Import a project")
                                     }
                                 }
                             }
