@@ -376,6 +376,21 @@ fun ProjectListScreen(
                         )
                     }
                 }
+                isSynced && isPrivateRepo && !isEncrypted -> {
+                    {
+                        Text(
+                            "Your cards will be stored as plaintext on GitHub's servers — " +
+                                "readable by GitHub itself and anyone you later grant " +
+                                "repository access to, even though this repository is private. " +
+                                "If you're choosing plain text for command-line use, holderctl " +
+                                "already handles encrypted cards automatically, so that's not " +
+                                "necessary just for that.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
                 else -> null
             },
         )
