@@ -3,6 +3,7 @@ package team.holder.android.git.github
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsClient
@@ -29,7 +30,13 @@ internal class GitHubActivityBrowserLauncher(
         // support -- capability check and eventual launch must use the same resolved package.
         val customTabsPackage = CustomTabsClient.getPackageName(context, null, false)
         if (customTabsPackage != null) {
-            return if (CustomTabsClient.isAuthTabSupported(context, customTabsPackage)) {
+            val authTabSupported = CustomTabsClient.isAuthTabSupported(context, customTabsPackage)
+            Log.d(
+                "GitHubConnection",
+                "resolveLaunchKind: provider=$customTabsPackage isAuthTabSupported=$authTabSupported -> " +
+                    if (authTabSupported) "AuthTab" else "CustomTab",
+            )
+            return if (authTabSupported) {
                 GitHubConnectionCoordinator.LaunchKind.AuthTab
             } else {
                 GitHubConnectionCoordinator.LaunchKind.CustomTab
