@@ -192,10 +192,17 @@ fun RecoverProjectScreen(
                 .padding(16.dp),
         ) {
             Text(
+                "A recovery key allows you to open a project you created on another device, " +
+                    "recover a project after losing or replacing a device, or open a project " +
+                    "that someone has shared with you.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
                 "Paste a recovery token exported from another device, along with its PIN, to " +
                     "recover that project here. If this device doesn't already have the " +
                     "project, it will be created.",
                 style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp),
             )
             OutlinedTextField(
                 value = pin,
