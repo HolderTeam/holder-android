@@ -22,11 +22,20 @@ fun TextInputDialog(
     confirmLabel: String = "OK",
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
-    // An optional slot rendered below the text field -- e.g. ProjectListScreen's "Keep this
-    // project on this device only" checkbox, shown only for its "New project" call, not for
-    // the same dialog's reuse as the Rename dialog. Kept generic rather than a
-    // dialog-specific parameter since this is a shared, provider-agnostic component.
+    // An optional slot rendered below the text field, inside the scrollable region -- e.g.
+    // ProjectListScreen's "Custom options" disclosure and its Encrypted/Synced/Visibility
+    // choices, shown only for its "New project" call, not for the same dialog's reuse as the
+    // Rename dialog. Kept generic rather than a dialog-specific parameter since this is a
+    // shared, provider-agnostic component.
     extraContent: (@Composable () -> Unit)? = null,
+    // A second, optional slot rendered BELOW extraContent's scrollable region, outside of it --
+    // always visible regardless of scroll position, directly above Cancel/Create.
+    // AlertDialog's own confirmButton/dismissButton row is a separate, always-reachable slot,
+    // so anything genuinely important that lives inside the scrollable extraContent (e.g. the
+    // Encrypted+Public warning) isn't guaranteed to actually be seen before the user taps
+    // Create -- it could be scrolled out of view while Create stays perfectly tappable. This
+    // slot exists specifically so that can't happen.
+    pinnedContent: (@Composable () -> Unit)? = null,
 ) {
     var value by remember { mutableStateOf(initialValue) }
 
@@ -34,19 +43,24 @@ fun TextInputDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            // ProjectListScreen's expandable "Custom options" (New Project's Encrypted/Synced/
-            // Visibility choices, plus their explanatory text and the odd-combination warning)
-            // can genuinely overflow a phone screen's height, especially with the on-screen
-            // keyboard still up -- AlertDialog itself doesn't scroll its `text` slot, so this
-            // Column has to.
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text(label) },
-                    singleLine = true,
-                )
-                extraContent?.invoke()
+            // Not scrollable itself -- only the inner Column (name field + extraContent) is,
+            // via weight(1f) taking whatever space pinnedContent doesn't need. This is what
+            // keeps pinnedContent always on-screen: Compose's Column measures non-weighted
+            // children (pinnedContent) first, then gives the weighted scrollable Column
+            // whatever's left, regardless of which one is declared first.
+            Column {
+                Column(
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                ) {
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { value = it },
+                        label = { Text(label) },
+                        singleLine = true,
+                    )
+                    extraContent?.invoke()
+                }
+                pinnedContent?.invoke()
             }
         },
         confirmButton = {

@@ -333,23 +333,26 @@ fun ProjectListScreen(
                                         "is usually most useful with plain-text cards.",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
-                                if (isEncrypted && !isPrivateRepo) {
-                                    Text(
-                                        "Your project's name and other metadata will still be " +
-                                            "visible to anyone who can see your Git repository, " +
-                                            "even though its cards are encrypted. This can be a " +
-                                            "legitimate choice with a self-hosted Git server on " +
-                                            "a private network, but it is an unusual " +
-                                            "combination, so think carefully before choosing it.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
-                                }
                             }
                         }
                     }
                 }
+            },
+            pinnedContent = if (isEncrypted && isSynced && !isPrivateRepo) {
+                {
+                    Text(
+                        "Your project's name and other metadata will still be visible to " +
+                            "anyone who can see your Git repository, even though its cards are " +
+                            "encrypted. This can be a legitimate choice with a self-hosted Git " +
+                            "server on a private network, but it is an unusual combination, so " +
+                            "think carefully before choosing it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            } else {
+                null
             },
         )
     }
