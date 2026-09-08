@@ -1,6 +1,8 @@
 package team.holder.android.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -10,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 
 @Composable
 fun TextInputDialog(
@@ -31,7 +34,12 @@ fun TextInputDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column {
+            // ProjectListScreen's expandable "Custom options" (New Project's Encrypted/Synced/
+            // Visibility choices, plus their explanatory text and the odd-combination warning)
+            // can genuinely overflow a phone screen's height, especially with the on-screen
+            // keyboard still up -- AlertDialog itself doesn't scroll its `text` slot, so this
+            // Column has to.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },

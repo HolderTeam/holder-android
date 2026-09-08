@@ -79,9 +79,9 @@ object GitHubConnection {
      * as success (returns the existing repo) rather than an error -- safe to retry after a
      * partial failure without producing a duplicate. See [ensureProjectRepo]'s doc comment for
      * the naming scheme. */
-    suspend fun createRepository(context: Context, project: HolderProject): GitHubResult<GitHubRepo> =
+    suspend fun createRepository(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<GitHubRepo> =
         withPersonalInstallation(context) { accessToken, installation ->
-            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name)
+            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
         }
 
     /** `POST /repos/{owner}/{repo}/keys` with [projectId]'s own [GitIdentity] public key --
@@ -101,9 +101,9 @@ object GitHubConnection {
      * The repo's GitHub `name` is `holder-<slug>-<project id>` ([repoNameFor]) -- Holder
      * project names are freeform and GitHub repo names are not, so the slug is a best-effort,
      * lossy readability aid only; uniqueness always comes from the trailing `project.projectId`. */
-    suspend fun ensureProjectRepo(context: Context, project: HolderProject): GitHubResult<String> =
+    suspend fun ensureProjectRepo(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<String> =
         withPersonalInstallation(context) { accessToken, installation ->
-            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name)
+            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
                 .flatMap { repo -> addDeployKey(accessToken, installation, project.projectId, repo.ownerLogin, repo.name).map { repo.sshUrl } }
         }
 

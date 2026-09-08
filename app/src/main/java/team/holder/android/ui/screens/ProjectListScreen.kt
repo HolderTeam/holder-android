@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -223,17 +222,17 @@ fun ProjectListScreen(
     }
 
     if (showCreateDialog) {
-        // Scoped to this block, not hoisted with the rest of this screen's state -- resets
-        // to unticked/Private every time the dialog is freshly opened, which is what we want
-        // (no reason a previous choice should carry over to the next project).
-        var keepLocalOnly by remember { mutableStateOf(false) }
-        // Matches the desktop app's own New Project dialog default (see its "Private"/
-        // "Shared" radio choice) -- an independent axis from keepLocalOnly above: privacy is
-        // about who can *read* the project's cards, sync is about whether they leave this
-        // device at all.
-        var isPrivate by remember { mutableStateOf(true) }
+        // Scoped to this block, not hoisted with the rest of this screen's state -- resets to
+        // these defaults every time the dialog is freshly opened, which is what we want (no
+        // reason a previous choice should carry over to the next project). Opinionated
+        // defaults, invisible unless "Custom options" is expanded: a non-technical user never
+        // needs to know these decisions exist at all.
+        var customOptionsExpanded by remember { mutableStateOf(false) }
+        var isEncrypted by remember { mutableStateOf(true) }
+        var isSynced by remember { mutableStateOf(true) }
+        var isPrivateRepo by remember { mutableStateOf(true) }
         TextInputDialog(
-            title = "New project",
+            title = "New Project",
             label = "Name",
             confirmLabel = "Create",
             onConfirm = { name ->
@@ -243,15 +242,15 @@ fun ProjectListScreen(
                     scope.launch {
                         val created = runCatching {
                             withContext(Dispatchers.IO) {
-                                HolderNative.createProject(name, if (isPrivate) "encrypted_git" else "plain")
+                                HolderNative.createProject(name, if (isEncrypted) "encrypted_git" else "plain")
                             }
                         }.getOrNull()
                         // Remote-backed by default once GitHub is connected -- see the plan's
                         // wiring point 2 for why this decision happens before any GitHub call
                         // rather than create-then-offer-to-undo.
-                        if (created != null && githubConnected && !keepLocalOnly) {
+                        if (created != null && githubConnected && isSynced) {
                             githubSyncNotice = null
-                            when (val repoResult = GitHubConnection.ensureProjectRepo(context, created)) {
+                            when (val repoResult = GitHubConnection.ensureProjectRepo(context, created, private = isPrivateRepo)) {
                                 is GitHubResult.Success -> {
                                     runCatching {
                                         withContext(Dispatchers.IO) {
@@ -276,38 +275,78 @@ fun ProjectListScreen(
             onDismiss = { showCreateDialog = false },
             extraContent = {
                 Column {
-                    Text(
-                        "Choose project visibility",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = isPrivate, onClick = { isPrivate = true })
-                        Text("Private", modifier = Modifier.padding(end = 16.dp))
-                        RadioButton(selected = !isPrivate, onClick = { isPrivate = false })
-                        Text("Shared")
+                    TextButton(onClick = { customOptionsExpanded = !customOptionsExpanded }) {
+                        Text(if (customOptionsExpanded) "Custom options ▾" else "Custom options ▸")
                     }
-                    Text(
-                        "A private project is encrypted, only you can read it.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "A shared project is useful for collaboration. You must be very careful " +
-                            "not to store sensitive information (passwords, personal data, " +
-                            "private notes).",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    if (githubConnected) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 8.dp),
-                        ) {
-                            Checkbox(checked = keepLocalOnly, onCheckedChange = { keepLocalOnly = it })
+                    if (customOptionsExpanded) {
+                        Text("Card body", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = isEncrypted, onClick = { isEncrypted = true })
+                            Text("Encrypted (Recommended)")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = !isEncrypted, onClick = { isEncrypted = false })
+                            Text("Plain text")
+                        }
+                        Text(
+                            "Choose plain text if you want to open and edit your cards with " +
+                                "other software. Be careful not to store sensitive information " +
+                                "in plain-text cards.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+
+                        if (githubConnected) {
                             Text(
-                                "Keep this project on this device only",
+                                "Project Sync",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = isSynced, onClick = { isSynced = true })
+                                Text("Synced (Recommended)")
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = !isSynced, onClick = { isSynced = false })
+                                Text("Device only")
+                            }
+                            Text(
+                                "Keep this project available for syncing with your other devices.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
+
+                            if (isSynced) {
+                                Text(
+                                    "Visibility",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.padding(top = 12.dp),
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = isPrivateRepo, onClick = { isPrivateRepo = true })
+                                    Text("Private (Recommended)")
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = !isPrivateRepo, onClick = { isPrivateRepo = false })
+                                    Text("Public")
+                                }
+                                Text(
+                                    "A public project can be viewed by anyone on the web. This " +
+                                        "is usually most useful with plain-text cards.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                if (isEncrypted && !isPrivateRepo) {
+                                    Text(
+                                        "Your project's name and other metadata will still be " +
+                                            "visible to anyone who can see your Git repository, " +
+                                            "even though its cards are encrypted. This can be a " +
+                                            "legitimate choice with a self-hosted Git server on " +
+                                            "a private network, but it is an unusual " +
+                                            "combination, so think carefully before choosing it.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }

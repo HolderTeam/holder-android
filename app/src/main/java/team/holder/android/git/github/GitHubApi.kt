@@ -68,22 +68,26 @@ internal object GitHubApi {
             }
         }.getOrElse { networkFailure(it) }
 
-    /** `POST /user/repos`, private, with [description] set to the project's own
-     * human-readable name (the repo's own `name` is a `holder-<slug>-<project id>` name instead --
-     * see [GitHubConnection.ensureProjectRepo]'s doc comment for why a Holder project's
-     * freeform display name, e.g. containing spaces or apostrophes, is never used directly
-     * as a GitHub repo name). On a `422` name collision, follows up with `GET
-     * /repos/{login}/{name}` (using [login], already known from [listInstallations]'
-     * personal-account entry) and returns *that* repo instead of failing -- the idempotency
-     * guarantee [GitHubConnection.createRepository] promises. */
+    /** `POST /user/repos`, with [description] set to the project's own human-readable name
+     * (the repo's own `name` is a `holder-<slug>-<project id>` name instead -- see
+     * [GitHubConnection.ensureProjectRepo]'s doc comment for why a Holder project's freeform
+     * display name, e.g. containing spaces or apostrophes, is never used directly as a GitHub
+     * repo name). Note [description] -- and the repo name's own slug -- are visible on GitHub
+     * regardless of [private]: an encrypted project's card *contents* stay protected, but its
+     * name does not, which is exactly what the New Project dialog's Encrypted+Public warning
+     * calls out. On a `422` name collision, follows up with `GET /repos/{login}/{name}` (using
+     * [login], already known from [listInstallations]' personal-account entry) and returns
+     * *that* repo instead of failing -- the idempotency guarantee
+     * [GitHubConnection.createRepository] promises. */
     fun createRepository(
         client: OkHttpClient,
         accessToken: String,
         login: String,
         name: String,
         description: String,
+        private: Boolean = true,
     ): GitHubResult<GitHubRepo> = runCatching {
-        val payload = JSONObject().put("name", name).put("private", true).put("description", description)
+        val payload = JSONObject().put("name", name).put("private", private).put("description", description)
         val request = authedRequest(accessToken, "$API_BASE/user/repos")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
