@@ -121,60 +121,6 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text("Device SSH key", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Add this as a deploy key on your remote repository.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Text(
-                    pubkeyLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { clipboard.setText(AnnotatedString(pubkeyLine)) }) {
-                    Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy public key")
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            Text("Remote repository", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = remoteUrlInput,
-                onValueChange = { remoteUrlInput = it },
-                placeholder = { Text("ssh://git@host/path/repo.git") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-            Row(modifier = Modifier.padding(top = 8.dp)) {
-                Button(
-                    enabled = !isBusy && remoteUrlInput.trim() != currentRemoteUrl.orEmpty(),
-                    onClick = {
-                        runAction("Save") {
-                            val updated = HolderNative.updateProjectGitRemote(
-                                project.projectId,
-                                remoteUrlInput.trim().ifEmpty { null },
-                            )
-                            currentRemoteUrl = updated.gitRemoteUrl
-                            "Remote saved"
-                        }
-                    },
-                ) { Text("Save") }
-                Button(
-                    enabled = !isBusy,
-                    onClick = {
-                        runAction("Test") {
-                            val result = HolderNative.testGitRemote(project.projectId)
-                            "Test: ${result.status}" + (result.errorMessage?.let { " -- $it" } ?: "")
-                        }
-                    },
-                    modifier = Modifier.padding(start = 8.dp),
-                ) { Text("Test connection") }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text("Sync", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 if (isBusy) CircularProgressIndicator(modifier = Modifier.padding(4.dp))
@@ -220,6 +166,60 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     },
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Sync now") }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("Remote repository", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = remoteUrlInput,
+                onValueChange = { remoteUrlInput = it },
+                placeholder = { Text("ssh://git@host/path/repo.git") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            Row(modifier = Modifier.padding(top = 8.dp)) {
+                Button(
+                    enabled = !isBusy && remoteUrlInput.trim() != currentRemoteUrl.orEmpty(),
+                    onClick = {
+                        runAction("Save") {
+                            val updated = HolderNative.updateProjectGitRemote(
+                                project.projectId,
+                                remoteUrlInput.trim().ifEmpty { null },
+                            )
+                            currentRemoteUrl = updated.gitRemoteUrl
+                            "Remote saved"
+                        }
+                    },
+                ) { Text("Save") }
+                Button(
+                    enabled = !isBusy,
+                    onClick = {
+                        runAction("Test") {
+                            val result = HolderNative.testGitRemote(project.projectId)
+                            "Test: ${result.status}" + (result.errorMessage?.let { " -- $it" } ?: "")
+                        }
+                    },
+                    modifier = Modifier.padding(start = 8.dp),
+                ) { Text("Test connection") }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("Device SSH key", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Add this as a deploy key on your remote repository.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text(
+                    pubkeyLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { clipboard.setText(AnnotatedString(pubkeyLine)) }) {
+                    Icon(painterResource(R.drawable.ic_copy), contentDescription = "Copy public key")
+                }
             }
 
             if (project.privacyMode == "encrypted_git") {
