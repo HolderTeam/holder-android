@@ -125,7 +125,7 @@ internal object GitHubOAuth {
             val responseBody = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 Log.w("GitHubOAuth", "postRelay: $url returned HTTP ${resp.code}: $responseBody")
-                return RelayResult.Failure(mapErrorBody(resp.code, responseBody))
+                return RelayResult.Failure(mapRelayErrorBody(resp.code, responseBody))
             }
             val json = try {
                 JSONObject(responseBody)
@@ -158,22 +158,36 @@ internal object GitHubOAuth {
         }
     }
 
-    private fun mapErrorBody(httpStatus: Int, body: String): RelayError {
+    /** The relay protocol closes both the envelope name and its status.  A hostile proxy or a
+     * broken deployment must not turn (for example) a 503 into a definite authorization action
+     * merely by placing `authorization_required` in its JSON body. */
+    internal fun mapRelayErrorBody(httpStatus: Int, body: String): RelayError {
         val json = try {
             JSONObject(body)
         } catch (e: org.json.JSONException) {
             return RelayError.Unexpected(httpStatus, body)
         }
         return when (json.optString("error")) {
-            "invalid_request" -> RelayError.InvalidRequest
-            "authorization_required" -> RelayError.AuthorizationRequired(
-                when (json.optString("reason")) {
-                    "verify_email" -> AuthorizationReason.VerifyEmail
-                    else -> null
-                },
-            )
-            "rate_limited" -> RelayError.RateLimited(json.optInt("retry_after_seconds", -1).takeIf { it >= 0 })
-            "outcome_unknown" -> RelayError.OutcomeUnknown
+            "invalid_request" -> if (httpStatus == 400) RelayError.InvalidRequest else RelayError.Unexpected(httpStatus, body)
+            "authorization_required" -> if (httpStatus == 400) {
+                RelayError.AuthorizationRequired(
+                    when (json.optString("reason")) {
+                        "verify_email" -> AuthorizationReason.VerifyEmail
+                        else -> null
+                    },
+                )
+            } else {
+                RelayError.Unexpected(httpStatus, body)
+            }
+            "rate_limited" -> if (httpStatus == 429) {
+                RelayError.RateLimited(json.optInt("retry_after_seconds", -1).takeIf { it >= 0 })
+            } else {
+                RelayError.Unexpected(httpStatus, body)
+            }
+            "outcome_unknown" -> if (httpStatus == 503) RelayError.OutcomeUnknown else RelayError.Unexpected(httpStatus, body)
+            // `unexpected` has no action-bearing subtype, but keep its pinned status explicit
+            // so the accepted protocol remains closed rather than silently permissive.
+            "unexpected" -> RelayError.Unexpected(httpStatus, body)
             else -> RelayError.Unexpected(httpStatus, body)
         }
     }

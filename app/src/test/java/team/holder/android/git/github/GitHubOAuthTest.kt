@@ -35,4 +35,23 @@ class GitHubOAuthTest {
         assertEquals(20_000, client.readTimeoutMillis)
         assertEquals(20_000, client.callTimeoutMillis)
     }
+
+    @Test
+    fun relayErrorEnvelope_requiresItsPinnedHttpStatusBeforeItCanDriveAnAuthorizationAction() {
+        val body = "{\"error\":\"authorization_required\"}"
+
+        assertEquals(RelayError.AuthorizationRequired(null), GitHubOAuth.mapRelayErrorBody(400, body))
+        assertEquals(RelayError.Unexpected(503, body), GitHubOAuth.mapRelayErrorBody(503, body))
+    }
+
+    @Test
+    fun relayRateLimitAndAmbiguityEnvelopes_requireTheirOwnPinnedStatuses() {
+        val rateBody = "{\"error\":\"rate_limited\",\"retry_after_seconds\":30}"
+        val unknownBody = "{\"error\":\"outcome_unknown\"}"
+
+        assertEquals(RelayError.RateLimited(30), GitHubOAuth.mapRelayErrorBody(429, rateBody))
+        assertEquals(RelayError.Unexpected(503, rateBody), GitHubOAuth.mapRelayErrorBody(503, rateBody))
+        assertEquals(RelayError.OutcomeUnknown, GitHubOAuth.mapRelayErrorBody(503, unknownBody))
+        assertEquals(RelayError.Unexpected(400, unknownBody), GitHubOAuth.mapRelayErrorBody(400, unknownBody))
+    }
 }
