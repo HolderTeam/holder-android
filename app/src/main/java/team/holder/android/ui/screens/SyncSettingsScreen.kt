@@ -204,6 +204,7 @@ fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoor
                         openUrlExternally(context, "$installUrl/installations/new?state=$state")
                     }
                 },
+                onCheckInstallation = ::recheckGithubStatus,
             )
 
             TextButton(
@@ -239,6 +240,7 @@ private fun GitHubConnectionSection(
     onDisconnect: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onFinishSetup: (String) -> Unit,
+    onCheckInstallation: () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
@@ -259,8 +261,12 @@ private fun GitHubConnectionSection(
                 TextButton(onClick = onCancel) { Text("Cancel sign-in") }
             }
             status is GitHubStatus.Connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
-            status is GitHubStatus.InstallationRequired ->
+            status is GitHubStatus.InstallationRequired -> Column {
                 Button(onClick = { onFinishSetup(status.installUrl) }) { Text("Finish setup") }
+                // Setup URL returns are only correlated hints. This authenticated check is
+                // always available when the return was missing, stale, or opened elsewhere.
+                TextButton(onClick = onCheckInstallation) { Text("Check installation") }
+            }
             status is GitHubStatus.AuthorizationRequired -> Button(onClick = onConnect) { Text("Reconnect") }
             else -> Button(onClick = onConnect) { Text("Connect") }
         }

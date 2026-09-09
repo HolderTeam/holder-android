@@ -330,6 +330,7 @@ fun RecoverProjectScreen(
                                 openUrlExternally(context, "$installUrl/installations/new?state=$state")
                             }
                         },
+                        onCheckInstallation = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                         onRetry = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
                     )
 
@@ -362,6 +363,7 @@ private fun GitHubRecoverySection(
     onCancel: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onFinishSetup: (String) -> Unit,
+    onCheckInstallation: () -> Unit,
     onRetry: () -> Unit,
 ) {
     Text("GitHub sync", style = MaterialTheme.typography.titleMedium)
@@ -390,6 +392,7 @@ private fun GitHubRecoverySection(
             Button(onClick = { onFinishSetup(status.installUrl) }, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Finish installing Holder Project Setup")
             }
+            TextButton(onClick = onCheckInstallation) { Text("Check installation") }
         }
         status is GitHubStatus.NotConnected || status is GitHubStatus.AuthorizationRequired ->
             Button(onClick = onConnect, modifier = Modifier.padding(top = 8.dp)) { Text("Connect to GitHub") }

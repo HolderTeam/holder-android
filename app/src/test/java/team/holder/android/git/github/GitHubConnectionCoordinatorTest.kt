@@ -248,6 +248,19 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
+    fun unmatchedInstallationReturnDoesNotBlockASubsequentManualAuthenticatedCheck() = runBlocking {
+        val connected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        GitHubConnectionCoordinator.standaloneStatusOverride = { GitHubResult.Success(connected) }
+        GitHubConnectionCoordinator.beginInstallationReturn()
+
+        // A stale/mismatched browser return is ignored and consumes neither trust nor the
+        // pending hint. The user can still explicitly ask the authenticated status path.
+        assertNull(GitHubConnectionCoordinator.handleInstallationReturn(fakeContext, "wrong-state"))
+        assertEquals(connected, GitHubConnectionCoordinator.status(fakeContext))
+        assertEquals(connected, GitHubConnectionCoordinator.statusFlow.value)
+    }
+
+    @Test
     fun disconnect_clearsTheStoredCredential() = runBlocking {
         fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
