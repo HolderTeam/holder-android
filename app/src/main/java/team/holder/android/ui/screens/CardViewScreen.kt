@@ -32,7 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -169,6 +168,8 @@ fun CardViewScreen(
             // instead of the full-height Material3 BottomAppBar -- matching the bottom
             // toolbar CardEditScreen already uses for its markdown formatting actions, just
             // with labels since these are named navigation actions rather than glyph buttons.
+            // Four evenly-weighted labeled actions, no FAB -- matching Google Photos' bottom
+            // bar (Share/Edit/Add to/Bin), rather than singling Edit out as a docked FAB.
             if (!focusMode) {
                 val loaded = state as? LoadState.Success
                 Row(
@@ -197,9 +198,11 @@ fun CardViewScreen(
                         label = "Child",
                         onClick = onCreateChildCard,
                     )
-                    SmallFloatingActionButton(onClick = { loaded?.let { onEdit(it.value) } }) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit")
-                    }
+                    CardViewActionButton(
+                        icon = { Icon(Icons.Filled.Edit, contentDescription = "Edit") },
+                        label = "Edit",
+                        onClick = { loaded?.let { onEdit(it.value) } },
+                    )
                 }
             }
         },
