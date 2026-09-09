@@ -1,7 +1,49 @@
 package team.holder.android.git.github
 
 import android.content.Context
+import org.json.JSONObject
 import team.holder.android.keyring.AndroidKeyringStore
+
+/** The one durable representation of a GitHub refresh credential.  The access token remains
+ * process-only; the expiry is wall-clock advisory data that survives restart. */
+internal data class StoredGitHubCredential(
+    val refreshToken: String,
+    val refreshCap: String,
+    val refreshTokenExpiresAtMillis: Long,
+)
+
+/** Keeps the secure-store payload versioned so a future format change has one explicit
+ * migration boundary rather than several independently-versioned secret keys. */
+internal object GitHubCredentialRecord {
+    private const val VERSION = 1
+    private const val VERSION_KEY = "version"
+    private const val REFRESH_TOKEN_KEY = "refresh_token"
+    private const val REFRESH_CAP_KEY = "refresh_cap"
+    private const val REFRESH_TOKEN_EXPIRES_AT_KEY = "refresh_token_expires_at"
+
+    fun encode(credential: StoredGitHubCredential): String = JSONObject()
+        .put(VERSION_KEY, VERSION)
+        .put(REFRESH_TOKEN_KEY, credential.refreshToken)
+        .put(REFRESH_CAP_KEY, credential.refreshCap)
+        .put(REFRESH_TOKEN_EXPIRES_AT_KEY, credential.refreshTokenExpiresAtMillis)
+        .toString()
+
+    /** A corrupt or old-format record is not a credential.  The coordinator consequently fails
+     * closed into the normal reconnect path rather than assembling a partial representation. */
+    fun decode(record: String): StoredGitHubCredential? {
+        return try {
+            val json = JSONObject(record)
+            if (json.getInt(VERSION_KEY) != VERSION) return null
+            val refreshToken = json.getString(REFRESH_TOKEN_KEY)
+            val refreshCap = json.getString(REFRESH_CAP_KEY)
+            val expiresAt = json.getLong(REFRESH_TOKEN_EXPIRES_AT_KEY)
+            if (refreshToken.isEmpty() || refreshCap.isEmpty() || expiresAt <= 0L) return null
+            StoredGitHubCredential(refreshToken, refreshCap, expiresAt)
+        } catch (_: Exception) {
+            null
+        }
+    }
+}
 
 /**
  * The one seam in [GitHubConnectionCoordinator] between its concurrency logic and actual
@@ -13,27 +55,38 @@ import team.holder.android.keyring.AndroidKeyringStore
  * swapped to a fake only by tests; production always uses [RealGitHubCredentialStore].
  */
 internal interface GitHubCredentialStore {
-    fun getRefreshToken(context: Context): String?
-    fun getRefreshCap(context: Context): String?
-    fun store(context: Context, refreshToken: String, refreshCap: String)
+    fun get(context: Context): StoredGitHubCredential?
+    /** Returns only after the whole versioned credential record is durable. */
+    fun store(context: Context, credential: StoredGitHubCredential)
     fun clear(context: Context)
 }
 
 internal object RealGitHubCredentialStore : GitHubCredentialStore {
-    private const val REFRESH_TOKEN_SECRET_KEY = "github_refresh_token"
-    private const val REFRESH_CAP_SECRET_KEY = "github_refresh_cap"
+    private const val CREDENTIAL_SECRET_KEY = "github_refresh_credential_v1"
+    // Clean up the pre-record representation in the same atomic preference transaction.  It
+    // was never a valid complete credential by itself and must not linger after replacement.
+    private val LEGACY_SECRET_KEYS = setOf("github_refresh_token", "github_refresh_cap")
 
-    override fun getRefreshToken(context: Context): String? = AndroidKeyringStore.getLocalSecret(context, REFRESH_TOKEN_SECRET_KEY)
+    override fun get(context: Context): StoredGitHubCredential? =
+        AndroidKeyringStore.getLocalSecret(context, CREDENTIAL_SECRET_KEY)?.let(GitHubCredentialRecord::decode)
 
-    override fun getRefreshCap(context: Context): String? = AndroidKeyringStore.getLocalSecret(context, REFRESH_CAP_SECRET_KEY)
-
-    override fun store(context: Context, refreshToken: String, refreshCap: String) {
-        AndroidKeyringStore.storeLocalSecret(context, REFRESH_TOKEN_SECRET_KEY, refreshToken)
-        AndroidKeyringStore.storeLocalSecret(context, REFRESH_CAP_SECRET_KEY, refreshCap)
+    override fun store(context: Context, credential: StoredGitHubCredential) {
+        check(
+            AndroidKeyringStore.replaceLocalSecrets(
+                context,
+                replacements = mapOf(CREDENTIAL_SECRET_KEY to GitHubCredentialRecord.encode(credential)),
+                removedKeys = LEGACY_SECRET_KEYS,
+            ),
+        ) { "Could not durably store the GitHub credential" }
     }
 
     override fun clear(context: Context) {
-        AndroidKeyringStore.removeLocalSecret(context, REFRESH_TOKEN_SECRET_KEY)
-        AndroidKeyringStore.removeLocalSecret(context, REFRESH_CAP_SECRET_KEY)
+        check(
+            AndroidKeyringStore.replaceLocalSecrets(
+                context,
+                replacements = emptyMap(),
+                removedKeys = LEGACY_SECRET_KEYS + CREDENTIAL_SECRET_KEY,
+            ),
+        ) { "Could not durably clear the GitHub credential" }
     }
 }

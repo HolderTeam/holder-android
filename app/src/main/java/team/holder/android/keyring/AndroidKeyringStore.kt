@@ -88,6 +88,26 @@ object AndroidKeyringStore {
         localSecretPrefs(context).edit().putString(localSecretKey(key), encrypt(secret)).apply()
     }
 
+    /**
+     * Atomically replaces a related set of local secrets.  Encrypt every replacement before
+     * opening the editor so an encryption failure cannot leave a half-written record; one
+     * synchronous SharedPreferences commit then makes the complete update durable together.
+     *
+     * Credential-spending callers use this rather than [storeLocalSecret], whose asynchronous
+     * single-key convenience is deliberately not a transaction boundary.
+     */
+    fun replaceLocalSecrets(
+        context: Context,
+        replacements: Map<String, String>,
+        removedKeys: Set<String> = emptySet(),
+    ): Boolean {
+        val encrypted = replacements.mapValues { (_, secret) -> encrypt(secret) }
+        val editor = localSecretPrefs(context).edit()
+        encrypted.forEach { (key, secret) -> editor.putString(localSecretKey(key), secret) }
+        removedKeys.forEach { key -> editor.remove(localSecretKey(key)) }
+        return editor.commit()
+    }
+
     fun getLocalSecret(context: Context, key: String): String? =
         localSecretPrefs(context).getString(localSecretKey(key), null)?.let(::decrypt)
 

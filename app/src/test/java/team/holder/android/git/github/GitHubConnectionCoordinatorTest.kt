@@ -26,18 +26,14 @@ private class FakeContext : ContextWrapper(null) {
 }
 
 private class FakeCredentialStore : GitHubCredentialStore {
-    var refreshToken: String? = null
-    var refreshCap: String? = null
+    var credential: StoredGitHubCredential? = null
 
-    override fun getRefreshToken(context: Context): String? = refreshToken
-    override fun getRefreshCap(context: Context): String? = refreshCap
-    override fun store(context: Context, refreshToken: String, refreshCap: String) {
-        this.refreshToken = refreshToken
-        this.refreshCap = refreshCap
+    override fun get(context: Context): StoredGitHubCredential? = credential
+    override fun store(context: Context, credential: StoredGitHubCredential) {
+        this.credential = credential
     }
     override fun clear(context: Context) {
-        refreshToken = null
-        refreshCap = null
+        credential = null
     }
 }
 
@@ -124,26 +120,23 @@ class GitHubConnectionCoordinatorTest {
         // branches on, without needing a real GitHub network call (status() against a stored
         // credential is out of scope for a plain JVM test -- it calls GitHubApi over real
         // OkHttp, not seamed here).
-        assertNull(fakeStore.refreshToken)
+        assertNull(fakeStore.credential)
         val result = GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
         assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), result)
     }
 
     @Test
     fun disconnect_clearsTheStoredCredential() = runBlocking {
-        fakeStore.refreshToken = "ghr_sometoken"
-        fakeStore.refreshCap = "somecap"
+        fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
         GitHubConnectionCoordinator.disconnect(fakeContext)
 
-        assertNull(fakeStore.refreshToken)
-        assertNull(fakeStore.refreshCap)
+        assertNull(fakeStore.credential)
     }
 
     @Test
     fun disconnect_publishesNotConnected() = runBlocking {
-        fakeStore.refreshToken = "ghr_sometoken"
-        fakeStore.refreshCap = "somecap"
+        fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
         GitHubConnectionCoordinator.disconnect(fakeContext)
 
@@ -160,8 +153,7 @@ class GitHubConnectionCoordinatorTest {
         // reads back as "still valid" for the whole test.
         GitHubConnectionCoordinator.accessTokenCache =
             GitHubConnectionCoordinator.AccessTokenCache("gho_cached", expiresAtMonotonic = 60_000L)
-        fakeStore.refreshToken = "ghr_sometoken"
-        fakeStore.refreshCap = "somecap"
+        fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -190,6 +182,6 @@ class GitHubConnectionCoordinatorTest {
         disconnectJob.await()
 
         assertNull(GitHubConnectionCoordinator.accessTokenCache)
-        assertNull(fakeStore.refreshToken)
+        assertNull(fakeStore.credential)
     }
 }

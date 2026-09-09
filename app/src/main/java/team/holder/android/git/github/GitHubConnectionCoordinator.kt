@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.browser.auth.AuthTabIntent
+import java.util.concurrent.TimeUnit
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
@@ -216,7 +217,7 @@ object GitHubConnectionCoordinator {
         attemptId: UUID,
         browserLauncher: GitHubBrowserLauncher,
     ) {
-        val hasStoredCredential = credentialStore.getRefreshToken(appContext) != null
+        val hasStoredCredential = credentialStore.get(appContext) != null
         if (hasStoredCredential) {
             val resumeResult = statusAgainstStoredCredential(appContext)
             val resumeStatus = (resumeResult as? GitHubResult.Success)?.value
@@ -324,7 +325,7 @@ object GitHubConnectionCoordinator {
 
     private suspend fun commitCredential(appContext: Context, tokens: GitHubTokens) {
         credentialMutationMutex.withLock {
-            credentialStore.store(appContext, tokens.refreshToken, tokens.refreshCap)
+            credentialStore.store(appContext, durableCredential(tokens))
             accessTokenCache = AccessTokenCache(
                 tokens.accessToken,
                 SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
@@ -449,9 +450,10 @@ object GitHubConnectionCoordinator {
             if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
                 return GitHubResult.Success(cached.accessToken)
             }
-            val refreshToken = credentialStore.getRefreshToken(appContext)
-            val refreshCap = credentialStore.getRefreshCap(appContext)
-            if (refreshToken == null || refreshCap == null) return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            val credential = credentialStore.get(appContext)
+                ?: return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            val refreshToken = credential.refreshToken
+            val refreshCap = credential.refreshCap
 
             return when (val refreshResult = GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)) {
                 is RelayResult.Success -> {
@@ -460,11 +462,11 @@ object GitHubConnectionCoordinator {
                         // equals the one just spent -- guards against committing a refresh
                         // whose credential was superseded (disconnect(), a fresh connect())
                         // while the relay call was in flight.
-                        if (credentialStore.getRefreshToken(appContext) != refreshToken) {
+                        if (credentialStore.get(appContext)?.refreshToken != refreshToken) {
                             false
                         } else {
                             val tokens = refreshResult.tokens
-                            credentialStore.store(appContext, tokens.refreshToken, tokens.refreshCap)
+                            credentialStore.store(appContext, durableCredential(tokens))
                             accessTokenCache = AccessTokenCache(
                                 tokens.accessToken,
                                 SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
@@ -491,6 +493,21 @@ object GitHubConnectionCoordinator {
                 }
             }
         }
+    }
+
+    /** The persisted refresh expiry has to survive process restart, unlike the access-token
+     * cache's monotonic deadline.  It is advisory only; GitHub remains authoritative when a
+     * refresh is actually attempted. */
+    internal fun durableCredential(
+        tokens: GitHubTokens,
+        wallClockMillis: Long = System.currentTimeMillis(),
+    ): StoredGitHubCredential {
+        check(tokens.refreshTokenExpiresInSeconds > 0) { "Relay returned an invalid refresh-token lifetime" }
+        val expiresAt = Math.addExact(
+            wallClockMillis,
+            TimeUnit.SECONDS.toMillis(tokens.refreshTokenExpiresInSeconds.toLong()),
+        )
+        return StoredGitHubCredential(tokens.refreshToken, tokens.refreshCap, expiresAt)
     }
 
     // ================= OAuth callback delivery (App Link + AuthTab) =================
