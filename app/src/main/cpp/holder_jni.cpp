@@ -877,6 +877,66 @@ Java_team_holder_android_HolderNative_nativeCardListTags(
   return string_result(env, json);
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_team_holder_android_HolderNative_nativeCardTagAdd(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jstring tag
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return -1;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  UtfChars tag_chars(env, tag);
+  if (card_id_chars.get() == nullptr || tag_chars.get() == nullptr) {
+    throw_runtime(env, "card_id and tag must not be null");
+    return -1;
+  }
+
+  int status = -1;
+  holder_error* error = nullptr;
+  const int rc = holder_card_tag_add(context, card_id_chars.get(), tag_chars.get(), &status, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return -1;
+  }
+  return static_cast<jint>(status);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_team_holder_android_HolderNative_nativeCardTagRemove(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id,
+    jstring tag
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return -1;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  UtfChars tag_chars(env, tag);
+  if (card_id_chars.get() == nullptr || tag_chars.get() == nullptr) {
+    throw_runtime(env, "card_id and tag must not be null");
+    return -1;
+  }
+
+  int status = -1;
+  holder_error* error = nullptr;
+  const int rc = holder_card_tag_remove(context, card_id_chars.get(), tag_chars.get(), &status, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return -1;
+  }
+  return static_cast<jint>(status);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardsWithTag(
     JNIEnv* env,
