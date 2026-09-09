@@ -145,6 +145,9 @@ object GitHubConnectionCoordinator {
         val attemptId: UUID,
         val result: CompletableDeferred<GitHubResult<GitHubStatus>>,
         val job: Job,
+        /** Guarded by [connectStateMutex]. This is captured when the operation becomes
+         * current and advances only for this operation's own credential replacement. */
+        var expectedCredentialEpoch: Long,
     )
 
     private data class PendingInstallationReturn(val state: String, val startedAtMonotonic: Long)
@@ -209,10 +212,14 @@ object GitHubConnectionCoordinator {
                 existing.result
             } else {
                 val attemptId = GitHubPkce.generateAttemptId()
+                // The operation owns a precise credential generation from the instant it is
+                // registered. Any disconnect/replacement after this point makes its eventual
+                // status/commit stale, even if a blocking network call ignores cancellation.
+                val expectedCredentialEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
                 val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
                     runConnectOperation(appContext, attemptId, browserLauncher, deferred)
                 }
-                connectInFlight = ConnectOperation(attemptId, deferred, job)
+                connectInFlight = ConnectOperation(attemptId, deferred, job, expectedCredentialEpoch)
                 job.start()
                 null
             }
@@ -264,7 +271,7 @@ object GitHubConnectionCoordinator {
             // A stored credential that no longer works -- clear it and fall through into a
             // fresh ceremony IN THE SAME operation (connect() is already exclusively
             // user-initiated, so no second "tap Connect again" is warranted).
-            clearStoredCredential(appContext)
+            if (!clearCredentialForConnectOperation(appContext, attemptId)) return
         }
 
         val browserLaunch = browserLauncher.resolveBrowser(appContext)
@@ -308,7 +315,7 @@ object GitHubConnectionCoordinator {
 
         when (outcome) {
             is CallbackOutcome.Code -> {
-                val finalResult = performExchange(appContext, outcome.code, codeVerifier)
+                val finalResult = performExchange(appContext, attemptId, outcome.code, codeVerifier)
                 finishConnectOperation(attemptId, finalResult)
             }
             is CallbackOutcome.RecognizedError -> {
@@ -328,13 +335,22 @@ object GitHubConnectionCoordinator {
     /** `POST /v1/github/exchange`, attempted at most once ever for a given authorization code
      * -- see "Transport-failure ambiguity" for why a transport failure here is not
      * automatically `NetworkError`. */
-    private suspend fun performExchange(appContext: Context, code: String, codeVerifier: String): GitHubResult<GitHubStatus> {
+    private suspend fun performExchange(
+        appContext: Context,
+        attemptId: UUID,
+        code: String,
+        codeVerifier: String,
+    ): GitHubResult<GitHubStatus> {
         val exchangeResult = GitHubOAuth.exchangeCode(exchangeHttpClient, code, codeVerifier)
         // Never log a Success case's own body -- it carries live access/refresh tokens.
         Log.d(LOG_TAG, "performExchange: relay result = " + if (exchangeResult is RelayResult.Success) "Success" else exchangeResult.toString())
         return when (exchangeResult) {
             is RelayResult.Success -> {
-                commitCredential(appContext, exchangeResult.tokens)
+                if (!commitCredentialForConnectOperation(appContext, attemptId, exchangeResult.tokens)) {
+                    // A disconnect or newer operation detached this one while the one-shot
+                    // exchange was in flight. Never install its freshly-issued credential.
+                    return GitHubResult.Success(GitHubStatus.NotConnected)
+                }
                 // Post-commit: a failure here is operational, not authorization -- the
                 // credential stays intact regardless of what status() reports next.
                 statusAgainstStoredCredential(appContext).also { Log.d(LOG_TAG, "performExchange: post-commit status = $it") }
@@ -354,14 +370,24 @@ object GitHubConnectionCoordinator {
         }
     }
 
-    private suspend fun commitCredential(appContext: Context, tokens: GitHubTokens) {
+    /** Commits only while this exact connect operation still owns the generation it started
+     * with. Locking connect state before credentials is the coordinator's fixed lock order. */
+    private suspend fun commitCredentialForConnectOperation(
+        appContext: Context,
+        attemptId: UUID,
+        tokens: GitHubTokens,
+    ): Boolean = connectStateMutex.withLock {
+        val operation = connectInFlight
+        if (operation?.attemptId != attemptId) return@withLock false
         credentialMutationMutex.withLock {
+            if (credentialEpoch.get() != operation.expectedCredentialEpoch) return@withLock false
             credentialStore.store(appContext, durableCredential(tokens))
             accessTokenCache = AccessTokenCache(
                 tokens.accessToken,
                 SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
             )
-            credentialEpoch.incrementAndGet()
+            operation.expectedCredentialEpoch = credentialEpoch.incrementAndGet()
+            true
         }
     }
 
@@ -413,25 +439,38 @@ object GitHubConnectionCoordinator {
             ) {
                 return@withLock null
             }
-            if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
-            connectInFlight = null
-            current
+            credentialMutationMutex.withLock {
+                // A success may authoritatively describe the coordinator only while its
+                // operation still owns the generation it queried. Returning the current
+                // status on mismatch keeps joiners from receiving a historical answer too.
+                val completedOutcome = if (outcome is GitHubResult.Success) {
+                    if (credentialEpoch.get() == current.expectedCredentialEpoch) {
+                        mutableStatusFlow.value = outcome.value
+                        outcome
+                    } else {
+                        GitHubResult.Success(mutableStatusFlow.value)
+                    }
+                } else {
+                    outcome
+                }
+                if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
+                connectInFlight = null
+                DetachedConnectOperation(current, completedOutcome)
+            }
         }
         if (detached == null) return false
-        if (outcome is GitHubResult.Success) {
-            publishStatus(outcome.value)
-        }
         // Completed AFTER the mutex is released -- a resumed caller's very next step
         // re-entering coordinator code (a fresh connect()) must never risk self-deadlock on a
         // mutex this function still held.
-        detached.result.complete(outcome)
-        detached.job.cancel()
+        detached.operation.result.complete(detached.outcome)
+        detached.operation.job.cancel()
         return true
     }
 
-    private fun publishStatus(status: GitHubStatus) {
-        mutableStatusFlow.value = status
-    }
+    private data class DetachedConnectOperation(
+        val operation: ConnectOperation,
+        val outcome: GitHubResult<GitHubStatus>,
+    )
 
     // ================= disconnect() / status() =================
 
@@ -497,6 +536,22 @@ object GitHubConnectionCoordinator {
             credentialEpoch.incrementAndGet()
         }
     }
+
+    /** A rejected stored credential is this operation's own replacement, so it advances the
+     * operation's expected generation together with the clear. If superseded already, stop
+     * rather than opening a browser or mutating state for a dead operation. */
+    private suspend fun clearCredentialForConnectOperation(appContext: Context, attemptId: UUID): Boolean =
+        connectStateMutex.withLock {
+            val operation = connectInFlight
+            if (operation?.attemptId != attemptId) return@withLock false
+            credentialMutationMutex.withLock {
+                credentialStore.clear(appContext)
+                accessTokenCache = null
+                operation.expectedCredentialEpoch = credentialEpoch.incrementAndGet()
+                mutableStatusFlow.value = GitHubStatus.NotConnected
+                true
+            }
+        }
 
     internal suspend fun snapshotCredentialState(context: Context): CredentialStateSnapshot =
         credentialMutationMutex.withLock {

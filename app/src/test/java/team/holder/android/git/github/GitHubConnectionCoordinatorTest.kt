@@ -262,6 +262,64 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
+    fun staleStoredCredentialConnectCannotPublishOrReturnConnectedAfterDisconnect() = runBlocking(Dispatchers.IO) {
+        fakeStore.credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        val queryStarted = CountDownLatch(1)
+        val releaseQuery = CountDownLatch(1)
+        val staleConnected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = {
+            queryStarted.countDown()
+            releaseQuery.await(5, TimeUnit.SECONDS)
+            GitHubResult.Success(staleConnected)
+        }
+
+        val connect = async { GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher()) }
+        assertTrue("stored-credential status never reached its held result", queryStarted.await(5, TimeUnit.SECONDS))
+
+        GitHubConnectionCoordinator.disconnect(fakeContext)
+        releaseQuery.countDown()
+
+        // disconnect() completes the shared operation normally. The old query may return
+        // afterward, but it belongs to the generation that disconnect just superseded.
+        assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), connect.await())
+        assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+        assertNull(fakeStore.credential)
+    }
+
+    @Test
+    fun staleStoredCredentialConnectCannotPublishAfterAnotherCredentialMutation() = runBlocking(Dispatchers.IO) {
+        fakeStore.credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        val queryStarted = CountDownLatch(1)
+        val releaseQuery = CountDownLatch(1)
+        val staleConnected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = {
+            queryStarted.countDown()
+            releaseQuery.await(5, TimeUnit.SECONDS)
+            GitHubResult.Success(staleConnected)
+        }
+
+        val connect = async { GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher()) }
+        assertTrue("stored-credential status never reached its held result", queryStarted.await(5, TimeUnit.SECONDS))
+
+        // This concurrent refresh outcome clears the credential and advances its epoch, but
+        // deliberately does not terminate the held connect operation. Before the epoch guard,
+        // releasing that operation would make it publish its historical Connected result.
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ ->
+            RelayResult.Failure(RelayError.OutcomeUnknown)
+        }
+        val refreshResult = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) {
+            error("an unsafe refresh outcome must not supply an access token")
+        }
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), refreshResult)
+        assertNull(fakeStore.credential)
+
+        releaseQuery.countDown()
+
+        assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), connect.await())
+        assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+    }
+
+    @Test
     fun disconnect_waitsForAnInFlightDirectGitHubCall_ratherThanRacingIt() = runBlocking(Dispatchers.IO) {
         // Seeded directly (bypassing refreshAccessToken's real network call entirely) so
         // withAccessToken's controlPlaneMutex gate is the only thing this test is exercising.
