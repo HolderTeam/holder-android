@@ -1,11 +1,49 @@
 package team.holder.android.git.github
 
+import kotlinx.coroutines.Job
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.EventListener
+import okhttp3.Request
+import okhttp3.Response
 import okio.Buffer
+import okio.Timeout
+import kotlin.reflect.KClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOAuthTest {
+    private class RecordingCall : Call {
+        var cancelled = false
+
+        override fun request(): Request = error("not used")
+        override fun execute(): Response = error("not used")
+        override fun enqueue(responseCallback: Callback) = error("not used")
+        override fun cancel() { cancelled = true }
+        override fun isExecuted(): Boolean = false
+        override fun isCanceled(): Boolean = cancelled
+        override fun timeout(): Timeout = Timeout.NONE
+        override fun clone(): Call = this
+        override fun addEventListener(eventListener: EventListener) = Unit
+        override fun <T : Any> tag(type: KClass<T>): T? = null
+        override fun <T> tag(type: Class<out T>): T? = null
+        override fun <T : Any> tag(type: KClass<T>, computeIfAbsent: () -> T): T = computeIfAbsent()
+        override fun <T : Any> tag(type: Class<T>, computeIfAbsent: () -> T): T = computeIfAbsent()
+    }
+
+    @Test
+    fun cancellingAWorkerJobCancelsItsInFlightRelayCall() {
+        val call = RecordingCall()
+        val job = Job()
+        val hook = GitHubOAuth.cancelCallWhenCoroutineIsCancelled(call, job)
+
+        job.cancel()
+
+        assertTrue(call.cancelled)
+        hook?.dispose()
+    }
+
     @Test
     fun relayCredentialRequestBody_isOneShot() {
         // exchangeCode() and refresh() both reach postRelayBlocking(), which creates its body

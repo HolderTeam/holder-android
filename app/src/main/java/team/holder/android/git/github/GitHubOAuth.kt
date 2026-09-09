@@ -5,8 +5,12 @@ import android.util.Log
 import java.io.IOException
 import java.net.ConnectException
 import java.net.UnknownHostException
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -87,25 +91,32 @@ internal object GitHubOAuth {
         }
 
     private suspend fun postRelay(client: OkHttpClient, url: String, body: JSONObject.() -> Unit): RelayResult =
-        withContext(Dispatchers.IO) { postRelayBlocking(client, url, body) }
+        withContext(Dispatchers.IO) {
+            val payload = JSONObject().apply(body).toString()
+            val request = Request.Builder()
+                .url(url)
+                .header("Content-Type", "application/json")
+                // Both authorization-code exchange and refresh pass through this one path.
+                // They are credential-spending operations, so make the body explicitly non-
+                // replayable as a second line of defence alongside the dedicated client's no-
+                // retry/no-redirect settings.
+                .post(oneShotJsonBody(payload))
+                .build()
+            val call = client.newCall(request)
+            val cancellationHook = cancelCallWhenCoroutineIsCancelled(call, coroutineContext[Job])
+            try {
+                postRelayBlocking(call, url)
+            } finally {
+                cancellationHook?.dispose()
+            }
+        }
 
-    /** Genuinely blocking (OkHttp's synchronous `execute()`) -- callers must already be on an
-     * I/O dispatcher; see [postRelay]'s own `withContext` wrapper, which every caller in this
-     * file goes through. */
-    private fun postRelayBlocking(client: OkHttpClient, url: String, body: JSONObject.() -> Unit): RelayResult {
-        val payload = JSONObject().apply(body).toString()
-        val request = Request.Builder()
-            .url(url)
-            .header("Content-Type", "application/json")
-            // Both authorization-code exchange and refresh pass through this one path.  They
-            // are credential-spending operations, so make the body explicitly non-replayable
-            // as a second line of defence alongside the dedicated client's no-retry/no-
-            // redirect settings.
-            .post(oneShotJsonBody(payload))
-            .build()
-
+    /** Genuinely blocking (OkHttp's synchronous `execute()`) -- [postRelay] installs a
+     * cancellation hook on [call] before entering it, so detaching a connect operation also
+     * interrupts the socket operation rather than leaving it alive behind a cancelled Job. */
+    private fun postRelayBlocking(call: Call, url: String): RelayResult {
         val response = try {
-            client.newCall(request).execute()
+            call.execute()
         } catch (e: UnknownHostException) {
             Log.w("GitHubOAuth", "postRelay: $url never reached (UnknownHostException)", e)
             return RelayResult.Failure(RelayError.NetworkError(e))
@@ -209,5 +220,13 @@ internal object GitHubOAuth {
             override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
 
             override fun isOneShot() = true
+        }
+
+    /** The operation worker can be cancelled by disconnect or explicit browser cancellation
+     * while [Call.execute] is blocked. OkHttp only interrupts that blocking call when its Call
+     * is explicitly cancelled; coroutine cancellation alone cannot do it. */
+    internal fun cancelCallWhenCoroutineIsCancelled(call: Call, job: Job?): DisposableHandle? =
+        job?.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
         }
 }
