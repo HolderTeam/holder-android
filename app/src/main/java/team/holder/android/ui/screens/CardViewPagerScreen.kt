@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.cardDeck
+import team.holder.android.ui.initialDeckPage
 import team.holder.android.ui.sortKeyOrderedSiblings
 
 /**
@@ -72,14 +74,9 @@ fun CardViewPagerScreen(
         val allCards = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
         }.getOrDefault(emptyList())
-        val current = allCards.find { it.cardId == cardId }
-        deck = if (current != null) {
-            sortKeyOrderedSiblings(current.parentCardId, allCards).ifEmpty { listOf(current) }
-        } else {
-            // The fetch raced or failed -- keep whatever deck we already had rather than
-            // collapsing a working pager down to a single placeholder page.
-            deck ?: listOf(HolderCard(cardId, projectId, cardTitle, null, 0L, 0L, 0.0))
-        }
+        // A miss (the fetch raced or failed) keeps whatever deck we already had rather than
+        // collapsing a working pager down to a single placeholder page.
+        deck = cardDeck(cardId, allCards) ?: deck ?: listOf(HolderCard(cardId, projectId, cardTitle, null, 0L, 0L, 0.0))
     }
 
     val loadedDeck = deck
@@ -88,7 +85,7 @@ fun CardViewPagerScreen(
         return
     }
 
-    val initialPage = remember(cardId) { loadedDeck.indexOfFirst { it.cardId == cardId }.coerceAtLeast(0) }
+    val initialPage = remember(cardId) { initialDeckPage(cardId, loadedDeck) }
     val pagerState = rememberPagerState(initialPage = initialPage) { loadedDeck.size }
     val saveableStateHolder = rememberSaveableStateHolder()
 

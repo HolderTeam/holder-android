@@ -23,6 +23,60 @@ private fun card(
 
 class CardSequenceTest {
     @Test
+    fun cardDeck_isTheCardsSiblingsInSortKeyOrderIncludingItself() {
+        val first = card("first", parentCardId = "parent", sortKey = 0.0)
+        val middle = card("middle", parentCardId = "parent", sortKey = 1.0)
+        val last = card("last", parentCardId = "parent", sortKey = 2.0)
+        val stranger = card("stranger", parentCardId = "other-parent", sortKey = 1.5)
+        val all = listOf(last, stranger, first, middle)
+
+        val deck = cardDeck("middle", all)
+
+        assertEquals(listOf(first, middle, last), deck)
+    }
+
+    @Test
+    fun cardDeck_pagesRootCardsAmongOtherRootSiblings() {
+        val root1 = card("root1", parentCardId = null, sortKey = 0.0)
+        val root2 = card("root2", parentCardId = null, sortKey = 1.0)
+        val childOfSomethingElse = card("child", parentCardId = "someone")
+        val all = listOf(root1, root2, childOfSomethingElse)
+
+        val deck = cardDeck("root1", all)
+
+        assertEquals(listOf(root1, root2), deck)
+    }
+
+    @Test
+    fun cardDeck_isJustTheCardItselfForAnOnlyChild() {
+        val onlyChild = card("only", parentCardId = "parent")
+        val all = listOf(onlyChild)
+
+        assertEquals(listOf(onlyChild), cardDeck("only", all))
+    }
+
+    @Test
+    fun cardDeck_isNullWhenTheCardIsMissingFromAllCards() {
+        val all = listOf(card("a"), card("b"))
+
+        assertNull(cardDeck("missing", all))
+    }
+
+    @Test
+    fun initialDeckPage_isWhereTheCardSitsInItsOwnDeck() {
+        val deck = listOf(card("a"), card("b"), card("c"))
+
+        assertEquals(1, initialDeckPage("b", deck))
+    }
+
+    @Test
+    fun initialDeckPage_fallsBackToTheFirstPageWhenTheCardIsntInTheDeck() {
+        val deck = listOf(card("a"), card("b"))
+
+        assertEquals(0, initialDeckPage("missing", deck))
+    }
+
+    @Test
     fun nextAndPrevious_walkAllCardsByRecencyRegardlessOfParent() {
         val a = card("a", updatedAt = 1L)
         val b = card("b", parentCardId = "other", updatedAt = 2L)
