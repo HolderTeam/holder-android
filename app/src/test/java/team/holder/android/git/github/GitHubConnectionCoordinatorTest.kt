@@ -2,6 +2,7 @@ package team.holder.android.git.github
 
 import android.content.Context
 import android.content.ContextWrapper
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -71,6 +72,7 @@ class GitHubConnectionCoordinatorTest {
     @After
     fun resetCoordinator() {
         GitHubConnectionCoordinator.credentialStore = RealGitHubCredentialStore
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
     }
 
@@ -123,6 +125,38 @@ class GitHubConnectionCoordinatorTest {
         assertNull(fakeStore.credential)
         val result = GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
         assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), result)
+    }
+
+    @Test
+    fun connect_replacesADefinitelyRejectedStoredCredentialWithinTheSameOperation() = runBlocking {
+        fakeStore.credential = StoredGitHubCredential("ghr_expired", "cap_expired", 1L)
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = {
+            GitHubResult.Failure(GitHubError.AuthorizationRequired)
+        }
+        val browser = UnavailableBrowserLauncher()
+
+        val result = GitHubConnectionCoordinator.connect(fakeContext, browser)
+
+        // The browser is reached in this one connect() call (rather than returning a bare
+        // AuthorizationRequired), and the known-dead credential is gone before it starts.
+        assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), result)
+        assertEquals(1, browser.resolveCallCount.get())
+        assertNull(fakeStore.credential)
+    }
+
+    @Test
+    fun connect_retainsAStoredCredentialForAnOperationalResumeFailure() = runBlocking {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", 1L)
+        fakeStore.credential = credential
+        val operationalFailure = GitHubResult.Failure(GitHubError.NetworkError(IOException("offline")))
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = { operationalFailure }
+        val browser = UnavailableBrowserLauncher()
+
+        val result = GitHubConnectionCoordinator.connect(fakeContext, browser)
+
+        assertEquals(operationalFailure, result)
+        assertEquals(credential, fakeStore.credential)
+        assertEquals(0, browser.resolveCallCount.get())
     }
 
     @Test

@@ -73,6 +73,11 @@ object GitHubConnectionCoordinator {
      * doc comment for why this seam exists. Never swapped at runtime in production. */
     internal var credentialStore: GitHubCredentialStore = RealGitHubCredentialStore
 
+    /** Test seam for the stored-credential branch of [connect]. Production always uses
+     * [statusAgainstStoredCredential]; plain JVM tests can exercise its terminal handling
+     * without a real relay/GitHub call. */
+    internal var storedCredentialStatusOverride: (suspend (Context) -> GitHubResult<GitHubStatus>)? = null
+
     /** The coordinator is the sole publisher of authoritative observable connection state -- a
      * bare per-call result is a result for that call, never an instruction to repaint global
      * UI state on its own. */
@@ -219,9 +224,9 @@ object GitHubConnectionCoordinator {
     ) {
         val hasStoredCredential = credentialStore.get(appContext) != null
         if (hasStoredCredential) {
-            val resumeResult = statusAgainstStoredCredential(appContext)
-            val resumeStatus = (resumeResult as? GitHubResult.Success)?.value
-            if (resumeStatus !is GitHubStatus.AuthorizationRequired) {
+            val resumeResult = storedCredentialStatusOverride?.invoke(appContext)
+                ?: statusAgainstStoredCredential(appContext)
+            if (!requiresFreshAuthorization(resumeResult)) {
                 // Connected/InstallationRequired, or an operational Failure downstream of a
                 // credential that's still perfectly good (the committed/uncommitted boundary:
                 // an operational failure here must never discard a good credential).
@@ -455,7 +460,7 @@ object GitHubConnectionCoordinator {
             val refreshToken = credential.refreshToken
             val refreshCap = credential.refreshCap
 
-            return when (val refreshResult = GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)) {
+        return when (val refreshResult = GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)) {
                 is RelayResult.Success -> {
                     val committed = credentialMutationMutex.withLock {
                         // Independent of epoch: only commit if the stored refresh_token still
@@ -494,6 +499,14 @@ object GitHubConnectionCoordinator {
             }
         }
     }
+
+    /** A definite authorization rejection is represented either as the status result reached
+     * after a cached token, or directly as refresh's typed error before status can run. Both
+     * mean the same durable credential is known bad and a user-initiated connect may replace it;
+     * all operational failures must retain it. */
+    internal fun requiresFreshAuthorization(result: GitHubResult<GitHubStatus>): Boolean =
+        (result as? GitHubResult.Success)?.value is GitHubStatus.AuthorizationRequired ||
+            (result as? GitHubResult.Failure)?.error is GitHubError.AuthorizationRequired
 
     /** The persisted refresh expiry has to survive process restart, unlike the access-token
      * cache's monotonic deadline.  It is advisory only; GitHub remains authoritative when a
