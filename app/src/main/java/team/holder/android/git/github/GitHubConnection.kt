@@ -165,15 +165,25 @@ object GitHubConnection {
         context: Context,
         block: suspend (installation: GitHubInstallation) -> GitHubResult<T>,
     ): GitHubResult<T> {
+        val userResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+            GitHubApi.authenticatedUser(githubApiHttpClient, accessToken)
+        }
+        val user = when (userResult) {
+            is GitHubResult.Failure -> return GitHubResult.Failure(userResult.error)
+            is GitHubResult.Success -> userResult.value
+        }
         val lookupResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
             GitHubApi.listInstallations(githubApiHttpClient, accessToken)
         }
-        val installation = when (lookupResult) {
+        val installations = when (lookupResult) {
             is GitHubResult.Failure -> return GitHubResult.Failure(lookupResult.error)
-            is GitHubResult.Success -> lookupResult.value.firstOrNull { it.accountType == "User" }
-                ?: return GitHubResult.Failure(GitHubError.InstallationRequired(GitHubEnvironment.APP_URL))
+            is GitHubResult.Success -> lookupResult.value
         }
-        return block(installation)
+        val installation = GitHubApi.personalInstallationFor(user, installations)
+            ?: return GitHubResult.Failure(GitHubError.InstallationRequired(GitHubEnvironment.APP_URL))
+        // The mutable installation login is never an identity binding. Use the authenticated
+        // `/user` login only after `personalInstallationFor` matched numeric account IDs.
+        return block(installation.copy(accountLogin = user.login))
     }
 
     private inline fun <T, R> GitHubResult<T>.flatMap(transform: (T) -> GitHubResult<R>): GitHubResult<R> = when (this) {

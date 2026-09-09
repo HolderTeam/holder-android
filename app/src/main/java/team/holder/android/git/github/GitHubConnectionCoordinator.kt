@@ -514,20 +514,31 @@ object GitHubConnectionCoordinator {
             }
         }
 
-    private suspend fun statusAgainstStoredCredential(appContext: Context): GitHubResult<GitHubStatus> =
-        withAccessToken(appContext) { accessToken ->
-            when (val installationsResult = GitHubApi.listInstallations(exchangeHttpClient, accessToken)) {
-                is GitHubResult.Success -> {
-                    val personal = installationsResult.value.firstOrNull { it.accountType == "User" }
-                    if (personal != null) {
-                        GitHubResult.Success(GitHubStatus.Connected(personal.accountLogin, personal.settingsUrl))
-                    } else {
-                        GitHubResult.Success(GitHubStatus.InstallationRequired(GitHubEnvironment.APP_URL))
-                    }
-                }
-                is GitHubResult.Failure -> GitHubResult.Failure(installationsResult.error)
-            }
+    private suspend fun statusAgainstStoredCredential(appContext: Context): GitHubResult<GitHubStatus> {
+        // Keep each HTTP call independently gated: obtaining the authenticated identity and
+        // looking up installations are distinct direct GitHub requests, not one compound
+        // control-plane critical section.
+        val user = when (val result = withAccessToken(appContext) { accessToken ->
+            GitHubApi.authenticatedUser(exchangeHttpClient, accessToken)
+        }) {
+            is GitHubResult.Success -> result.value
+            is GitHubResult.Failure -> return GitHubResult.Failure(result.error)
         }
+        val installations = when (val result = withAccessToken(appContext) { accessToken ->
+            GitHubApi.listInstallations(exchangeHttpClient, accessToken)
+        }) {
+            is GitHubResult.Success -> result.value
+            is GitHubResult.Failure -> return GitHubResult.Failure(result.error)
+        }
+        val personal = GitHubApi.personalInstallationFor(user, installations)
+        return if (personal != null) {
+            // Never take account identity/owner text from the installation object: its login
+            // was accepted only after immutable-ID matching above.
+            GitHubResult.Success(GitHubStatus.Connected(user.login, personal.settingsUrl))
+        } else {
+            GitHubResult.Success(GitHubStatus.InstallationRequired(GitHubEnvironment.APP_URL))
+        }
+    }
 
     private suspend fun clearStoredCredential(appContext: Context) {
         credentialMutationMutex.withLock {

@@ -14,6 +14,7 @@ private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
 internal data class GitHubInstallation(
     val id: Long,
+    val accountId: Long,
     val accountLogin: String,
     val accountType: String,
 ) {
@@ -26,6 +27,10 @@ internal data class GitHubInstallation(
      * different shape this app never needs, by design. */
     val settingsUrl: String get() = "https://github.com/settings/installations/$id"
 }
+
+/** The authenticated account's numeric ID is the stable binding. Its login is deliberately
+ * retained only for display and GitHub URL construction after that binding has succeeded. */
+internal data class GitHubAuthenticatedUser(val id: Long, val login: String)
 
 /** Part of the public protocol surface (returned from [GitHubConnection.createRepository]),
  * unlike [GitHubInstallation] which stays purely internal. */
@@ -41,6 +46,22 @@ data class GitHubRepo(val ownerLogin: String, val name: String, val sshUrl: Stri
  * public operation, not this file's.
  */
 internal object GitHubApi {
+    /** `GET /user` -- authenticates the bearer to a stable numeric account identity before
+     * any installation-derived personal-account decision is made. */
+    fun authenticatedUser(client: OkHttpClient, accessToken: String): GitHubResult<GitHubAuthenticatedUser> =
+        runCatching {
+            val request = authedRequest(accessToken, "$API_BASE/user").build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    mapGenericError<GitHubAuthenticatedUser>(response.code, body)
+                } else {
+                    val user = JSONObject(body)
+                    GitHubResult.Success(GitHubAuthenticatedUser(user.getLong("id"), user.getString("login")))
+                }
+            }
+        }.getOrElse { networkFailure(it) }
+
     /** `GET /user/installations` -- every installation this token can see, personal or
      * organizational. [GitHubConnection] is the one that filters for a "User"-type entry
      * (personal-account-only, per the plan); this function returns the raw list. */
@@ -59,6 +80,7 @@ internal object GitHubApi {
                             val account = installation.getJSONObject("account")
                             GitHubInstallation(
                                 id = installation.getLong("id"),
+                                accountId = account.getLong("id"),
                                 accountLogin = account.getString("login"),
                                 accountType = account.getString("type"),
                             )
@@ -67,6 +89,15 @@ internal object GitHubApi {
                 }
             }
         }.getOrElse { networkFailure(it) }
+
+    /** Installation handles are mutable, so the sole personal-installation selection rule
+     * compares the installation's account ID with `GET /user`'s authenticated numeric ID. */
+    internal fun personalInstallationFor(
+        user: GitHubAuthenticatedUser,
+        installations: List<GitHubInstallation>,
+    ): GitHubInstallation? = installations.firstOrNull {
+        it.accountType == "User" && it.accountId == user.id
+    }
 
     /** `POST /user/repos`, with [description] set to the project's own human-readable name
      * (the repo's own `name` is a `holder-<slug>-<project id>` name instead -- see
