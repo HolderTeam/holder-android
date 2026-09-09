@@ -86,8 +86,10 @@ object GitHubConnection {
      * partial failure without producing a duplicate. See [ensureProjectRepo]'s doc comment for
      * the naming scheme. */
     suspend fun createRepository(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<GitHubRepo> =
-        withPersonalInstallation(context) { accessToken, installation ->
-            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
+        withPersonalInstallation(context) { installation ->
+            GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+                GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
+            }
         }
 
     /** `POST /repos/{owner}/{repo}/keys` with [projectId]'s own [GitIdentity] public key --
@@ -97,7 +99,9 @@ object GitHubConnection {
      * actually verified as *this* key already being on *this* repo (see [GitHubApi.addDeployKey]) --
      * never assumed just because the response shape matches. */
     suspend fun registerDeployKey(context: Context, projectId: String, owner: String, repo: String): GitHubResult<Unit> =
-        withPersonalInstallation(context) { accessToken, installation -> addDeployKey(accessToken, installation, projectId, owner, repo) }
+        withPersonalInstallation(context) { installation ->
+            GitHubConnectionCoordinator.withAccessToken(context) { accessToken -> addDeployKey(accessToken, installation, projectId, owner, repo) }
+        }
 
     /** The actual paved-road compound operation: [createRepository] then [registerDeployKey],
      * returning the resulting `ssh_url` for `HolderNative.updateProjectGitRemote`. Safe to
@@ -108,9 +112,25 @@ object GitHubConnection {
      * project names are freeform and GitHub repo names are not, so the slug is a best-effort,
      * lossy readability aid only; uniqueness always comes from the trailing `project.projectId`. */
     suspend fun ensureProjectRepo(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<String> =
-        withPersonalInstallation(context) { accessToken, installation ->
-            GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
-                .flatMap { repo -> addDeployKey(accessToken, installation, project.projectId, repo.ownerLogin, repo.name).map { repo.sshUrl } }
+        withPersonalInstallation(context) { installation ->
+            when (
+                val createResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+                    GitHubApi.createRepository(
+                        githubApiHttpClient,
+                        accessToken,
+                        installation.accountLogin,
+                        repoNameFor(project),
+                        project.name,
+                        private,
+                    )
+                }
+            ) {
+                is GitHubResult.Failure -> createResult
+                is GitHubResult.Success -> GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+                    addDeployKey(accessToken, installation, project.projectId, createResult.value.ownerLogin, createResult.value.name)
+                        .map { createResult.value.sshUrl }
+                }
+            }
         }
 
     internal fun repoNameFor(project: HolderProject): String {
@@ -138,23 +158,22 @@ object GitHubConnection {
         installationSettingsUrl = installation.settingsUrl,
     )
 
-    /** One [GitHubConnectionCoordinator.withAccessToken] call covering both getting a valid
-     * token and finding the personal ("User"-type) installation -- the granularity a compound
-     * operation needs once, up front; each subsequent REST call ([block]'s own body) is a
-     * separate, independently-gated direct GitHub call per the coordinator's own
-     * `controlPlaneMutex` contract. */
+    /** The installation lookup is one independently-gated direct GitHub request. [block] then
+     * gates every follow-up request separately, so a compound setup operation never holds the
+     * control-plane mutex across multiple REST calls. */
     private suspend fun <T> withPersonalInstallation(
         context: Context,
-        block: suspend (accessToken: String, installation: GitHubInstallation) -> GitHubResult<T>,
-    ): GitHubResult<T> = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
-        when (val installationsResult = GitHubApi.listInstallations(githubApiHttpClient, accessToken)) {
-            is GitHubResult.Failure -> GitHubResult.Failure(installationsResult.error)
-            is GitHubResult.Success -> {
-                val personal = installationsResult.value.firstOrNull { it.accountType == "User" }
-                    ?: return@withAccessToken GitHubResult.Failure(GitHubError.InstallationRequired(GitHubEnvironment.APP_URL))
-                block(accessToken, personal)
-            }
+        block: suspend (installation: GitHubInstallation) -> GitHubResult<T>,
+    ): GitHubResult<T> {
+        val lookupResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+            GitHubApi.listInstallations(githubApiHttpClient, accessToken)
         }
+        val installation = when (lookupResult) {
+            is GitHubResult.Failure -> return GitHubResult.Failure(lookupResult.error)
+            is GitHubResult.Success -> lookupResult.value.firstOrNull { it.accountType == "User" }
+                ?: return GitHubResult.Failure(GitHubError.InstallationRequired(GitHubEnvironment.APP_URL))
+        }
+        return block(installation)
     }
 
     private inline fun <T, R> GitHubResult<T>.flatMap(transform: (T) -> GitHubResult<R>): GitHubResult<R> = when (this) {
