@@ -536,12 +536,20 @@ private fun HolderNavHost(
             )
         }
         composable("projects/{projectId}/cards/{cardId}/resources") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
             ResourcesScreen(
+                projectId = projectId,
                 cardId = cardId,
                 cardTitle = selectedCardTitle,
                 refreshKey = connectionsRefreshKey,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    // Same reasoning as ToolsScreen's onBack: an attach here wouldn't otherwise
+                    // be noticed by the Tools dashboard or CardViewScreen sitting below on the
+                    // back stack.
+                    connectionsRefreshKey++
+                    navController.popBackStack()
+                },
             )
         }
         composable("projects/{projectId}/cards/{cardId}/calendar") { backStackEntry ->

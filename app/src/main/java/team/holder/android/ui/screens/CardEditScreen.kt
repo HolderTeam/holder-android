@@ -1,10 +1,7 @@
 package team.holder.android.ui.screens
 
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -36,21 +33,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
 import team.holder.android.R
 import team.holder.android.combineTitleAndBody
-import team.holder.android.resource.attachPickedPhoto
-import team.holder.android.resource.drive.GoogleDriveAuthException
-import team.holder.android.resource.drive.GoogleDriveConnection
+import team.holder.android.resource.AttachFlowConnectDialog
+import team.holder.android.resource.rememberAttachFlow
 import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
 import team.holder.android.ui.markdown.HolderMarkdownEditor
@@ -104,68 +98,16 @@ fun CardEditScreen(
     }
     val activeBodyState = if (separateTitle) separateBodyState else firstLineBodyState
 
-    val scope = rememberCoroutineScope()
-    var attaching by remember { mutableStateOf(false) }
-    var attachError by remember { mutableStateOf<String?>(null) }
-    // Non-null exactly when the most recent attach attempt failed specifically because Drive
-    // isn't connected -- holds onto the already-picked photo so a successful inline connect
-    // (below) can retry the same attach without sending the user back through the picker.
-    var pendingConnectUri by remember { mutableStateOf<Uri?>(null) }
-    // Same StartIntentSenderForResult<->suspend bridge as SettingsScreen's Connect button --
-    // see its comment for why a single slot is enough.
-    var pendingConsent by remember { mutableStateOf<CompletableDeferred<ActivityResult>?>(null) }
-    val consentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        pendingConsent?.complete(result)
-        pendingConsent = null
-    }
-
-    suspend fun performAttach(uri: Uri) {
-        if (cardId == null) return
-        attachError = null
-        val result = runCatching { attachPickedPhoto(context, projectId, cardId, uri) }
-        result.fold(
-            onSuccess = { markdown ->
-                pendingConnectUri = null
-                insertOwnLine(activeBodyState, markdown)
-            },
-            onFailure = { failure ->
-                if (failure is GoogleDriveAuthException) {
-                    pendingConnectUri = uri
-                } else {
-                    attachError = failure.message ?: failure::class.java.simpleName
-                }
-            },
-        )
+    // Attaching needs a real, already-persisted card -- cardId is null on the "new card" screen,
+    // which hides the attach button entirely (see photoPickerLauncher below), so an empty
+    // fallback here is never actually exercised.
+    val attachFlow = rememberAttachFlow(projectId, cardId.orEmpty()) { markdown ->
+        insertOwnLine(activeBodyState, markdown)
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null || cardId == null) return@rememberLauncherForActivityResult
-        attaching = true
-        scope.launch {
-            performAttach(uri)
-            attaching = false
-        }
-    }
-
-    val connectAndRetryAttach = {
-        val uri = pendingConnectUri
-        if (uri != null) {
-            attaching = true
-            scope.launch {
-                runCatching {
-                    GoogleDriveConnection.connect(context) { request ->
-                        val deferred = CompletableDeferred<ActivityResult>()
-                        pendingConsent = deferred
-                        consentLauncher.launch(request)
-                        deferred.await()
-                    }
-                }.fold(
-                    onSuccess = { performAttach(uri) },
-                    onFailure = { failure -> attachError = failure.message ?: "Could not connect to Google Drive" },
-                )
-                attaching = false
-            }
-        }
+        attachFlow.attach(uri)
     }
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
@@ -252,12 +194,12 @@ fun CardEditScreen(
                     modifier = Modifier.fillMaxWidth().imePadding(),
                     // Attaching needs a real, already-persisted card (see AssetImportService)
                     // -- null on the "new card" screen, which hides the button entirely.
-                    onAttachPhoto = if (cardId != null && !attaching) {
+                    onAttachPhoto = if (cardId != null && !attachFlow.attaching) {
                         { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                     } else {
                         null
                     },
-                    attaching = attaching,
+                    attaching = attachFlow.attaching,
                 )
             }
         },
@@ -270,9 +212,9 @@ fun CardEditScreen(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            if (attachError != null) {
+            if (attachFlow.attachError != null) {
                 Text(
-                    text = "Couldn't attach photo: $attachError",
+                    text = "Couldn't attach photo: ${attachFlow.attachError}",
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
@@ -313,19 +255,7 @@ fun CardEditScreen(
         )
     }
 
-    if (pendingConnectUri != null) {
-        AlertDialog(
-            onDismissRequest = { if (!attaching) pendingConnectUri = null },
-            title = { Text("Connect Google Drive?") },
-            text = { Text("Attaching a photo stores it in your own Google Drive.") },
-            confirmButton = {
-                TextButton(enabled = !attaching, onClick = connectAndRetryAttach) { Text("Connect") }
-            },
-            dismissButton = {
-                TextButton(enabled = !attaching, onClick = { pendingConnectUri = null }) { Text("Cancel") }
-            },
-        )
-    }
+    AttachFlowConnectDialog(attachFlow)
 }
 
 /** Inserts [text] at the cursor on its own line -- a blank line before it unless the cursor
