@@ -130,7 +130,7 @@ fun ToolsScreen(
     ) { innerPadding ->
         LazyColumn(modifier = Modifier.padding(innerPadding)) {
             allCards.find { it.cardId == cardId }?.let { card ->
-                item { CardVitalsLine(card, historySummary) }
+                item { CardVitalsLine(card, historySummary, onClick = onHistoryClick) }
             }
 
             item {
@@ -161,12 +161,6 @@ fun ToolsScreen(
             item {
                 ToolTile(title = "Milestones", onClick = onMilestonesClick) {
                     MilestonesTileBody(milestones)
-                }
-            }
-
-            item {
-                ToolTile(title = "History", onClick = onHistoryClick) {
-                    HistoryTileBody(historySummary)
                 }
             }
         }
@@ -339,25 +333,18 @@ private fun MilestonesTileBody(milestones: List<HolderMilestone>) {
     }
 }
 
-/** The History tile's own body is deliberately empty once loaded -- "Edited ... · N versions"
- * already lives in [CardVitalsLine] at the top of the page, and repeating it here would be
- * exactly the duplication that line was introduced to remove. A spinner is still worth showing
- * while loading so the tile doesn't look broken before then. */
+/** "Created Sep 9 · Edited 41 minutes ago · 5 versions" -- doubles as the entry point to the
+ * full History timeline (via [onClick]), so there's no separate History tile: this line already
+ * carries its summary, and a second tap target for the same screen would be redundant. Tinted
+ * primary, matching the other tiles' headers, so it doesn't read as inert page furniture.
+ *
+ * Created reads from card metadata (cheap, always correct, available before History's own
+ * fetch resolves) rather than from [HistorySummary], which is deliberate: listCardHistory is
+ * paginated and can come back scanLimited, so for a card with enough history the "Card created"
+ * event might not even be in the loaded page. Edited/versions still come from HistorySummary,
+ * appended once it's loaded rather than blocking this line's first paint on the slower fetch. */
 @Composable
-private fun HistoryTileBody(summary: HistorySummary?) {
-    if (summary == null) {
-        LoadingLine()
-    }
-}
-
-/** "Created Sep 9 · Edited 41 minutes ago · 5 versions" -- Created reads from card metadata
- * (cheap, always correct, available before History's own fetch resolves) rather than from
- * [HistorySummary], which is deliberate: listCardHistory is paginated and can come back
- * scanLimited, so for a card with enough history the "Card created" event might not even be in
- * the loaded page. Edited/versions still come from HistorySummary, appended once it's loaded
- * rather than blocking this line's first paint on the slower fetch. */
-@Composable
-private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?) {
+private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?, onClick: () -> Unit) {
     val created = "Created ${DateUtils.formatDateTime(null, card.createdAt * 1000, DateUtils.FORMAT_SHOW_DATE)}"
     val text = historySummary?.let { summary ->
         val edited = summary.lastEditedAt?.let {
@@ -367,7 +354,15 @@ private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?) {
             if (summary.versionCount == 1 && !summary.hasMore) "version" else "versions"
         if (edited != null) "$created · Edited $edited · $versions" else "$created · $versions"
     } ?: created
-    Column(modifier = Modifier.padding(top = 8.dp)) {
-        SummaryLine(text)
-    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    )
 }
