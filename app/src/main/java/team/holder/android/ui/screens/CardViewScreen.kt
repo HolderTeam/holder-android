@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -46,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -221,6 +224,14 @@ fun CardViewScreen(
                 } else {
                     current.value
                 }
+                // Deliberately drops innerPadding's bottom component here -- applying it to this
+                // outer container would reserve a permanently-visible blank strip above the
+                // bottom bar (visible even mid-scroll) instead of letting content scroll behind
+                // the bar's own opaque background, the way Google Docs' bottom bar does. The same
+                // amount is instead applied as trailing space inside the scrollable Column below,
+                // so it becomes scroll distance -- the last line can still clear the bar -- not a
+                // fixed viewport clip.
+                val bottomInset = innerPadding.calculateBottomPadding()
                 // BoxWithConstraints + heightIn(min = ...) + SpaceBetween: when the card is
                 // shorter than the screen, this pushes the connections summary down to the
                 // bottom of the visible area instead of leaving it stranded right under a short
@@ -229,7 +240,11 @@ fun CardViewScreen(
                 // the content, same as before.
                 BoxWithConstraints(
                     modifier = Modifier
-                        .padding(innerPadding)
+                        .padding(
+                            start = innerPadding.calculateStartPadding(LocalLayoutDirection.current),
+                            top = innerPadding.calculateTopPadding(),
+                            end = innerPadding.calculateEndPadding(LocalLayoutDirection.current),
+                        )
                         .padding(16.dp),
                 ) {
                     val minHeight = maxHeight
@@ -237,7 +252,8 @@ fun CardViewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = minHeight)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = bottomInset),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         HolderMarkdownViewer(
