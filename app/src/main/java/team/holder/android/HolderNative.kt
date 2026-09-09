@@ -422,6 +422,8 @@ object HolderNative {
     )
     private external fun nativeListLinkKinds(): String
     private external fun nativeCardListTags(contextHandle: Long, cardId: String): String
+    private external fun nativeCardTagAdd(contextHandle: Long, cardId: String, tag: String): Int
+    private external fun nativeCardTagRemove(contextHandle: Long, cardId: String, tag: String): Int
     private external fun nativeCardsWithTag(contextHandle: Long, projectId: String, tag: String): String
     private external fun nativeProjectListTags(contextHandle: Long, projectId: String): String
     private external fun nativeCardListMilestones(contextHandle: Long, cardId: String): String
@@ -782,12 +784,44 @@ object HolderNative {
         return kind.replace('_', ' ').replaceFirstChar { it.uppercase() }
     }
 
-    /** cardId's #tags, as extracted from its body -- not editable directly, edit the #tag text
-     * in the body instead. */
+    /** cardId's #tags, as extracted from its body (including any added via addCardTag). */
     fun listCardTags(cardId: String): List<String> {
         val tags = JSONArray(nativeCardListTags(requireContext(), cardId))
         return List(tags.length()) { index -> tags.getString(index) }
     }
+
+    enum class AddTagResult { ADDED, ALREADY_PRESENT }
+
+    /** Holder's semantic tag operation -- callers should use this instead of editing #tag text
+     * into a card's body themselves, so core stays free to change how tags are represented
+     * later without every caller changing too.
+     *
+     * Adds tag to cardId, normalized to lowercase. Writes it to the card's trailing tag line
+     * (its last non-blank line, when that line is nothing but #tags), creating one if none
+     * exists yet. A no-op (ALREADY_PRESENT) if the tag already occurs anywhere in the card,
+     * including inline in prose -- a card is either tagged or it isn't, regardless of where the
+     * tag text lives. */
+    fun addCardTag(cardId: String, tag: String): AddTagResult =
+        when (nativeCardTagAdd(requireContext(), cardId, tag)) {
+            0 -> AddTagResult.ADDED // HOLDER_TAG_ADD_ADDED
+            1 -> AddTagResult.ALREADY_PRESENT // HOLDER_TAG_ADD_ALREADY_PRESENT
+            else -> error("unexpected add_tag status")
+        }
+
+    enum class RemoveTagResult { REMOVED, NOT_PRESENT, PRESENT_OUTSIDE_EDITABLE_TAG_LINE }
+
+    /** Removes tag from cardId, normalized to lowercase. Only ever removes text from the card's
+     * trailing tag line (see addCardTag) -- this never rewrites prose. If tag occurs only in
+     * prose, returns PRESENT_OUTSIDE_EDITABLE_TAG_LINE rather than silently failing: the card
+     * remains tagged since nothing was removed, and the caller should point the user at the
+     * text itself. */
+    fun removeCardTag(cardId: String, tag: String): RemoveTagResult =
+        when (nativeCardTagRemove(requireContext(), cardId, tag)) {
+            0 -> RemoveTagResult.REMOVED // HOLDER_TAG_REMOVE_REMOVED
+            1 -> RemoveTagResult.NOT_PRESENT // HOLDER_TAG_REMOVE_NOT_PRESENT
+            2 -> RemoveTagResult.PRESENT_OUTSIDE_EDITABLE_TAG_LINE // HOLDER_TAG_REMOVE_PRESENT_OUTSIDE_EDITABLE_TAG_LINE
+            else -> error("unexpected remove_tag status")
+        }
 
     /** Cards in projectId carrying tag (case-insensitive). */
     fun cardsWithTag(projectId: String, tag: String): List<HolderCardRef> {
