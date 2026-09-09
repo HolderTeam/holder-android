@@ -2,14 +2,17 @@ package team.holder.android.ui.screens
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -40,7 +43,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -111,54 +116,76 @@ fun CardViewScreen(
     Scaffold(
         topBar = {
             if (!focusMode) {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(cardTitle.ifEmpty { "Card" })
-                            cardMeta?.let { meta ->
-                                Text(
-                                    lastEditedSummary(meta),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                // Experimental two-row layout: row 1 is Back/title/metadata/Overflow only, so
+                // the title has room to breathe; row 2 carries Focus/Tools/Child as labeled,
+                // evenly-spaced touch targets. Easy to revert back to the single-row TopAppBar
+                // by restoring actions = { Focus, Connections, Add, overflow Box } here and
+                // dropping the Row below.
+                Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(cardTitle.ifEmpty { "Card" })
+                                cardMeta?.let { meta ->
+                                    Text(
+                                        lastEditedSummary(meta),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        val loaded = state as? LoadState.Success
-                        IconButton(onClick = { focusMode = true }) {
-                            Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
-                        }
-                        IconButton(onClick = onConnectionsClick) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
-                        }
-                        IconButton(onClick = onCreateChildCard) {
-                            Icon(Icons.Filled.Add, contentDescription = "New child card")
-                        }
-                        Box {
-                            IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
-                            DropdownMenu(
-                                expanded = showOverflowMenu,
-                                onDismissRequest = { showOverflowMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        showDeleteDialog = true
-                                    },
-                                )
+                        },
+                        actions = {
+                            val loaded = state as? LoadState.Success
+                            Box {
+                                IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                                }
+                                DropdownMenu(
+                                    expanded = showOverflowMenu,
+                                    onDismissRequest = { showOverflowMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            showDeleteDialog = true
+                                        },
+                                    )
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        CardViewActionButton(
+                            icon = {
+                                Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
+                            },
+                            label = "Focus",
+                            onClick = { focusMode = true },
+                        )
+                        CardViewActionButton(
+                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Tools") },
+                            label = "Tools",
+                            onClick = onConnectionsClick,
+                        )
+                        CardViewActionButton(
+                            icon = { Icon(Icons.Filled.Add, contentDescription = "New child card") },
+                            label = "Child",
+                            onClick = onCreateChildCard,
+                        )
+                    }
+                }
             }
         },
         floatingActionButton = {
@@ -253,6 +280,24 @@ fun CardViewScreen(
                 TextButton(enabled = !isDeleting, onClick = { showDeleteDialog = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** A labeled icon action for the card viewer's second toolbar row -- min 72dp wide with 8dp
+ * vertical padding around icon+label, so the combined touch target stays comfortably above
+ * Android's 48dp minimum even though the visible icon itself is smaller. */
+@Composable
+private fun CardViewActionButton(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .widthIn(min = 72.dp)
+            .padding(vertical = 8.dp),
+    ) {
+        icon()
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
