@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -189,7 +188,7 @@ fun CardViewScreen(
                         onClick = { focusMode = true },
                     )
                     CardViewActionButton(
-                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Tools") },
+                        icon = { Icon(painterResource(R.drawable.ic_flask), contentDescription = "Tools") },
                         label = "Tools",
                         onClick = onConnectionsClick,
                     )
