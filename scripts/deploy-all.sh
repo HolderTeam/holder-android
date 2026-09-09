@@ -4,20 +4,21 @@
 # multiple real devices without repeating the build+install+launch cycle by hand for each one.
 # See README.md's Local Development section for the one-line summary.
 #
-# Usage: ./deploy-all
+# Usage: scripts/deploy-all.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 PACKAGE="team.holder.android.debug"
-APK_PATH="${SCRIPT_DIR}/app/build/outputs/apk/debug/app-debug.apk"
+APK_PATH="${REPO_ROOT}/app/build/outputs/apk/debug/app-debug.apk"
 
 log() { echo "[deploy-all] $*"; }
 warn() { echo "[deploy-all] $*" >&2; }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
-Usage: ./deploy-all
+Usage: scripts/deploy-all.sh
 
 Builds Holder's debug APK once, then installs and launches it on every
 connected Android phone or emulator `adb devices` reports as ready (state
@@ -33,7 +34,7 @@ command -v adb >/dev/null 2>&1 || {
 }
 
 log "Building debug APK (./gradlew :app:assembleDebug)..."
-"${SCRIPT_DIR}/gradlew" -p "${SCRIPT_DIR}" :app:assembleDebug -q
+"${REPO_ROOT}/gradlew" -p "${REPO_ROOT}" :app:assembleDebug -q
 
 if [[ ! -f "${APK_PATH}" ]]; then
   warn "Build succeeded but the APK is missing at ${APK_PATH} -- check the assembleDebug output path."

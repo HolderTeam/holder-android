@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Starts every Android Virtual Device already configured on this machine that isn't already
-# running. Companion to ./deploy-all -- see README.md's Local Development section for the
-# two-script workflow: run this once to bring your emulator set up, then ./deploy-all as often
-# as you like while developing.
+# running. Companion to scripts/deploy-all.sh -- see README.md's Local Development section for
+# the two-script workflow: run this once to bring your emulator set up, then
+# scripts/deploy-all.sh as often as you like while developing.
 #
-# Usage: ./start-emulators
+# Usage: scripts/start-emulators.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 log() { echo "[start-emulators] $*"; }
 warn() { echo "[start-emulators] $*" >&2; }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
-Usage: ./start-emulators
+Usage: scripts/start-emulators.sh
 
 Starts every configured Android Virtual Device that isn't already running
 (discovered via `emulator -list-avds`). Never starts a second instance of
@@ -46,8 +47,8 @@ find_emulator_bin() {
     sdk_dir="${ANDROID_HOME}"
   elif [[ -n "${ANDROID_SDK_ROOT:-}" ]]; then
     sdk_dir="${ANDROID_SDK_ROOT}"
-  elif [[ -f "${SCRIPT_DIR}/local.properties" ]]; then
-    sdk_dir="$(sed -n 's/^sdk\.dir=//p' "${SCRIPT_DIR}/local.properties" | tail -1)"
+  elif [[ -f "${REPO_ROOT}/local.properties" ]]; then
+    sdk_dir="$(sed -n 's/^sdk\.dir=//p' "${REPO_ROOT}/local.properties" | tail -1)"
   fi
   if [[ -n "${sdk_dir}" && -x "${sdk_dir}/emulator/emulator" ]]; then
     echo "${sdk_dir}/emulator/emulator"
@@ -118,5 +119,5 @@ if [[ "${started_count}" -eq 0 ]]; then
 else
   log "Started ${started_count} emulator(s). They can take a minute or more to finish booting"
   log "before 'adb devices' reports them as ready -- check the log file(s) above if one doesn't"
-  log "come up, then run ./deploy-all once they do."
+  log "come up, then run scripts/deploy-all.sh once they do."
 fi
