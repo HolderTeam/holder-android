@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -130,16 +131,18 @@ fun ResourcesScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { showAttachSheet = true }, enabled = !attachFlow.attaching) {
-                        if (attachFlow.attaching) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Filled.Add, contentDescription = "Attach")
-                        }
-                    }
-                },
             )
+        },
+        floatingActionButton = {
+            // The only control on this screen, so it gets the FAB treatment (matching
+            // CalendarScreen's own Add-milestone FAB) rather than a quieter app bar icon.
+            FloatingActionButton(onClick = { if (!attachFlow.attaching) showAttachSheet = true }) {
+                if (attachFlow.attaching) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.Add, contentDescription = "Attach")
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
