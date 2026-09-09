@@ -22,11 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -118,6 +120,10 @@ fun CalendarScreen(
     refreshKey: Any,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
+    // Non-null only when reached from a specific card's Tools dashboard (see MainActivity's
+    // .../cards/{cardId}/calendar route) -- the project-level Calendar entry point has no single
+    // card to attach a new milestone to, so it leaves this null and gets no FAB.
+    onAddMilestone: (() -> Unit)? = null,
 ) {
     val today = LocalDate.now(CALENDAR_ZONE)
     var state by remember(projectId) { mutableStateOf<LoadState<List<HolderMilestone>>>(LoadState.Loading) }
@@ -182,6 +188,13 @@ fun CalendarScreen(
                     }
                 },
             )
+        },
+        floatingActionButton = {
+            onAddMilestone?.let { addMilestone ->
+                FloatingActionButton(onClick = addMilestone) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add milestone")
+                }
+            }
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
