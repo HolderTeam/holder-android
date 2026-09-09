@@ -62,12 +62,21 @@ object GitHubConnection {
      * doesn't match a currently-pending attempt. */
     suspend fun handleOAuthCallbackUri(uri: Uri) = GitHubConnectionCoordinator.handleOAuthCallbackUri(uri)
 
-    /** Forward an Auth Tab result here from the `ActivityResultLauncher`'s own callback.
-     * [consumeOutstandingAttemptId] must read-and-clear the launching Activity's own
-     * SavedState-persisted attempt id -- see [GitHubConnectionCoordinator.GitHubBrowserLauncher]'s
-     * doc comment for why this specific mechanism, not DataStore. */
-    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, consumeOutstandingAttemptId: () -> UUID?) =
-        GitHubConnectionCoordinator.handleAuthTabResult(result, consumeOutstandingAttemptId)
+    /** Process-scoped handoff used by the exported callback Activity, which must finish as
+     * soon as it has delivered the raw URI rather than waiting on callback processing. */
+    fun dispatchOAuthCallbackUri(uri: Uri) = GitHubConnectionCoordinator.dispatchOAuthCallbackUri(uri)
+
+    /** Forward an Auth Tab result here from the `ActivityResultLauncher` callback. The
+     * Activity clears its SavedState mirror, while the coordinator alone consumes the
+     * authoritative outstanding-attempt marker. */
+    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, clearPersistedOutstandingAttemptId: () -> Unit) =
+        GitHubConnectionCoordinator.handleAuthTabResult(result, clearPersistedOutstandingAttemptId)
+
+    /** Synchronously restore only the Activity's non-secret Auth Tab marker after recreation/
+     * process death. The coordinator treats it as an unresolved OS result, never as OAuth
+     * authority. This returns only after the marker can govern a fresh connect. */
+    fun restoreAuthTabOutstandingAttemptId(attemptId: UUID?) =
+        GitHubConnectionCoordinator.restoreAuthTabOutstandingAttemptId(attemptId)
 
     /** Generates a fresh `install_state` and sends the user to the installation flow -- call
      * before opening `.../installations/new?state=<returned value>`. */
@@ -79,6 +88,11 @@ object GitHubConnection {
      * missing, doesn't match, or has expired -- no automatic API call is made in that case. */
     suspend fun handleInstallationReturn(context: Context, returnedState: String?): GitHubStatus? =
         GitHubConnectionCoordinator.handleInstallationReturn(context, returnedState)
+
+    /** Process-scoped counterpart to [handleInstallationReturn] for the narrow exported
+     * callback Activity. */
+    fun dispatchInstallationReturn(context: Context, returnedState: String?) =
+        GitHubConnectionCoordinator.dispatchInstallationReturn(context, returnedState)
 
     /** `POST /user/repos`, private, named from [project]. Idempotent in the sense that
      * matters here: a name collision against a repo Holder itself already created is treated

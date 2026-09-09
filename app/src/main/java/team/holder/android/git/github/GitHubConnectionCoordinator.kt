@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -50,10 +51,20 @@ object GitHubConnectionCoordinator {
     private const val LOG_TAG = "GitHubConnection"
     private val coordinatorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // ---- connectStateMutex-protected fields ----
+    // ---- connect lifecycle fields ----
     private val connectStateMutex = Mutex()
     private var pendingOAuth: PendingOAuth? = null
     private var connectInFlight: ConnectOperation? = null
+    /** Detachment ends public ownership, not necessarily the worker's live phase. Admission
+     * waits for this completion signal outside connectStateMutex before creating another
+     * operation. Guarded by connectStateMutex; callers never await the private worker Job. */
+    private var connectShutdown: CompletableDeferred<Unit>? = null
+    /** The authoritative process-local marker for the one OS Auth Tab result registration.
+     * MainActivity keeps only a non-secret SavedState mirror so a process-death result can be
+     * discarded safely rather than being mistaken for a fresh attempt. This cell is atomic so
+     * SavedState restoration can publish the marker synchronously in Activity.onCreate, before
+     * Compose can admit a new connect, without blocking the main thread on a coroutine mutex. */
+    private val authTabOutstandingAttemptId = AtomicReference<UUID?>(null)
     private var pendingInstallationReturn: PendingInstallationReturn? = null
 
     // ---- credential concern ----
@@ -145,6 +156,7 @@ object GitHubConnectionCoordinator {
         val attemptId: UUID,
         val result: CompletableDeferred<GitHubResult<GitHubStatus>>,
         val job: Job,
+        val stopped: CompletableDeferred<Unit>,
         /** Guarded by [connectStateMutex]. This is captured when the operation becomes
          * current and advances only for this operation's own credential replacement. */
         var expectedCredentialEpoch: Long,
@@ -205,26 +217,39 @@ object GitHubConnectionCoordinator {
         // connectInFlight assignment on the very next line, since nothing before that
         // assignment actually synchronizes the two. A caller-visible side effect must never be
         // able to run before connectInFlight is visible to any concurrent joiner.
-        val deferred = CompletableDeferred<GitHubResult<GitHubStatus>>()
-        val joined: Deferred<GitHubResult<GitHubStatus>>? = connectStateMutex.withLock {
-            val existing = connectInFlight
-            if (existing != null) {
-                existing.result
-            } else {
-                val attemptId = GitHubPkce.generateAttemptId()
-                // The operation owns a precise credential generation from the instant it is
-                // registered. Any disconnect/replacement after this point makes its eventual
-                // status/commit stale, even if a blocking network call ignores cancellation.
-                val expectedCredentialEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
-                val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
-                    runConnectOperation(appContext, attemptId, browserLauncher, deferred)
+        while (true) {
+            var shutdown: Deferred<Unit>? = null
+            val result = connectStateMutex.withLock {
+                val existing = connectInFlight
+                if (existing != null) {
+                    existing.result
+                } else if (connectShutdown?.isCompleted == false) {
+                    shutdown = connectShutdown
+                    null
+                } else {
+                    connectShutdown = null
+                    val deferred = CompletableDeferred<GitHubResult<GitHubStatus>>()
+                    val stopped = CompletableDeferred<Unit>()
+                    val attemptId = GitHubPkce.generateAttemptId()
+                    // Capture the credential generation only after the old operation has
+                    // stopped, before any phase of this operation can begin.
+                    val expectedCredentialEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
+                    val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
+                        runConnectOperation(appContext, attemptId, browserLauncher, deferred)
+                    }
+                    // Completion is intentional here: cancellation requested / Call.cancel()
+                    // alone do not prove a blocking phase has returned and cleaned up.
+                    job.invokeOnCompletion { stopped.complete(Unit) }
+                    connectInFlight = ConnectOperation(attemptId, deferred, job, stopped, expectedCredentialEpoch)
+                    job.start()
+                    deferred
                 }
-                connectInFlight = ConnectOperation(attemptId, deferred, job, expectedCredentialEpoch)
-                job.start()
-                null
             }
+            if (result != null) return result.await()
+            // This is an event-driven admission retry, not another OAuth attempt. All callers
+            // waking from shutdown repeat the same atomic join-or-create decision.
+            shutdown!!.await()
         }
-        return (joined ?: deferred).await()
     }
 
     /** Runs exactly once per fresh `connect()` operation -- never re-entered by a joining
@@ -274,8 +299,8 @@ object GitHubConnectionCoordinator {
             if (!clearCredentialForConnectOperation(appContext, attemptId)) return
         }
 
-        val browserLaunch = browserLauncher.resolveBrowser(appContext)
-        if (browserLaunch == null) {
+        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext)
+        if (requestedBrowserLaunch == null) {
             finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
             return
         }
@@ -284,17 +309,23 @@ object GitHubConnectionCoordinator {
         val codeVerifier = GitHubPkce.generateCodeVerifier()
         val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
         val callbackOutcome = CompletableDeferred<CallbackOutcome>()
-        connectStateMutex.withLock {
+        val browserLaunch = connectStateMutex.withLock {
+            if (connectInFlight?.attemptId != attemptId) return@withLock null
+            val actualLaunch = claimAuthTabOrFallback(requestedBrowserLaunch, attemptId)
             pendingOAuth = PendingOAuth(
                 attemptId = attemptId,
                 state = state,
                 codeVerifier = codeVerifier,
                 redirectUri = GitHubEnvironment.OAUTH_CALLBACK_URL,
                 startedAtMonotonic = SystemClock.elapsedRealtime(),
-                launchKind = browserLaunch.kind,
+                launchKind = actualLaunch.kind,
                 callbackOutcome = callbackOutcome,
             )
+            actualLaunch
         }
+        // A disconnected/superseded worker can reach this point after its launcher lookup.
+        // It must not launch a browser or overwrite the currently-owned transaction.
+        if (browserLaunch == null) return
 
         val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
         // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
@@ -429,6 +460,7 @@ object GitHubConnectionCoordinator {
         attemptId: UUID,
         outcome: GitHubResult<GitHubStatus>,
         requirePendingBrowserAuthorization: Boolean = false,
+        publishSuccessfulStatus: Boolean = true,
     ): Boolean {
         val detached = connectStateMutex.withLock {
             val current = connectInFlight
@@ -443,7 +475,7 @@ object GitHubConnectionCoordinator {
                 // A success may authoritatively describe the coordinator only while its
                 // operation still owns the generation it queried. Returning the current
                 // status on mismatch keeps joiners from receiving a historical answer too.
-                val completedOutcome = if (outcome is GitHubResult.Success) {
+                val completedOutcome = if (outcome is GitHubResult.Success && publishSuccessfulStatus) {
                     if (credentialEpoch.get() == current.expectedCredentialEpoch) {
                         mutableStatusFlow.value = outcome.value
                         outcome
@@ -454,6 +486,10 @@ object GitHubConnectionCoordinator {
                     outcome
                 }
                 if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
+                // Publish the admission barrier in the same transition as detachment. It
+                // closes even the interval before public completion and job.cancel below,
+                // without changing the terminal protocol or waiting under this mutex.
+                connectShutdown = current.stopped
                 connectInFlight = null
                 DetachedConnectOperation(current, completedOutcome)
             }
@@ -479,7 +515,15 @@ object GitHubConnectionCoordinator {
         controlPlaneMutex.withLock {
             val inFlightAttemptId = connectStateMutex.withLock { connectInFlight?.attemptId }
             if (inFlightAttemptId != null) {
-                finishConnectOperation(inFlightAttemptId, GitHubResult.Success(GitHubStatus.NotConnected))
+                // Complete joiners before cancellation, but leave authoritative publication
+                // to the one credential-mutation transaction below. Otherwise an in-flight
+                // connect's finalizer exposes a preliminary NotConnected state while durable
+                // credential/cache state still exists.
+                finishConnectOperation(
+                    inFlightAttemptId,
+                    GitHubResult.Success(GitHubStatus.NotConnected),
+                    publishSuccessfulStatus = false,
+                )
             }
             credentialMutationMutex.withLock {
                 credentialStore.clear(appContext)
@@ -648,13 +692,14 @@ object GitHubConnectionCoordinator {
                     }
                 }
                 is RelayResult.Failure -> when (val error = refreshResult.error) {
-                    is RelayError.AuthorizationRequired -> GitHubResult.Failure(GitHubError.AuthorizationRequired)
-                    RelayError.OutcomeUnknown, RelayError.AmbiguousTransportFailure,
-                    is RelayError.Unexpected -> abandonUnsafeRefreshCredential(appContext)
+                    is RelayError.AuthorizationRequired -> abandonRejectedRefreshCredential(appContext)
+                    RelayError.OutcomeUnknown,
+                    RelayError.AmbiguousTransportFailure -> abandonUnsafeRefreshCredential(appContext)
                     // The relay rejected this request before it could reach GitHub, so its
                     // stored credential remains safe to retain for diagnostics/recovery.
                     RelayError.InvalidRequest -> GitHubResult.Failure(GitHubError.Unexpected(null, "invalid refresh request"))
                     is RelayError.RateLimited -> GitHubResult.Failure(GitHubError.RateLimited(error.retryAfterSeconds))
+                    is RelayError.Unexpected -> GitHubResult.Failure(GitHubError.Unexpected(error.httpStatus, error.body))
                     is RelayError.NetworkError -> GitHubResult.Failure(GitHubError.NetworkError(error.cause))
                 }
             }
@@ -665,6 +710,14 @@ object GitHubConnectionCoordinator {
      * second spend on the next acquisition. Clearing under the normal mutation boundary also
      * drops any old access-token cache before exposing reconnect as the only recovery path. */
     private suspend fun abandonUnsafeRefreshCredential(appContext: Context): GitHubResult.Failure {
+        clearStoredCredential(appContext)
+        return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+    }
+
+    /** A typed authorization rejection is definite rather than operational: the relay knows
+     * this refresh token/capability cannot authorize another request. Dispose it before the
+     * direct-operation gate is released so a later caller cannot submit it again. */
+    private suspend fun abandonRejectedRefreshCredential(appContext: Context): GitHubResult.Failure {
         clearStoredCredential(appContext)
         return GitHubResult.Failure(GitHubError.AuthorizationRequired)
     }
@@ -762,6 +815,18 @@ object GitHubConnectionCoordinator {
         pending.callbackOutcome.complete(outcome)
     }
 
+    /** Entry point for the exported, immediately-finishing callback Activity. The work belongs
+     * to this process-scoped coordinator rather than that Activity's lifecycle coroutine. */
+    fun dispatchOAuthCallbackUri(uri: Uri) {
+        coordinatorScope.launch { handleOAuthCallbackUri(uri) }
+    }
+
+    /** Installation completion has the same narrow callback-Activity lifetime boundary as
+     * OAuth. The correlated state remains the only authority inside handleInstallationReturn. */
+    fun dispatchInstallationReturn(context: Context, returnedState: String?) {
+        coordinatorScope.launch { handleInstallationReturn(context.applicationContext, returnedState) }
+    }
+
     /** Exact endpoint comparison intentionally ignores only the query string. */
     private fun matchesOAuthCallbackEndpoint(uri: Uri, expectedRedirectUri: String): Boolean =
         matchesOAuthCallbackEndpointParts(uri.scheme, uri.host, uri.port, uri.path, expectedRedirectUri)
@@ -797,33 +862,37 @@ object GitHubConnectionCoordinator {
         return ParsedOAuthCallback(states.single(), codes.singleOrNull(), errors.singleOrNull())
     }
 
-    /** [consumeOutstandingAttemptId] reads-and-clears the SavedState-persisted
-     * `authTabOutstandingAttemptId` -- called for *every* AuthTab result, matching or not (see
-     * the plan's "atomically reads and clears... for *any* result"); only the non-OK branch
-     * actually uses the returned id as a matching key, since a non-OK result carries no URI/
-     * state to check against `pendingOAuth` directly. */
-    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, consumeOutstandingAttemptId: () -> UUID?) {
-        val resolvedId = consumeOutstandingAttemptId()
-        if (result.resultCode == AuthTabIntent.RESULT_OK) {
-            val resultUri = result.resultUri ?: return
-            coordinatorScope.launch { handleOAuthCallbackUri(resultUri) }
-            return
-        }
-        if (resolvedId == null) return
-        val outcome = if (result.resultCode == AuthTabIntent.RESULT_CANCELED) {
-            CallbackOutcome.AuthTabCancelled
-        } else {
-            CallbackOutcome.AuthTabVerificationFailed
-        }
+    /** Every Auth Tab result clears the Activity's SavedState mirror, then atomically consumes
+     * the coordinator-owned marker before checking pending OAuth under its mutex. The mirror
+     * is never used as authority for deciding which attempt a late result may affect. */
+    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, clearPersistedOutstandingAttemptId: () -> Unit) {
+        clearPersistedOutstandingAttemptId()
         coordinatorScope.launch {
+            val resolvedId = consumeAuthTabOutstandingAttemptId() ?: return@launch
+            if (result.resultCode == AuthTabIntent.RESULT_OK) {
+                result.resultUri?.let { handleOAuthCallbackUri(it) }
+                return@launch
+            }
+            val outcome = if (result.resultCode == AuthTabIntent.RESULT_CANCELED) {
+                CallbackOutcome.AuthTabCancelled
+            } else {
+                CallbackOutcome.AuthTabVerificationFailed
+            }
             connectStateMutex.withLock {
                 val current = pendingOAuth
-                if (current != null && current.attemptId == resolvedId) {
+                if (current != null && authTabResultMayFinishAttempt(resolvedId, current.attemptId)) {
                     current.callbackOutcome.complete(outcome)
                 }
                 // else: discard -- current pendingOAuth (whatever it is) left untouched.
             }
         }
+    }
+
+    /** Restores only the non-secret Activity marker after process death. There is no pending
+     * OAuth in a new process, so any result carrying it is discarded; its presence merely
+     * prevents a fresh Auth Tab from sharing the same launcher registration first. */
+    fun restoreAuthTabOutstandingAttemptId(attemptId: UUID?) {
+        if (attemptId != null) authTabOutstandingAttemptId.compareAndSet(null, attemptId)
     }
 
     // ================= install_state / Setup URL return =================
@@ -859,6 +928,35 @@ object GitHubConnectionCoordinator {
     // ================= Browser launch abstraction (UI-layer injected) =================
 
     enum class LaunchKind { AuthTab, CustomTab, ExternalBrowser }
+
+    /** Auth Tab result registration is single-use until its result is consumed. The fallback
+     * stays on the same pinned Custom Tabs provider but returns through the App Link path. */
+    internal fun browserLaunchWithOutstandingAuthTab(
+        requested: BrowserLaunch,
+        hasOutstandingAuthTab: Boolean,
+    ): BrowserLaunch =
+        if (requested.kind == LaunchKind.AuthTab && hasOutstandingAuthTab) {
+            requested.copy(kind = LaunchKind.CustomTab)
+        } else {
+            requested
+        }
+
+    /** Atomically reserves the sole Auth Tab result slot or selects the existing Custom Tab
+     * fallback. A restored attempt therefore cannot be overwritten by a fresh attempt. */
+    internal fun claimAuthTabOrFallback(requested: BrowserLaunch, attemptId: UUID): BrowserLaunch {
+        val hasOutstandingAuthTab =
+            requested.kind == LaunchKind.AuthTab && !authTabOutstandingAttemptId.compareAndSet(null, attemptId)
+        return browserLaunchWithOutstandingAuthTab(requested, hasOutstandingAuthTab)
+    }
+
+    /** Every OS result consumes exactly the attempt that owned the Auth Tab slot at that
+     * instant. Kept internal so process-recreation ordering can be pinned in a JVM test. */
+    internal fun consumeAuthTabOutstandingAttemptId(): UUID? = authTabOutstandingAttemptId.getAndSet(null)
+
+    /** Non-OK Auth Tab results carry no state-bearing URI. This exact attempt-ID predicate is
+     * therefore the sole authority for whether they may complete a pending OAuth attempt. */
+    internal fun authTabResultMayFinishAttempt(resolvedAttemptId: UUID, pendingAttemptId: UUID): Boolean =
+        resolvedAttemptId == pendingAttemptId
 
     internal fun isCancellableBrowserLaunch(kind: LaunchKind): Boolean =
         kind == LaunchKind.CustomTab || kind == LaunchKind.ExternalBrowser
