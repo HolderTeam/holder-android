@@ -73,6 +73,7 @@ class GitHubConnectionCoordinatorTest {
     fun resetCoordinator() {
         GitHubConnectionCoordinator.credentialStore = RealGitHubCredentialStore
         GitHubConnectionCoordinator.storedCredentialStatusOverride = null
+        GitHubConnectionCoordinator.relayRefreshOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
     }
 
@@ -157,6 +158,29 @@ class GitHubConnectionCoordinatorTest {
         assertEquals(operationalFailure, result)
         assertEquals(credential, fakeStore.credential)
         assertEquals(0, browser.resolveCallCount.get())
+    }
+
+    @Test
+    fun unsafeRefreshOutcomesClearTheCredentialBeforeTheNextAccessCanRetryIt() = runBlocking {
+        val unsafeErrors = listOf(
+            RelayError.OutcomeUnknown,
+            RelayError.AmbiguousTransportFailure,
+            RelayError.Unexpected(503, "malformed relay response"),
+        )
+
+        unsafeErrors.forEach { error ->
+            fakeStore.credential = StoredGitHubCredential("ghr_spent", "cap_spent", 1L)
+            GitHubConnectionCoordinator.accessTokenCache = null
+            GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ -> RelayResult.Failure(error) }
+
+            val result = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) { _ ->
+                throw AssertionError("an unsafe refresh result must never supply an access token")
+            }
+
+            assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), result)
+            assertNull(fakeStore.credential)
+            assertNull(GitHubConnectionCoordinator.accessTokenCache)
+        }
     }
 
     @Test

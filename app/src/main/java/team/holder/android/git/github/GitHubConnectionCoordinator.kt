@@ -78,6 +78,11 @@ object GitHubConnectionCoordinator {
      * without a real relay/GitHub call. */
     internal var storedCredentialStatusOverride: (suspend (Context) -> GitHubResult<GitHubStatus>)? = null
 
+    /** Test seam for the refresh result. Production makes exactly one relay call through
+     * [GitHubOAuth.refresh]; tests use this to prove unsafe outcomes never retain the spent
+     * credential. */
+    internal var relayRefreshOverride: (suspend (OkHttpClient, String, String) -> RelayResult)? = null
+
     /** The coordinator is the sole publisher of authoritative observable connection state -- a
      * bare per-call result is a result for that call, never an instruction to repaint global
      * UI state on its own. */
@@ -460,7 +465,9 @@ object GitHubConnectionCoordinator {
             val refreshToken = credential.refreshToken
             val refreshCap = credential.refreshCap
 
-        return when (val refreshResult = GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)) {
+            val refreshResult = relayRefreshOverride?.invoke(exchangeHttpClient, refreshToken, refreshCap)
+                ?: GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)
+            return when (refreshResult) {
                 is RelayResult.Success -> {
                     val committed = credentialMutationMutex.withLock {
                         // Independent of epoch: only commit if the stored refresh_token still
@@ -487,17 +494,24 @@ object GitHubConnectionCoordinator {
                 }
                 is RelayResult.Failure -> when (val error = refreshResult.error) {
                     is RelayError.AuthorizationRequired -> GitHubResult.Failure(GitHubError.AuthorizationRequired)
-                    RelayError.InvalidRequest, RelayError.OutcomeUnknown, RelayError.AmbiguousTransportFailure ->
-                        // Does NOT force-clear the stored credential, and does NOT retry with
-                        // the same (possibly already-rotated) refresh_token -- the next
-                        // acquisition of refreshInFlight resolves the ambiguity for real.
-                        GitHubResult.Failure(GitHubError.Unexpected(null, "refresh outcome unknown"))
+                    RelayError.OutcomeUnknown, RelayError.AmbiguousTransportFailure,
+                    is RelayError.Unexpected -> abandonUnsafeRefreshCredential(appContext)
+                    // The relay rejected this request before it could reach GitHub, so its
+                    // stored credential remains safe to retain for diagnostics/recovery.
+                    RelayError.InvalidRequest -> GitHubResult.Failure(GitHubError.Unexpected(null, "invalid refresh request"))
                     is RelayError.RateLimited -> GitHubResult.Failure(GitHubError.RateLimited(error.retryAfterSeconds))
-                    is RelayError.Unexpected -> GitHubResult.Failure(GitHubError.Unexpected(error.httpStatus, error.body))
                     is RelayError.NetworkError -> GitHubResult.Failure(GitHubError.NetworkError(error.cause))
                 }
             }
         }
+    }
+
+    /** GitHub may already have rotated the refresh token, so retaining it would invite a
+     * second spend on the next acquisition. Clearing under the normal mutation boundary also
+     * drops any old access-token cache before exposing reconnect as the only recovery path. */
+    private suspend fun abandonUnsafeRefreshCredential(appContext: Context): GitHubResult.Failure {
+        clearStoredCredential(appContext)
+        return GitHubResult.Failure(GitHubError.AuthorizationRequired)
     }
 
     /** A definite authorization rejection is represented either as the status result reached
