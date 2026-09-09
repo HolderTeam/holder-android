@@ -176,11 +176,10 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
-    fun unsafeRefreshOutcomesClearTheCredentialBeforeTheNextAccessCanRetryIt() = runBlocking {
+    fun ambiguousRefreshOutcomesClearTheCredentialBeforeTheNextAccessCanRetryIt() = runBlocking {
         val unsafeErrors = listOf(
             RelayError.OutcomeUnknown,
             RelayError.AmbiguousTransportFailure,
-            RelayError.Unexpected(503, "malformed relay response"),
         )
 
         unsafeErrors.forEach { error ->
@@ -196,6 +195,47 @@ class GitHubConnectionCoordinatorTest {
             assertNull(fakeStore.credential)
             assertNull(GitHubConnectionCoordinator.accessTokenCache)
         }
+    }
+
+    @Test
+    fun definiteRefreshAuthorizationRejectionClearsTheCredentialBeforeAnotherDirectOperation() = runBlocking {
+        fakeStore.credential = StoredGitHubCredential("ghr_rejected", "cap_rejected", Long.MAX_VALUE)
+        val relayCalls = AtomicInteger(0)
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ ->
+            relayCalls.incrementAndGet()
+            // Invalid refresh capability and GitHub's bad_refresh_token both map to this
+            // reason-less definite rejection at the Android relay boundary.
+            RelayResult.Failure(RelayError.AuthorizationRequired(null))
+        }
+
+        val first = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) {
+            error("a rejected refresh credential must not supply an access token")
+        }
+        val second = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) {
+            error("a disposed refresh credential must not be reused")
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), first)
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), second)
+        assertEquals("the rejected refresh credential was submitted more than once", 1, relayCalls.get())
+        assertNull(fakeStore.credential)
+        assertNull(GitHubConnectionCoordinator.accessTokenCache)
+    }
+
+    @Test
+    fun operationalUnexpectedRefreshFailureRetainsTheCommittedCredential() = runBlocking {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        fakeStore.credential = credential
+        val unexpected = RelayError.Unexpected(503, "malformed relay response")
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ -> RelayResult.Failure(unexpected) }
+
+        val result = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) {
+            error("an operational refresh failure must not supply an access token")
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.Unexpected(unexpected.httpStatus, unexpected.body)), result)
+        assertEquals(credential, fakeStore.credential)
+        assertNull(GitHubConnectionCoordinator.accessTokenCache)
     }
 
     @Test

@@ -72,8 +72,9 @@ object GitHubConnection {
     fun handleAuthTabResult(result: AuthTabIntent.AuthResult, clearPersistedOutstandingAttemptId: () -> Unit) =
         GitHubConnectionCoordinator.handleAuthTabResult(result, clearPersistedOutstandingAttemptId)
 
-    /** Restore only the Activity's non-secret Auth Tab marker after recreation/process death.
-     * The coordinator treats it as an unresolved OS result, never as OAuth authority. */
+    /** Synchronously restore only the Activity's non-secret Auth Tab marker after recreation/
+     * process death. The coordinator treats it as an unresolved OS result, never as OAuth
+     * authority. This returns only after the marker can govern a fresh connect. */
     fun restoreAuthTabOutstandingAttemptId(attemptId: UUID?) =
         GitHubConnectionCoordinator.restoreAuthTabOutstandingAttemptId(attemptId)
 
