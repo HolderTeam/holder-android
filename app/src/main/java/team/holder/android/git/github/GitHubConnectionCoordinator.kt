@@ -151,6 +151,14 @@ object GitHubConnectionCoordinator {
 
     internal data class AccessTokenCache(val accessToken: String, val expiresAtMonotonic: Long)
 
+    /** The credential state must be observed as one unit: reading an epoch separately from
+     * its credential or cache can label one logical state as another during replacement. */
+    internal data class CredentialStateSnapshot(
+        val epoch: Long,
+        val credential: StoredGitHubCredential?,
+        val accessTokenCache: AccessTokenCache?,
+    )
+
     private val exchangeHttpClient: OkHttpClient by lazy {
         newCredentialRelayHttpClient()
     }
@@ -242,7 +250,7 @@ object GitHubConnectionCoordinator {
         attemptId: UUID,
         browserLauncher: GitHubBrowserLauncher,
     ) {
-        val hasStoredCredential = credentialStore.get(appContext) != null
+        val hasStoredCredential = snapshotCredentialState(appContext).credential != null
         if (hasStoredCredential) {
             val resumeResult = storedCredentialStatusOverride?.invoke(appContext)
                 ?: statusAgainstStoredCredential(appContext)
@@ -449,7 +457,7 @@ object GitHubConnectionCoordinator {
      * this call's own now-outdated answer. */
     suspend fun status(context: Context): GitHubStatus = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val queriedEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
+        val queriedEpoch = snapshotCredentialState(appContext).epoch
         val result = standaloneStatusOverride?.invoke(appContext) ?: statusAgainstStoredCredential(appContext)
         val status = (result as? GitHubResult.Success)?.value ?: return@withContext mutableStatusFlow.value
         publishStatusIfCurrentEpoch(queriedEpoch, status)
@@ -490,6 +498,15 @@ object GitHubConnectionCoordinator {
         }
     }
 
+    internal suspend fun snapshotCredentialState(context: Context): CredentialStateSnapshot =
+        credentialMutationMutex.withLock {
+            CredentialStateSnapshot(
+                epoch = credentialEpoch.get(),
+                credential = credentialStore.get(context),
+                accessTokenCache = accessTokenCache,
+            )
+        }
+
     // ================= refresh / single-flight / access-token cache =================
 
     /** The gate every direct GitHub REST call (createRepository/registerDeployKey/
@@ -500,7 +517,7 @@ object GitHubConnectionCoordinator {
         withContext(Dispatchers.IO) {
             val appContext = context.applicationContext
             controlPlaneMutex.withLock {
-                val cached = accessTokenCache
+                val cached = snapshotCredentialState(appContext).accessTokenCache
                 val accessToken = if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
                     cached.accessToken
                 } else {
@@ -516,11 +533,12 @@ object GitHubConnectionCoordinator {
     private suspend fun refreshAccessToken(appContext: Context): GitHubResult<String> {
         refreshInFlight.withLock {
             // Re-check: a waiter might now see a fresh token another caller just refreshed.
-            val cached = accessTokenCache
+            val snapshot = snapshotCredentialState(appContext)
+            val cached = snapshot.accessTokenCache
             if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
                 return GitHubResult.Success(cached.accessToken)
             }
-            val credential = credentialStore.get(appContext)
+            val credential = snapshot.credential
                 ?: return GitHubResult.Failure(GitHubError.AuthorizationRequired)
             if (isRefreshCredentialAdvisoryExpired(credential)) {
                 // This is only an optimization for the clearly-expired case. A clock that says
@@ -554,7 +572,7 @@ object GitHubConnectionCoordinator {
                         }
                     }
                     if (committed) {
-                        GitHubResult.Success(accessTokenCache!!.accessToken)
+                        GitHubResult.Success(refreshResult.tokens.accessToken)
                     } else {
                         GitHubResult.Failure(GitHubError.AuthorizationRequired)
                     }

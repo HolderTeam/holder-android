@@ -210,6 +210,19 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
+    fun credentialSnapshotReadsEpochRecordAndCacheAsOneState() = runBlocking {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        val cache = GitHubConnectionCoordinator.AccessTokenCache("gho_current", 60_000L)
+        fakeStore.credential = credential
+        GitHubConnectionCoordinator.accessTokenCache = cache
+
+        val snapshot = GitHubConnectionCoordinator.snapshotCredentialState(fakeContext)
+
+        assertEquals(credential, snapshot.credential)
+        assertEquals(cache, snapshot.accessTokenCache)
+    }
+
+    @Test
     fun disconnect_clearsTheStoredCredential() = runBlocking {
         fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
