@@ -130,7 +130,7 @@ fun ToolsScreen(
     ) { innerPadding ->
         LazyColumn(modifier = Modifier.padding(innerPadding)) {
             allCards.find { it.cardId == cardId }?.let { card ->
-                item { DatesRow(card) }
+                item { CardVitalsLine(card, historySummary) }
             }
 
             item {
@@ -339,33 +339,35 @@ private fun MilestonesTileBody(milestones: List<HolderMilestone>) {
     }
 }
 
-/** "Edited 14 minutes ago · 27 versions" -- History is entirely Holder-derived (automatic
- * versioning), so this always summarizes rather than previewing individual entries; the
- * timeline itself is specialized enough to stay its own screen. versionCount only reflects the
- * first page of history -- "+" is appended when there's more, rather than paginating just to
- * count exactly. */
+/** The History tile's own body is deliberately empty once loaded -- "Edited ... · N versions"
+ * already lives in [CardVitalsLine] at the top of the page, and repeating it here would be
+ * exactly the duplication that line was introduced to remove. A spinner is still worth showing
+ * while loading so the tile doesn't look broken before then. */
 @Composable
 private fun HistoryTileBody(summary: HistorySummary?) {
     if (summary == null) {
         LoadingLine()
-        return
     }
-    val edited = summary.lastEditedAt?.let {
-        DateUtils.getRelativeTimeSpanString(it * 1000, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
-    }
-    val versions = "${summary.versionCount}${if (summary.hasMore) "+" else ""} " +
-        if (summary.versionCount == 1 && !summary.hasMore) "version" else "versions"
-    SummaryLine(if (edited != null) "Edited $edited · $versions" else versions)
 }
 
-/** Created always shows; Updated only shows once it actually diverges from Created -- a
- * never-edited card would otherwise display the same instant twice. */
+/** "Created Sep 9 · Edited 41 minutes ago · 5 versions" -- Created reads from card metadata
+ * (cheap, always correct, available before History's own fetch resolves) rather than from
+ * [HistorySummary], which is deliberate: listCardHistory is paginated and can come back
+ * scanLimited, so for a card with enough history the "Card created" event might not even be in
+ * the loaded page. Edited/versions still come from HistorySummary, appended once it's loaded
+ * rather than blocking this line's first paint on the slower fetch. */
 @Composable
-private fun DatesRow(card: HolderCard) {
-    Column(modifier = Modifier.padding(top = 8.dp)) {
-        SummaryLine("Created ${DateUtils.formatDateTime(null, card.createdAt * 1000, DateUtils.FORMAT_SHOW_DATE)}")
-        if (card.updatedAt != card.createdAt) {
-            SummaryLine("Updated ${DateUtils.formatDateTime(null, card.updatedAt * 1000, DateUtils.FORMAT_SHOW_DATE)}")
+private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?) {
+    val created = "Created ${DateUtils.formatDateTime(null, card.createdAt * 1000, DateUtils.FORMAT_SHOW_DATE)}"
+    val text = historySummary?.let { summary ->
+        val edited = summary.lastEditedAt?.let {
+            DateUtils.getRelativeTimeSpanString(it * 1000, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
         }
+        val versions = "${summary.versionCount}${if (summary.hasMore) "+" else ""} " +
+            if (summary.versionCount == 1 && !summary.hasMore) "version" else "versions"
+        if (edited != null) "$created · Edited $edited · $versions" else "$created · $versions"
+    } ?: created
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        SummaryLine(text)
     }
 }
