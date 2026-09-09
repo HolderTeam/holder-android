@@ -4,20 +4,31 @@ import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -25,15 +36,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
@@ -76,11 +93,55 @@ fun ToolsScreen(
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
     var milestones by remember(cardId) { mutableStateOf<List<HolderMilestone>>(emptyList()) }
     var historySummary by remember(cardId) { mutableStateOf<HistorySummary?>(null) }
+    var tags by remember(cardId) { mutableStateOf<List<String>>(emptyList()) }
+    var projectTags by remember(projectId) { mutableStateOf<List<String>>(emptyList()) }
+    var tagRefreshKey by remember { mutableStateOf(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    suspend fun refreshTags() {
+        tags = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCardTags(cardId) }
+        }.getOrDefault(tags)
+    }
+
+    fun addTag(tag: String) {
+        if (tag.isBlank()) return
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { HolderNative.addCardTag(cardId, tag) }
+            }
+            result.onFailure {
+                snackbarHostState.showSnackbar("\"$tag\" isn't a valid tag.")
+            }
+            refreshTags()
+            tagRefreshKey++ // Re-fetch project tags too -- a brand new tag should appear as a suggestion later.
+        }
+    }
+
+    fun removeTag(tag: String) {
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { HolderNative.removeCardTag(cardId, tag) }
+            }.getOrNull()
+            if (result == HolderNative.RemoveTagResult.PRESENT_OUTSIDE_EDITABLE_TAG_LINE) {
+                snackbarHostState.showSnackbar("\"$tag\" appears in the card text -- edit it there to remove it.")
+            } else {
+                refreshTags()
+            }
+        }
+    }
 
     LaunchedEffect(cardId, projectId, refreshKey) {
         allCards = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
         }.getOrDefault(emptyList())
+    }
+    LaunchedEffect(cardId, refreshKey) { refreshTags() }
+    LaunchedEffect(projectId, refreshKey, tagRefreshKey) {
+        projectTags = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listProjectTags(projectId) }
+        }.getOrDefault(emptyList()).map { it.tag }
     }
     LaunchedEffect(cardId, refreshKey) {
         linksState = runCatching {
@@ -127,10 +188,20 @@ fun ToolsScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         LazyColumn(modifier = Modifier.padding(innerPadding)) {
             allCards.find { it.cardId == cardId }?.let { card ->
                 item { CardVitalsLine(card, historySummary, onClick = onHistoryClick) }
+            }
+
+            item {
+                TagsRow(
+                    tags = tags,
+                    suggestions = projectTags,
+                    onAdd = ::addTag,
+                    onRemove = ::removeTag,
+                )
             }
 
             item {
@@ -365,4 +436,92 @@ private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?, on
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     )
+}
+
+/** Tags as removable chips, always visible right at the top of the page -- small, cheap, and
+ * glanceable enough that, unlike Connections/Resources/Milestones, they don't need a dedicated
+ * destination screen. Tapping "+" opens an inline text field with live suggestions from the
+ * project's other tags (tap one to add it directly), rather than navigating away.
+ *
+ * Removing a chip is reactive, not pre-emptive: every tag looks the same regardless of whether
+ * Holder could actually remove it from here (see CardStore::remove_tag) -- greying out chips
+ * whose tag happens to live in prose rather than the card's trailing tag line would expose an
+ * implementation distinction ordinary users shouldn't need to understand up front. If removal
+ * fails for that reason, the snackbar explains it then.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TagsRow(
+    tags: List<String>,
+    suggestions: List<String>,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var adding by remember { mutableStateOf(false) }
+    var input by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    fun submit(tag: String) {
+        val trimmed = tag.trim()
+        if (trimmed.isNotEmpty()) onAdd(trimmed)
+        input = ""
+        adding = false
+        keyboard?.hide()
+    }
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        tags.forEach { tag ->
+            InputChip(
+                selected = false,
+                onClick = {},
+                label = { Text(tag) },
+                trailingIcon = {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Remove $tag",
+                        modifier = Modifier.size(16.dp).clickable { onRemove(tag) },
+                    )
+                },
+            )
+        }
+        if (adding) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                placeholder = { Text("Tag") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit(input) }),
+                modifier = Modifier.focusRequester(focusRequester),
+            )
+        } else {
+            AssistChip(
+                onClick = { adding = true },
+                label = { Text("Add tag") },
+                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+        }
+    }
+
+    if (adding) {
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        val matches = suggestions
+            .filter { it !in tags && (input.isBlank() || it.startsWith(input.trim(), ignoreCase = true)) }
+            .take(5)
+        if (matches.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            ) {
+                matches.forEach { suggestion ->
+                    AssistChip(onClick = { submit(suggestion) }, label = { Text(suggestion) })
+                }
+            }
+        }
+    }
 }
