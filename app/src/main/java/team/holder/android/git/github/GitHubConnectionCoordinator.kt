@@ -83,6 +83,11 @@ object GitHubConnectionCoordinator {
      * credential. */
     internal var relayRefreshOverride: (suspend (OkHttpClient, String, String) -> RelayResult)? = null
 
+    /** Test seam for a standalone status query. Production always performs the normal managed
+     * access-token/installation lookup; tests use it to hold a pre-disconnect result at the
+     * epoch/publication boundary. */
+    internal var standaloneStatusOverride: (suspend (Context) -> GitHubResult<GitHubStatus>)? = null
+
     /** The coordinator is the sole publisher of authoritative observable connection state -- a
      * bare per-call result is a result for that call, never an instruction to repaint global
      * UI state on its own. */
@@ -433,9 +438,9 @@ object GitHubConnectionCoordinator {
                 credentialStore.clear(appContext)
                 accessTokenCache = null
                 credentialEpoch.incrementAndGet()
+                mutableStatusFlow.value = GitHubStatus.NotConnected
             }
         }
-        publishStatus(GitHubStatus.NotConnected)
     }
 
     /** A cheap-ish probe -- callers with no reason to run a full `connect()` ceremony. Returns
@@ -444,14 +449,23 @@ object GitHubConnectionCoordinator {
      * this call's own now-outdated answer. */
     suspend fun status(context: Context): GitHubStatus = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
-        val queriedEpoch = credentialEpoch.get()
-        val result = statusAgainstStoredCredential(appContext)
-        val currentEpoch = credentialEpoch.get()
-        if (currentEpoch != queriedEpoch) return@withContext mutableStatusFlow.value
+        val queriedEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
+        val result = standaloneStatusOverride?.invoke(appContext) ?: statusAgainstStoredCredential(appContext)
         val status = (result as? GitHubResult.Success)?.value ?: return@withContext mutableStatusFlow.value
-        publishStatus(status)
-        status
+        publishStatusIfCurrentEpoch(queriedEpoch, status)
     }
+
+    /** The check and publication are one credential-mutation transaction. A query from an old
+     * epoch returns the already-published current state instead of overwriting it. */
+    private suspend fun publishStatusIfCurrentEpoch(expectedEpoch: Long, status: GitHubStatus): GitHubStatus =
+        credentialMutationMutex.withLock {
+            if (credentialEpoch.get() == expectedEpoch) {
+                mutableStatusFlow.value = status
+                status
+            } else {
+                mutableStatusFlow.value
+            }
+        }
 
     private suspend fun statusAgainstStoredCredential(appContext: Context): GitHubResult<GitHubStatus> =
         withAccessToken(appContext) { accessToken ->

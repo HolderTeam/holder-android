@@ -74,6 +74,7 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.credentialStore = RealGitHubCredentialStore
         GitHubConnectionCoordinator.storedCredentialStatusOverride = null
         GitHubConnectionCoordinator.relayRefreshOverride = null
+        GitHubConnectionCoordinator.standaloneStatusOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
     }
 
@@ -223,6 +224,27 @@ class GitHubConnectionCoordinatorTest {
 
         GitHubConnectionCoordinator.disconnect(fakeContext)
 
+        assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+    }
+
+    @Test
+    fun staleStandaloneStatusCannotOverwriteDisconnectState() = runBlocking(Dispatchers.IO) {
+        val queryStarted = CountDownLatch(1)
+        val releaseQuery = CountDownLatch(1)
+        val staleConnected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        GitHubConnectionCoordinator.standaloneStatusOverride = {
+            queryStarted.countDown()
+            releaseQuery.await(5, TimeUnit.SECONDS)
+            GitHubResult.Success(staleConnected)
+        }
+
+        val statusQuery = async { GitHubConnectionCoordinator.status(fakeContext) }
+        assertTrue("status query never reached its held result", queryStarted.await(5, TimeUnit.SECONDS))
+
+        GitHubConnectionCoordinator.disconnect(fakeContext)
+        releaseQuery.countDown()
+
+        assertEquals(GitHubStatus.NotConnected, statusQuery.await())
         assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
     }
 
