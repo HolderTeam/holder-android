@@ -220,18 +220,18 @@ fun ToolsScreen(
             }
 
             item {
+                ToolTile(title = "Milestones", onClick = onMilestonesClick) {
+                    MilestonesTileBody(milestones)
+                }
+            }
+
+            item {
                 ToolTile(title = "Resources", onClick = onResourcesClick) {
                     when (val state = linksState) {
                         is LoadState.Loading -> LoadingLine()
                         is LoadState.Error -> {} // Already surfaced by the Connections tile above.
                         is LoadState.Success -> ResourcesTileBody(state.value)
                     }
-                }
-            }
-
-            item {
-                ToolTile(title = "Milestones", onClick = onMilestonesClick) {
-                    MilestonesTileBody(milestones)
                 }
             }
         }
