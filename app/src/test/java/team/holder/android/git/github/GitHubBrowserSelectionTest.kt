@@ -6,6 +6,24 @@ import org.junit.Test
 
 class GitHubBrowserSelectionTest {
     @Test
+    fun pendingAuthTabForcesTheNextAttemptToUseCustomTab() {
+        assertEquals(
+            GitHubConnectionCoordinator.LaunchKind.CustomTab,
+            GitHubActivityBrowserLauncher.customTabsLaunchKind(
+                authTabSupported = true,
+                hasOutstandingAuthTab = true,
+            ),
+        )
+        assertEquals(
+            GitHubConnectionCoordinator.LaunchKind.AuthTab,
+            GitHubActivityBrowserLauncher.customTabsLaunchKind(
+                authTabSupported = true,
+                hasOutstandingAuthTab = false,
+            ),
+        )
+    }
+
+    @Test
     fun hostSpecificGitHubHandlerIsNotAcceptedAsAnExternalBrowser() {
         assertNull(
             GitHubActivityBrowserLauncher.selectExternalBrowserPackage(

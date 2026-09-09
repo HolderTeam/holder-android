@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
     // GitHubActivityBrowserLauncher's doc comment for why not DataStore). A plain field, not
     // Compose state -- restored in onCreate below, saved in onSaveInstanceState, read/written
     // from GitHubActivityBrowserLauncher's callback-injected accessors, never from Compose.
+    @Volatile
     private var authTabOutstandingAttemptId: String? = null
 
     // Registered unconditionally, as a field initializer -- must happen before this Activity
@@ -97,9 +98,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val githubBrowserLauncher = GitHubActivityBrowserLauncher(authTabLauncher) { attemptId ->
-        authTabOutstandingAttemptId = attemptId?.toString()
-    }
+    private val githubBrowserLauncher = GitHubActivityBrowserLauncher(
+        authTabLauncher = authTabLauncher,
+        setOutstandingAttemptId = { attemptId ->
+            authTabOutstandingAttemptId = attemptId?.toString()
+        },
+        hasOutstandingAuthTab = { authTabOutstandingAttemptId != null },
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

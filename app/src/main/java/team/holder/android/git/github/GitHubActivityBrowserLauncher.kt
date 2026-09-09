@@ -24,6 +24,7 @@ import java.util.UUID
 internal class GitHubActivityBrowserLauncher(
     private val authTabLauncher: ActivityResultLauncher<Intent>,
     private val setOutstandingAttemptId: (UUID?) -> Unit,
+    private val hasOutstandingAuthTab: () -> Boolean,
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
 
     override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
@@ -32,22 +33,14 @@ internal class GitHubActivityBrowserLauncher(
         val customTabsPackage = CustomTabsClient.getPackageName(context, null, false)
         if (customTabsPackage != null) {
             val authTabSupported = CustomTabsClient.isAuthTabSupported(context, customTabsPackage)
+            val authTabOutstanding = hasOutstandingAuthTab()
+            val launchKind = customTabsLaunchKind(authTabSupported, authTabOutstanding)
             Log.d(
                 "GitHubConnection",
-                "resolveBrowser: provider=$customTabsPackage isAuthTabSupported=$authTabSupported -> " +
-                    if (authTabSupported) "AuthTab" else "CustomTab",
+                "resolveBrowser: provider=$customTabsPackage isAuthTabSupported=$authTabSupported " +
+                    "hasOutstandingAuthTab=$authTabOutstanding -> $launchKind",
             )
-            return if (authTabSupported) {
-                GitHubConnectionCoordinator.BrowserLaunch(
-                    GitHubConnectionCoordinator.LaunchKind.AuthTab,
-                    customTabsPackage,
-                )
-            } else {
-                GitHubConnectionCoordinator.BrowserLaunch(
-                    GitHubConnectionCoordinator.LaunchKind.CustomTab,
-                    customTabsPackage,
-                )
-            }
+            return GitHubConnectionCoordinator.BrowserLaunch(launchKind, customTabsPackage)
         }
         // Intent.resolveActivity() is the wrong check here: it returns null whenever there's
         // no single unambiguous default, even if one or more real handlers exist (confirmed
@@ -110,6 +103,18 @@ internal class GitHubActivityBrowserLauncher(
         ).mapNotNull { it.activityInfo?.packageName }
 
     internal companion object {
+        /** Never launch a second Auth Tab through the same result registration. Its old result
+         * could otherwise consume the newer attempt's marker. */
+        fun customTabsLaunchKind(
+            authTabSupported: Boolean,
+            hasOutstandingAuthTab: Boolean,
+        ): GitHubConnectionCoordinator.LaunchKind =
+            if (authTabSupported && !hasOutstandingAuthTab) {
+                GitHubConnectionCoordinator.LaunchKind.AuthTab
+            } else {
+                GitHubConnectionCoordinator.LaunchKind.CustomTab
+            }
+
         /** Pure seam for testing the fallback against a host-specific URL-handler. */
         fun selectExternalBrowserPackage(
             githubHandlers: List<String>,
