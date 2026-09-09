@@ -84,6 +84,14 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
+    fun oauthTimeoutHasTheOrdinaryAuthorizationRequiredOutcome() {
+        assertEquals(
+            GitHubResult.Success(GitHubStatus.AuthorizationRequired(null)),
+            GitHubConnectionCoordinator.timeoutConnectOutcome(),
+        )
+    }
+
+    @Test
     fun connect_secondConcurrentCall_joinsRatherThanStartingAnIndependentOperation() = runBlocking(Dispatchers.IO) {
         // Dispatchers.IO, not the default confined runBlocking dispatcher: this test body's own
         // blocking CountDownLatch.await() calls would otherwise starve the coroutine they're

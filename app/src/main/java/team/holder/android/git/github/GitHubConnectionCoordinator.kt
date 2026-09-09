@@ -285,21 +285,11 @@ object GitHubConnectionCoordinator {
 
         val outcome = withTimeoutOrNull(PENDING_OAUTH_TIMEOUT_MILLIS) { callbackOutcome.await() }
         if (outcome == null) {
-            // (d) local timeout -- only expire pendingOAuth if it's still this operation's own.
-            val stillOurs = connectStateMutex.withLock {
-                if (pendingOAuth?.attemptId == attemptId) {
-                    pendingOAuth = null
-                    true
-                } else {
-                    false
-                }
-            }
-            if (stillOurs) {
-                finishConnectOperation(attemptId, GitHubResult.Success(GitHubStatus.AuthorizationRequired(null)))
-            }
-            // else: some other terminal path already handled this attempt between the check
-            // above and now -- finishConnectOperation's own attemptId-ownership check makes
-            // this harmless either way.
+            // The callback handler deliberately clears pendingOAuth before it completes the
+            // deferred, so pendingOAuth is not an ownership test here. The operation's own
+            // finalizer keys on connectInFlight.attemptId and conditionally cleans pending if
+            // it still exists; therefore the timeout always reaches that one terminal path.
+            finishConnectOperation(attemptId, timeoutConnectOutcome())
             return
         }
 
@@ -759,6 +749,11 @@ object GitHubConnectionCoordinator {
 
     internal fun isCancellableBrowserLaunch(kind: LaunchKind): Boolean =
         kind == LaunchKind.CustomTab || kind == LaunchKind.ExternalBrowser
+
+    /** Kept pure so the timeout's domain outcome remains covered without waiting twelve
+     * minutes in a JVM test. Ownership is still enforced by [finishConnectOperation]. */
+    internal fun timeoutConnectOutcome(): GitHubResult<GitHubStatus> =
+        GitHubResult.Success(GitHubStatus.AuthorizationRequired(null))
 
     /** A browser capability decision together with the exact package that made it. Keeping
      * the package makes the capability check and the subsequent launch one decision rather
