@@ -47,6 +47,9 @@ Use the native Android testing stack. Do not duplicate libholder/C API tests in 
      - old supported Android device
      - current Pixel
      - non-Google OEM device
+   - `./deploy-all` builds once and installs + launches on every connected
+     device/emulator `adb` sees, for quickly spreading a manual check across
+     several of these at once.
 
 9. **Later**
    - Robolectric only where simulated Android framework behaviour is genuinely useful.

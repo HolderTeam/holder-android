@@ -36,3 +36,16 @@ On Ubuntu, vcpkg also needs autotools for some Android dependency ports:
 ```bash
 sudo apt install autoconf autoconf-archive automake libtool
 ```
+
+### Deploying to every connected device
+
+```bash
+./deploy-all
+```
+
+Builds the debug APK once, then installs and launches Holder on every
+connected phone and running emulator `adb` can see -- a quick way to manually
+compatibility-test a change across several real devices/API levels at once
+instead of repeating build+install+launch by hand for each one. Devices that
+are offline or unauthorized are skipped and reported, not treated as
+failures.
