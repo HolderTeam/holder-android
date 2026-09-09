@@ -2,13 +2,11 @@ package team.holder.android.ui.screens
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -22,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -115,58 +114,58 @@ fun CardViewScreen(
 
     Scaffold(
         topBar = {
+            // Experimental bottom-bar layout: the top row is Back/title/metadata/Overflow only
+            // -- Focus/Tools/Child moved down into a BottomAppBar (see bottomBar below), which
+            // also docks the Edit FAB inside it instead of floating separately. Easy to revert
+            // to the single-row TopAppBar by restoring actions = { Focus, Connections, Add,
+            // overflow Box } here and dropping bottomBar/the Scaffold-level floatingActionButton
+            // swap below.
             if (!focusMode) {
-                // Experimental two-row layout: row 1 is Back/title/metadata/Overflow only, so
-                // the title has room to breathe; row 2 carries Focus/Tools/Child as labeled,
-                // evenly-spaced touch targets. Easy to revert back to the single-row TopAppBar
-                // by restoring actions = { Focus, Connections, Add, overflow Box } here and
-                // dropping the Row below.
-                Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                    TopAppBar(
-                        title = {
-                            Column {
-                                Text(cardTitle.ifEmpty { "Card" })
-                                cardMeta?.let { meta ->
-                                    Text(
-                                        lastEditedSummary(meta),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(cardTitle.ifEmpty { "Card" })
+                            cardMeta?.let { meta ->
+                                Text(
+                                    lastEditedSummary(meta),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        val loaded = state as? LoadState.Success
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
                             }
-                        },
-                        actions = {
-                            val loaded = state as? LoadState.Success
-                            Box {
-                                IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = "More options")
-                                }
-                                DropdownMenu(
-                                    expanded = showOverflowMenu,
-                                    onDismissRequest = { showOverflowMenu = false },
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Delete") },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            showDeleteDialog = true
-                                        },
-                                    )
-                                }
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showDeleteDialog = true
+                                    },
+                                )
                             }
-                        },
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = {
+            if (!focusMode) {
+                BottomAppBar(
+                    actions = {
                         CardViewActionButton(
                             icon = {
                                 Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
@@ -184,16 +183,14 @@ fun CardViewScreen(
                             label = "Child",
                             onClick = onCreateChildCard,
                         )
-                    }
-                }
-            }
-        },
-        floatingActionButton = {
-            if (!focusMode) {
-                val loaded = state as? LoadState.Success
-                FloatingActionButton(onClick = { loaded?.let { onEdit(it.value) } }) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Edit")
-                }
+                    },
+                    floatingActionButton = {
+                        val loaded = state as? LoadState.Success
+                        FloatingActionButton(onClick = { loaded?.let { onEdit(it.value) } }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                        }
+                    },
+                )
             }
         },
     ) { innerPadding ->
