@@ -16,14 +16,23 @@ data class CardSequenceLinks(
     val precedes: HolderCard?,
 )
 
+/** parentCardId's children (or, when null, every root card in the project), in Holder's
+ * canonical sibling order -- sort_key ascending, falling back to most-recently-updated first,
+ * matching holder-core's own `ORDER BY sort_key ASC, updated_at DESC`. The single source of
+ * truth for sibling order: [cardSequenceLinks]'s Follows/Precedes and the swipeable card deck
+ * (see CardViewPagerScreen) both walk this same list rather than each re-deriving it. */
+fun sortKeyOrderedSiblings(parentCardId: String?, allCards: List<HolderCard>): List<HolderCard> =
+    allCards
+        .filter { it.parentCardId == parentCardId }
+        .sortedWith(compareBy<HolderCard> { it.sortKey }.thenByDescending { it.updatedAt })
+
 fun cardSequenceLinks(cardId: String, parentCardId: String?, allCards: List<HolderCard>): CardSequenceLinks {
     val byRecency = allCards.sortedByDescending { it.updatedAt }
     val recencyIndex = byRecency.indexOfFirst { it.cardId == cardId }
     val next = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it - 1) }
     val previous = recencyIndex.takeIf { it >= 0 }?.let { byRecency.getOrNull(it + 1) }
 
-    val siblings = allCards.filter { it.parentCardId == parentCardId }
-    val bySortKey = siblings.sortedWith(compareBy<HolderCard> { it.sortKey }.thenByDescending { it.updatedAt })
+    val bySortKey = sortKeyOrderedSiblings(parentCardId, allCards)
     val sortKeyIndex = bySortKey.indexOfFirst { it.cardId == cardId }
     // Higher sort_key comes after (newer/"follows"); lower comes before (older/"precedes").
     val newerSibling = sortKeyIndex.takeIf { it >= 0 }?.let { bySortKey.getOrNull(it + 1) }

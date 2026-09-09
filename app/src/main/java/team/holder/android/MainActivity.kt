@@ -44,6 +44,7 @@ import team.holder.android.ui.screens.CardEditScreen
 import team.holder.android.ui.screens.CardHistoryScreen
 import team.holder.android.ui.screens.ConnectionsScreen
 import team.holder.android.ui.screens.CardListScreen
+import team.holder.android.ui.screens.CardViewPagerScreen
 import team.holder.android.ui.screens.CardViewScreen
 import team.holder.android.ui.screens.DiagnosticsSettingsScreen
 import team.holder.android.ui.screens.EditorSettingsScreen
@@ -406,15 +407,15 @@ private fun HolderNavHost(
         composable("projects/{projectId}/cards/{cardId}") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
-            CardViewScreen(
+            CardViewPagerScreen(
                 cardId = cardId,
                 projectId = projectId,
                 cardTitle = selectedCardTitle,
                 refreshKey = cardViewRefreshKey,
-                onEdit = { content ->
+                onEdit = { activeCardId, content ->
                     selectedCardContent = content
                     saveError = null
-                    navController.navigate("projects/$projectId/cards/$cardId/edit")
+                    navController.navigate("projects/$projectId/cards/$activeCardId/edit")
                 },
                 onNavigateToCard = { targetCardId, title ->
                     selectedCardTitle = title
@@ -424,12 +425,12 @@ private fun HolderNavHost(
                 onNavigateToTag = { tag ->
                     navController.navigate("projects/$projectId/tags/${URLEncoder.encode(tag, "UTF-8")}")
                 },
-                onConnectionsClick = {
-                    navController.navigate("projects/$projectId/cards/$cardId/connections")
+                onConnectionsClick = { activeCardId ->
+                    navController.navigate("projects/$projectId/cards/$activeCardId/connections")
                 },
-                onCreateChildCard = {
+                onCreateChildCard = { activeCardId ->
                     saveError = null
-                    pendingParentCardId = cardId
+                    pendingParentCardId = activeCardId
                     navController.navigate("projects/$projectId/cards/new")
                 },
                 onDeleted = {
@@ -441,6 +442,11 @@ private fun HolderNavHost(
                 // the only back arrow that needs to jump rather than pop one level. The system
                 // back gesture still retraces those hops one at a time on its own.
                 onBack = { navController.popBackStack("projects/$projectId/cards", inclusive = false) },
+                // Swiping to a sibling never calls onNavigateToCard (see CardViewPagerScreen's
+                // doc comment), so without this, selectedCardTitle would keep reporting whichever
+                // card was last explicitly navigated to -- stale the moment Edit/Tools/Connections
+                // is tapped on a swiped-to card instead.
+                onPageChanged = { _, title -> selectedCardTitle = title },
             )
         }
         composable("projects/{projectId}/tags/{tag}") { backStackEntry ->
