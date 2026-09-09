@@ -110,7 +110,11 @@ object GitHubConnectionCoordinator {
         val attemptId: UUID,
         val state: String,
         val codeVerifier: String,
+        /** The exact endpoint placed in this attempt's authorization request.  Never rederive
+         * it from global configuration while validating a callback. */
+        val redirectUri: String,
         val startedAtMonotonic: Long,
+        val launchKind: LaunchKind,
         /** Resolved by whichever entry point (App Link delivery, or an AuthTab
          * ActivityResultCallback) observes a matching callback first -- the *one* coroutine
          * running [runConnectOperation] awaits this and then does the actual exchange/commit
@@ -125,6 +129,12 @@ object GitHubConnectionCoordinator {
         data object AuthTabCancelled : CallbackOutcome
         data object AuthTabVerificationFailed : CallbackOutcome
     }
+
+    internal data class ParsedOAuthCallback(
+        val state: String,
+        val code: String?,
+        val error: String?,
+    )
 
     private data class ConnectOperation(
         val attemptId: UUID,
@@ -255,7 +265,15 @@ object GitHubConnectionCoordinator {
         val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
         val callbackOutcome = CompletableDeferred<CallbackOutcome>()
         connectStateMutex.withLock {
-            pendingOAuth = PendingOAuth(attemptId, state, codeVerifier, SystemClock.elapsedRealtime(), callbackOutcome)
+            pendingOAuth = PendingOAuth(
+                attemptId = attemptId,
+                state = state,
+                codeVerifier = codeVerifier,
+                redirectUri = GitHubEnvironment.OAUTH_CALLBACK_URL,
+                startedAtMonotonic = SystemClock.elapsedRealtime(),
+                launchKind = launchKind,
+                callbackOutcome = callbackOutcome,
+            )
         }
 
         val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
@@ -543,25 +561,32 @@ object GitHubConnectionCoordinator {
      * forwarded from [handleAuthTabResult]'s own `RESULT_OK` case. Both funnel into this same
      * validation/consumption logic; there is no separate "AuthTab never reaches here" path. */
     suspend fun handleOAuthCallbackUri(uri: Uri) {
-        if (!isOAuthCallbackEndpoint(uri)) {
-            Log.d(LOG_TAG, "handleOAuthCallbackUri: not our endpoint ($uri), ignoring")
+        // Snapshot only: it lets endpoint comparison happen before structural parsing without
+        // consuming or otherwise disturbing the active attempt. The final state/consume step
+        // below rechecks against the current record under the same mutex.
+        val pendingAtStart = connectStateMutex.withLock { pendingOAuth }
+        if (pendingAtStart == null) {
+            Log.d(LOG_TAG, "handleOAuthCallbackUri: no pending OAuth attempt, ignoring")
             return
         }
-        val callbackState = uri.getQueryParameter("state")
-        if (callbackState == null) {
-            Log.w(LOG_TAG, "handleOAuthCallbackUri: no state param, ignoring")
+        if (!matchesOAuthCallbackEndpoint(uri, pendingAtStart.redirectUri)) {
+            // Do not include the callback URI in logs: it can contain a one-time code.
+            Log.d(LOG_TAG, "handleOAuthCallbackUri: endpoint did not match pending attempt, ignoring")
             return
         }
-        val code = uri.getQueryParameter("code")
-        val error = uri.getQueryParameter("error")
-        if ((code == null) == (error == null)) {
-            Log.w(LOG_TAG, "handleOAuthCallbackUri: must have exactly one of code/error, ignoring")
+        val callback = parseOAuthCallback(uri)
+        if (callback == null) {
+            Log.w(LOG_TAG, "handleOAuthCallbackUri: malformed callback structure, ignoring")
             return
         }
 
         val pending = connectStateMutex.withLock {
             val current = pendingOAuth
-            if (current != null && current.state == callbackState) {
+            if (
+                current != null &&
+                matchesOAuthCallbackEndpoint(uri, current.redirectUri) &&
+                current.state == callback.state
+            ) {
                 pendingOAuth = null // one-shot consume, before exchange ever runs
                 current
             } else {
@@ -573,15 +598,49 @@ object GitHubConnectionCoordinator {
             return
         }
 
-        Log.d(LOG_TAG, "handleOAuthCallbackUri: matched pendingOAuth, code=${code != null} error=$error")
-        val outcome = if (code != null) CallbackOutcome.Code(code) else CallbackOutcome.RecognizedError(error!!)
+        Log.d(LOG_TAG, "handleOAuthCallbackUri: matched pendingOAuth, code=${callback.code != null} error=${callback.error}")
+        val outcome = if (callback.code != null) {
+            CallbackOutcome.Code(callback.code)
+        } else {
+            CallbackOutcome.RecognizedError(callback.error!!)
+        }
         pending.callbackOutcome.complete(outcome)
     }
 
-    private fun isOAuthCallbackEndpoint(uri: Uri): Boolean =
-        uri.scheme == "https" && uri.host == oauthHost() && uri.path == "/android/oauth-callback"
+    /** Exact endpoint comparison intentionally ignores only the query string. */
+    private fun matchesOAuthCallbackEndpoint(uri: Uri, expectedRedirectUri: String): Boolean =
+        matchesOAuthCallbackEndpointParts(uri.scheme, uri.host, uri.port, uri.path, expectedRedirectUri)
 
-    private fun oauthHost(): String = Uri.parse(GitHubEnvironment.OAUTH_CALLBACK_URL).host.orEmpty()
+    internal fun matchesOAuthCallbackEndpointParts(
+        scheme: String?,
+        host: String?,
+        port: Int,
+        path: String?,
+        expectedRedirectUri: String,
+    ): Boolean {
+        val expected = java.net.URI(expectedRedirectUri)
+        return scheme == expected.scheme && host == expected.host && port == expected.port && path == expected.path
+    }
+
+    /** Parses only security-relevant parameters. Optional GitHub diagnostics are intentionally
+     * ignored, but duplicates of `state`, `code`, or `error` make the callback malformed. */
+    internal fun parseOAuthCallback(uri: Uri): ParsedOAuthCallback? {
+        return parseOAuthCallbackParameters(
+            states = uri.getQueryParameters("state"),
+            codes = uri.getQueryParameters("code"),
+            errors = uri.getQueryParameters("error"),
+        )
+    }
+
+    internal fun parseOAuthCallbackParameters(
+        states: List<String>,
+        codes: List<String>,
+        errors: List<String>,
+    ): ParsedOAuthCallback? {
+        if (states.size != 1 || codes.size > 1 || errors.size > 1 || codes.size + errors.size != 1) return null
+        if (states.single().isEmpty() || codes.singleOrNull()?.isEmpty() == true || errors.singleOrNull()?.isEmpty() == true) return null
+        return ParsedOAuthCallback(states.single(), codes.singleOrNull(), errors.singleOrNull())
+    }
 
     /** [consumeOutstandingAttemptId] reads-and-clears the SavedState-persisted
      * `authTabOutstandingAttemptId` -- called for *every* AuthTab result, matching or not (see
