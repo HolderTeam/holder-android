@@ -4,6 +4,7 @@ import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,11 +16,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -81,6 +84,7 @@ fun CardViewScreen(
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     // Guards delete against double-tap, same rationale as CardListScreen's isSubmitting.
     var isDeleting by remember { mutableStateOf(false) }
     var focusMode by remember { mutableStateOf(false) }
@@ -138,14 +142,25 @@ fun CardViewScreen(
                         IconButton(onClick = onHistoryClick) {
                             Icon(Icons.Filled.History, contentDescription = "History")
                         }
-                        IconButton(
-                            onClick = { showDeleteDialog = true },
-                            enabled = loaded != null,
-                        ) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                        }
                         IconButton(onClick = onCreateChildCard) {
                             Icon(Icons.Filled.Add, contentDescription = "New child card")
+                        }
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showDeleteDialog = true
+                                    },
+                                )
+                            }
                         }
                     },
                 )
