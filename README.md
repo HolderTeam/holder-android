@@ -24,14 +24,22 @@ The path from a fresh checkout to Holder running on your own devices:
 
 2. **Install prerequisites**: Android Studio (gives you the SDK, an
    emulator, and Device Manager -- or install just the SDK command-line
-   tools if you'd rather skip the IDE), NDK `28.2.13676358` specifically
-   (installable via Android Studio's SDK Manager -- the exact version this
-   project's native build expects), and [vcpkg](https://vcpkg.io), cloned
-   anywhere. On Ubuntu, vcpkg also needs autotools for some Android
-   dependency ports:
+   tools if you'd rather skip the IDE), and NDK `28.2.13676358`
+   specifically (installable via Android Studio's SDK Manager -- the exact
+   version this project's native build expects).
+
+   On Ubuntu, [vcpkg](https://vcpkg.io) also needs autotools for some
+   Android dependency ports:
 
    ```bash
    sudo apt install autoconf autoconf-archive automake libtool
+   ```
+
+   Then clone and bootstrap vcpkg itself, anywhere on your machine:
+
+   ```bash
+   git clone https://github.com/microsoft/vcpkg.git
+   ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
    ```
 
 3. **Point the build at your SDK, vcpkg, and target ABIs** -- see
