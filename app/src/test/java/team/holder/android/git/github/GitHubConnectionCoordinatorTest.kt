@@ -7,6 +7,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.CompletableDeferred
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -100,6 +102,8 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.storedCredentialStatusOverride = null
         GitHubConnectionCoordinator.relayRefreshOverride = null
         GitHubConnectionCoordinator.standaloneStatusOverride = null
+        GitHubConnectionCoordinator.statusCredentialSnapshotOverride = null
+        GitHubConnectionCoordinator.statusQueryOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
         fakeStore.clearStartedLatch = null
         fakeStore.releaseClearLatch = null
@@ -355,6 +359,30 @@ class GitHubConnectionCoordinatorTest {
         }
     }
 
+    /** Installs a complete authoritative credential generation under the production mutex.
+     * This is deliberately reflection-only test machinery: production replacement remains
+     * confined to OAuth commit, refresh rotation, and disconnect. */
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun replaceCredentialStateForTest(
+        credential: StoredGitHubCredential,
+        cache: GitHubConnectionCoordinator.AccessTokenCache,
+        status: GitHubStatus,
+    ) {
+        val coordinator = GitHubConnectionCoordinator
+        val mutex = coordinator.javaClass.getDeclaredField("credentialMutationMutex").apply { isAccessible = true }
+            .get(coordinator) as Mutex
+        val epoch = coordinator.javaClass.getDeclaredField("credentialEpoch").apply { isAccessible = true }
+            .get(coordinator) as AtomicLong
+        val statusFlow = coordinator.javaClass.getDeclaredField("mutableStatusFlow").apply { isAccessible = true }
+            .get(coordinator) as MutableStateFlow<GitHubStatus>
+        mutex.withLock {
+            fakeStore.credential = credential
+            coordinator.accessTokenCache = cache
+            epoch.incrementAndGet()
+            statusFlow.value = status
+        }
+    }
+
     private suspend fun finishStaleAttempt(attemptId: UUID): Boolean = suspendCoroutineUninterceptedOrReturn { continuation ->
         GitHubConnectionCoordinator.javaClass.declaredMethods.single { it.name == "finishConnectOperation" }
             .apply { isAccessible = true }
@@ -496,6 +524,143 @@ class GitHubConnectionCoordinatorTest {
 
         assertEquals(credential, snapshot.credential)
         assertEquals(cache, snapshot.accessTokenCache)
+    }
+
+    @Test
+    fun standaloneStatusUsesCredentialFromItsCapturedEpochAcrossReplacement() = runBlocking(Dispatchers.IO) {
+        val credentialA = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+        val cacheA = GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
+        fakeStore.credential = credentialA
+        GitHubConnectionCoordinator.accessTokenCache = cacheA
+
+        val snapshotCaptured = CompletableDeferred<GitHubConnectionCoordinator.CredentialStateSnapshot>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val usedTokens = mutableListOf<String>()
+        val staleResult = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        val newerStatus = GitHubStatus.Connected("bob", "https://github.com/settings/installations/2")
+        GitHubConnectionCoordinator.statusCredentialSnapshotOverride = { snapshot ->
+            snapshotCaptured.complete(snapshot)
+            releaseSnapshot.await()
+        }
+        GitHubConnectionCoordinator.statusQueryOverride = { accessToken ->
+            usedTokens += accessToken
+            GitHubResult.Success(staleResult)
+        }
+
+        val query = async { GitHubConnectionCoordinator.status(fakeContext) }
+        val snapshot = snapshotCaptured.await()
+        assertEquals(credentialA, snapshot.credential)
+        assertEquals(cacheA, snapshot.accessTokenCache)
+
+        replaceCredentialStateForTest(
+            credential = StoredGitHubCredential("ghr_b", "cap_b", Long.MAX_VALUE),
+            cache = GitHubConnectionCoordinator.AccessTokenCache("gho_b", 60_000L),
+            status = newerStatus,
+        )
+        releaseSnapshot.complete(Unit)
+
+        assertEquals(newerStatus, query.await())
+        assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
+        assertEquals(listOf("gho_a"), usedTokens)
+    }
+
+    @Test
+    fun standaloneStatusUsesExpectedCredentialWhenAuthorityIsUnchanged() = runBlocking {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        val cache = GitHubConnectionCoordinator.AccessTokenCache("gho_current", 60_000L)
+        val connected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        fakeStore.credential = credential
+        GitHubConnectionCoordinator.accessTokenCache = cache
+        val usedTokens = mutableListOf<String>()
+        GitHubConnectionCoordinator.statusQueryOverride = { accessToken ->
+            usedTokens += accessToken
+            GitHubResult.Success(connected)
+        }
+
+        assertEquals(connected, GitHubConnectionCoordinator.status(fakeContext))
+        assertEquals(connected, GitHubConnectionCoordinator.statusFlow.value)
+        assertEquals(listOf("gho_current"), usedTokens)
+        assertEquals(credential, fakeStore.credential)
+        assertEquals(cache, GitHubConnectionCoordinator.accessTokenCache)
+    }
+
+    @Test
+    fun storedCredentialConnectUsesItsCoherentSnapshotAcrossReplacement() = runBlocking(Dispatchers.IO) {
+        val credentialA = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+        val cacheA = GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
+        fakeStore.credential = credentialA
+        GitHubConnectionCoordinator.accessTokenCache = cacheA
+
+        val snapshotCaptured = CompletableDeferred<Unit>()
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val usedTokens = mutableListOf<String>()
+        val staleResult = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        val newerStatus = GitHubStatus.Connected("bob", "https://github.com/settings/installations/2")
+        GitHubConnectionCoordinator.statusCredentialSnapshotOverride = {
+            snapshotCaptured.complete(Unit)
+            releaseSnapshot.await()
+        }
+        GitHubConnectionCoordinator.statusQueryOverride = { accessToken ->
+            usedTokens += accessToken
+            GitHubResult.Success(staleResult)
+        }
+        val browser = UnavailableBrowserLauncher()
+
+        val connect = async { GitHubConnectionCoordinator.connect(fakeContext, browser) }
+        snapshotCaptured.await()
+        replaceCredentialStateForTest(
+            credential = StoredGitHubCredential("ghr_b", "cap_b", Long.MAX_VALUE),
+            cache = GitHubConnectionCoordinator.AccessTokenCache("gho_b", 60_000L),
+            status = newerStatus,
+        )
+        releaseSnapshot.complete(Unit)
+
+        assertEquals(GitHubResult.Success(newerStatus), connect.await())
+        assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
+        assertEquals(listOf("gho_a"), usedTokens)
+        assertEquals(0, browser.resolveCallCount.get())
+    }
+
+    @Test
+    fun statusRefreshCannotCommitAfterItsCredentialSnapshotIsReplaced() = runBlocking(Dispatchers.IO) {
+        val credentialA = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+        fakeStore.credential = credentialA
+        GitHubConnectionCoordinator.accessTokenCache = null
+
+        val refreshStarted = CompletableDeferred<Pair<String, String>>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val usedTokens = mutableListOf<String>()
+        val newerCredential = StoredGitHubCredential("ghr_b", "cap_b", Long.MAX_VALUE)
+        val newerCache = GitHubConnectionCoordinator.AccessTokenCache("gho_b", 60_000L)
+        val newerStatus = GitHubStatus.Connected("bob", "https://github.com/settings/installations/2")
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, refreshToken, refreshCap ->
+            refreshStarted.complete(refreshToken to refreshCap)
+            releaseRefresh.await()
+            RelayResult.Success(
+                GitHubTokens(
+                    accessToken = "gho_a_rotated",
+                    expiresInSeconds = 3600,
+                    refreshToken = "ghr_a_rotated",
+                    refreshCap = "cap_a_rotated",
+                    refreshTokenExpiresInSeconds = 3600,
+                ),
+            )
+        }
+        GitHubConnectionCoordinator.statusQueryOverride = { accessToken ->
+            usedTokens += accessToken
+            GitHubResult.Success(GitHubStatus.Connected("alice", "unused"))
+        }
+
+        val query = async { GitHubConnectionCoordinator.status(fakeContext) }
+        assertEquals("ghr_a" to "cap_a", refreshStarted.await())
+        replaceCredentialStateForTest(newerCredential, newerCache, newerStatus)
+        releaseRefresh.complete(Unit)
+
+        assertEquals(newerStatus, query.await())
+        assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
+        assertEquals(newerCredential, fakeStore.credential)
+        assertEquals(newerCache, GitHubConnectionCoordinator.accessTokenCache)
+        assertTrue("a stale refresh must not yield an access token to the status query", usedTokens.isEmpty())
     }
 
     @Test
