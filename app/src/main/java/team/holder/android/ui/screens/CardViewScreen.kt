@@ -6,24 +6,28 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,8 +44,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -110,6 +117,12 @@ fun CardViewScreen(
 
     Scaffold(
         topBar = {
+            // Experimental bottom-bar layout: the top row is Back/title/metadata/Overflow only
+            // -- Focus/Tools/Child moved down into a BottomAppBar (see bottomBar below), which
+            // also docks the Edit FAB inside it instead of floating separately. Easy to revert
+            // to the single-row TopAppBar by restoring actions = { Focus, Connections, Add,
+            // overflow Box } here and dropping bottomBar/the Scaffold-level floatingActionButton
+            // swap below.
             if (!focusMode) {
                 TopAppBar(
                     title = {
@@ -131,15 +144,6 @@ fun CardViewScreen(
                     },
                     actions = {
                         val loaded = state as? LoadState.Success
-                        IconButton(onClick = { focusMode = true }) {
-                            Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
-                        }
-                        IconButton(onClick = onConnectionsClick) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
-                        }
-                        IconButton(onClick = onCreateChildCard) {
-                            Icon(Icons.Filled.Add, contentDescription = "New child card")
-                        }
                         Box {
                             IconButton(onClick = { showOverflowMenu = true }, enabled = loaded != null) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = "More options")
@@ -161,11 +165,46 @@ fun CardViewScreen(
                 )
             }
         },
-        floatingActionButton = {
+        bottomBar = {
+            // Slim custom bar (Row + surfaceContainer background, tight vertical padding)
+            // instead of the full-height Material3 BottomAppBar -- matching the bottom
+            // toolbar CardEditScreen already uses for its markdown formatting actions, just
+            // with labels since these are named navigation actions rather than glyph buttons.
+            // Four evenly-weighted labeled actions, no FAB -- matching Google Photos' bottom
+            // bar (Share/Edit/Add to/Bin), rather than singling Edit out as a docked FAB.
             if (!focusMode) {
                 val loaded = state as? LoadState.Success
-                FloatingActionButton(onClick = { loaded?.let { onEdit(it.value) } }) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    CardViewActionButton(
+                        icon = {
+                            Icon(painterResource(R.drawable.ic_fullscreen), contentDescription = "Focus mode")
+                        },
+                        label = "Focus",
+                        onClick = { focusMode = true },
+                    )
+                    CardViewActionButton(
+                        icon = { Icon(painterResource(R.drawable.ic_flask), contentDescription = "Tools") },
+                        label = "Tools",
+                        onClick = onConnectionsClick,
+                    )
+                    CardViewActionButton(
+                        icon = { Icon(Icons.Filled.Add, contentDescription = "New child card") },
+                        label = "Child",
+                        onClick = onCreateChildCard,
+                    )
+                    CardViewActionButton(
+                        icon = { Icon(Icons.Filled.Edit, contentDescription = "Edit") },
+                        label = "Edit",
+                        onClick = { loaded?.let { onEdit(it.value) } },
+                    )
                 }
             }
         },
@@ -185,6 +224,14 @@ fun CardViewScreen(
                 } else {
                     current.value
                 }
+                // Deliberately drops innerPadding's bottom component here -- applying it to this
+                // outer container would reserve a permanently-visible blank strip above the
+                // bottom bar (visible even mid-scroll) instead of letting content scroll behind
+                // the bar's own opaque background, the way Google Docs' bottom bar does. The same
+                // amount is instead applied as trailing space inside the scrollable Column below,
+                // so it becomes scroll distance -- the last line can still clear the bar -- not a
+                // fixed viewport clip.
+                val bottomInset = innerPadding.calculateBottomPadding()
                 // BoxWithConstraints + heightIn(min = ...) + SpaceBetween: when the card is
                 // shorter than the screen, this pushes the connections summary down to the
                 // bottom of the visible area instead of leaving it stranded right under a short
@@ -193,7 +240,11 @@ fun CardViewScreen(
                 // the content, same as before.
                 BoxWithConstraints(
                     modifier = Modifier
-                        .padding(innerPadding)
+                        .padding(
+                            start = innerPadding.calculateStartPadding(LocalLayoutDirection.current),
+                            top = innerPadding.calculateTopPadding(),
+                            end = innerPadding.calculateEndPadding(LocalLayoutDirection.current),
+                        )
                         .padding(16.dp),
                 ) {
                     val minHeight = maxHeight
@@ -201,7 +252,8 @@ fun CardViewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = minHeight)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = bottomInset),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         HolderMarkdownViewer(
@@ -253,6 +305,24 @@ fun CardViewScreen(
                 TextButton(enabled = !isDeleting, onClick = { showDeleteDialog = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** A labeled icon action for the card viewer's second toolbar row -- min 72dp wide with 8dp
+ * vertical padding around icon+label, so the combined touch target stays comfortably above
+ * Android's 48dp minimum even though the visible icon itself is smaller. */
+@Composable
+private fun CardViewActionButton(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .widthIn(min = 64.dp)
+            .padding(vertical = 4.dp),
+    ) {
+        icon()
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
