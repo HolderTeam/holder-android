@@ -610,11 +610,15 @@ object GitHubConnectionCoordinator {
             return when (refreshResult) {
                 is RelayResult.Success -> {
                     val committed = credentialMutationMutex.withLock {
-                        // Independent of epoch: only commit if the stored refresh_token still
-                        // equals the one just spent -- guards against committing a refresh
-                        // whose credential was superseded (disconnect(), a fresh connect())
-                        // while the relay call was in flight.
-                        if (credentialStore.get(appContext)?.refreshToken != refreshToken) {
+                        // The refresh snapshot's generation AND credential must still be
+                        // current. Token equality alone can accept a pre-supersession refresh
+                        // when the same token happens to be present in a later generation.
+                        if (!refreshSnapshotStillCurrent(
+                                snapshot = snapshot,
+                                currentEpoch = credentialEpoch.get(),
+                                currentCredential = credentialStore.get(appContext),
+                            )
+                        ) {
                             false
                         } else {
                             val tokens = refreshResult.tokens
@@ -653,6 +657,17 @@ object GitHubConnectionCoordinator {
         clearStoredCredential(appContext)
         return GitHubResult.Failure(GitHubError.AuthorizationRequired)
     }
+
+    /** The refresh commit boundary is deliberately stricter than refresh-token equality. An
+     * epoch transition is a supersession boundary even if a later record happens to carry the
+     * same token text. Kept internal so the exact stale-snapshot rule has a JVM regression. */
+    internal fun refreshSnapshotStillCurrent(
+        snapshot: CredentialStateSnapshot,
+        currentEpoch: Long,
+        currentCredential: StoredGitHubCredential?,
+    ): Boolean =
+        snapshot.epoch == currentEpoch &&
+            snapshot.credential == currentCredential
 
     /** A definite authorization rejection is represented either as the status result reached
      * after a cached token, or directly as refresh's typed error before status can run. Both

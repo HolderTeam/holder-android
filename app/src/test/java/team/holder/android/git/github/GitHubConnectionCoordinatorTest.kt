@@ -223,6 +223,31 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
+    fun refreshCommitRejectsASnapshotFromAnOlderEpochEvenWhenTheTokenMatches() {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        val snapshot = GitHubConnectionCoordinator.CredentialStateSnapshot(
+            epoch = 12L,
+            credential = credential,
+            accessTokenCache = null,
+        )
+
+        assertTrue(
+            GitHubConnectionCoordinator.refreshSnapshotStillCurrent(
+                snapshot = snapshot,
+                currentEpoch = 12L,
+                currentCredential = credential,
+            ),
+        )
+        assertTrue(
+            !GitHubConnectionCoordinator.refreshSnapshotStillCurrent(
+                snapshot = snapshot,
+                currentEpoch = 13L,
+                currentCredential = credential,
+            ),
+        )
+    }
+
+    @Test
     fun disconnect_clearsTheStoredCredential() = runBlocking {
         fakeStore.credential = StoredGitHubCredential("ghr_sometoken", "somecap", 1L)
 
