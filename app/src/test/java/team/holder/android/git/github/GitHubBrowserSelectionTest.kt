@@ -14,17 +14,24 @@ class GitHubBrowserSelectionTest {
 
     @Test
     fun pendingAuthTabForcesTheNextAttemptToUseCustomTab() {
+        val requested = GitHubConnectionCoordinator.BrowserLaunch(
+            GitHubConnectionCoordinator.LaunchKind.AuthTab,
+            "org.example.browser",
+        )
         assertEquals(
-            GitHubConnectionCoordinator.LaunchKind.CustomTab,
-            GitHubActivityBrowserLauncher.customTabsLaunchKind(
-                authTabSupported = true,
+            GitHubConnectionCoordinator.BrowserLaunch(
+                GitHubConnectionCoordinator.LaunchKind.CustomTab,
+                "org.example.browser",
+            ),
+            GitHubConnectionCoordinator.browserLaunchWithOutstandingAuthTab(
+                requested = requested,
                 hasOutstandingAuthTab = true,
             ),
         )
         assertEquals(
-            GitHubConnectionCoordinator.LaunchKind.AuthTab,
-            GitHubActivityBrowserLauncher.customTabsLaunchKind(
-                authTabSupported = true,
+            requested,
+            GitHubConnectionCoordinator.browserLaunchWithOutstandingAuthTab(
+                requested = requested,
                 hasOutstandingAuthTab = false,
             ),
         )

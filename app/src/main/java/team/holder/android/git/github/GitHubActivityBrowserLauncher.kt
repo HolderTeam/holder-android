@@ -17,14 +17,13 @@ import java.util.UUID
  * of. [authTabLauncher] must be registered unconditionally, as an Activity field initializer
  * (see `MainActivity`) -- never created conditionally inside a Composable, matching the "at
  * most one unresolved AuthTabIntent launch per registration, ever" policy the coordinator's
- * own design relies on. [setOutstandingAttemptId] persists onto the Activity's own SavedState
- * (see `MainActivity.onSaveInstanceState`) -- the same lifecycle boundary
- * `ActivityResultRegistry` itself uses to restore its own outstanding-launch bookkeeping.
+ * own design relies on. [setOutstandingAttemptId] persists only a non-secret mirror onto the
+ * Activity's SavedState (see `MainActivity.onSaveInstanceState`); the coordinator owns the
+ * authoritative attempt marker and restores this mirror solely to discard stale OS results.
  */
 internal class GitHubActivityBrowserLauncher(
     private val authTabLauncher: ActivityResultLauncher<Intent>,
     private val setOutstandingAttemptId: (UUID?) -> Unit,
-    private val hasOutstandingAuthTab: () -> Boolean,
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
 
     override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
@@ -33,12 +32,11 @@ internal class GitHubActivityBrowserLauncher(
         val customTabsPackage = CustomTabsClient.getPackageName(context, null, false)
         if (customTabsPackage != null) {
             val authTabSupported = CustomTabsClient.isAuthTabSupported(context, customTabsPackage)
-            val authTabOutstanding = hasOutstandingAuthTab()
-            val launchKind = customTabsLaunchKind(authTabSupported, authTabOutstanding)
+            val launchKind = customTabsLaunchKind(authTabSupported)
             Log.d(
                 "GitHubConnection",
                 "resolveBrowser: provider=$customTabsPackage isAuthTabSupported=$authTabSupported " +
-                    "hasOutstandingAuthTab=$authTabOutstanding -> $launchKind",
+                    "requestedLaunch=$launchKind",
             )
             return GitHubConnectionCoordinator.BrowserLaunch(launchKind, customTabsPackage)
         }
@@ -105,11 +103,8 @@ internal class GitHubActivityBrowserLauncher(
     internal companion object {
         /** Never launch a second Auth Tab through the same result registration. Its old result
          * could otherwise consume the newer attempt's marker. */
-        fun customTabsLaunchKind(
-            authTabSupported: Boolean,
-            hasOutstandingAuthTab: Boolean,
-        ): GitHubConnectionCoordinator.LaunchKind =
-            if (authTabSupported && !hasOutstandingAuthTab) {
+        fun customTabsLaunchKind(authTabSupported: Boolean): GitHubConnectionCoordinator.LaunchKind =
+            if (authTabSupported) {
                 GitHubConnectionCoordinator.LaunchKind.AuthTab
             } else {
                 GitHubConnectionCoordinator.LaunchKind.CustomTab

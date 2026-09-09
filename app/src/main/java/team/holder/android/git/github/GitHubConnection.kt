@@ -62,12 +62,16 @@ object GitHubConnection {
      * doesn't match a currently-pending attempt. */
     suspend fun handleOAuthCallbackUri(uri: Uri) = GitHubConnectionCoordinator.handleOAuthCallbackUri(uri)
 
-    /** Forward an Auth Tab result here from the `ActivityResultLauncher`'s own callback.
-     * [consumeOutstandingAttemptId] must read-and-clear the launching Activity's own
-     * SavedState-persisted attempt id -- see [GitHubConnectionCoordinator.GitHubBrowserLauncher]'s
-     * doc comment for why this specific mechanism, not DataStore. */
-    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, consumeOutstandingAttemptId: () -> UUID?) =
-        GitHubConnectionCoordinator.handleAuthTabResult(result, consumeOutstandingAttemptId)
+    /** Forward an Auth Tab result here from the `ActivityResultLauncher` callback. The
+     * Activity clears its SavedState mirror, while the coordinator alone consumes the
+     * authoritative outstanding-attempt marker. */
+    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, clearPersistedOutstandingAttemptId: () -> Unit) =
+        GitHubConnectionCoordinator.handleAuthTabResult(result, clearPersistedOutstandingAttemptId)
+
+    /** Restore only the Activity's non-secret Auth Tab marker after recreation/process death.
+     * The coordinator treats it as an unresolved OS result, never as OAuth authority. */
+    fun restoreAuthTabOutstandingAttemptId(attemptId: UUID?) =
+        GitHubConnectionCoordinator.restoreAuthTabOutstandingAttemptId(attemptId)
 
     /** Generates a fresh `install_state` and sends the user to the installation flow -- call
      * before opening `.../installations/new?state=<returned value>`. */

@@ -77,13 +77,10 @@ class MainActivity : ComponentActivity() {
     // writable from onNewIntent, which runs outside the setContent{} composition entirely.
     private var pendingRecoveryToken by mutableStateOf<String?>(null)
 
-    // The bare, non-secret attempt id an outstanding AuthTabIntent launch is waiting on -- the
-    // one piece of GitHubConnectionCoordinator's OAuth state that's allowed to survive process
-    // death, via this Activity's own SavedState (the same lifecycle boundary
-    // ActivityResultRegistry itself uses to restore its own outstanding-launch bookkeeping; see
-    // GitHubActivityBrowserLauncher's doc comment for why not DataStore). A plain field, not
-    // Compose state -- restored in onCreate below, saved in onSaveInstanceState, read/written
-    // from GitHubActivityBrowserLauncher's callback-injected accessors, never from Compose.
+    // A non-secret SavedState mirror of the coordinator-owned unresolved Auth Tab marker. It
+    // survives process death only so a restored stale result is discarded and a fresh Auth Tab
+    // is not launched through the same registration first; it is never OAuth authority. A
+    // plain field, not Compose state -- restored/saved at the ActivityResult lifecycle edge.
     @Volatile
     private var authTabOutstandingAttemptId: String? = null
 
@@ -94,7 +91,7 @@ class MainActivity : ComponentActivity() {
     // relies on to disambiguate a late result).
     private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result ->
         GitHubConnection.handleAuthTabResult(result) {
-            authTabOutstandingAttemptId?.let(UUID::fromString).also { authTabOutstandingAttemptId = null }
+            authTabOutstandingAttemptId = null
         }
     }
 
@@ -103,12 +100,14 @@ class MainActivity : ComponentActivity() {
         setOutstandingAttemptId = { attemptId ->
             authTabOutstandingAttemptId = attemptId?.toString()
         },
-        hasOutstandingAuthTab = { authTabOutstandingAttemptId != null },
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         authTabOutstandingAttemptId = savedInstanceState?.getString(KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID)
+        GitHubConnection.restoreAuthTabOutstandingAttemptId(
+            authTabOutstandingAttemptId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+        )
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
         handleGitHubIntent(intent)
 

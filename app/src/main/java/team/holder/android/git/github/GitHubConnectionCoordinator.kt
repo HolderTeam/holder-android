@@ -54,6 +54,10 @@ object GitHubConnectionCoordinator {
     private val connectStateMutex = Mutex()
     private var pendingOAuth: PendingOAuth? = null
     private var connectInFlight: ConnectOperation? = null
+    /** The authoritative process-local marker for the one OS Auth Tab result registration.
+     * MainActivity keeps only a non-secret SavedState mirror so a process-death result can be
+     * discarded safely rather than being mistaken for a fresh attempt. */
+    private var authTabOutstandingAttemptId: UUID? = null
     private var pendingInstallationReturn: PendingInstallationReturn? = null
 
     // ---- credential concern ----
@@ -274,8 +278,8 @@ object GitHubConnectionCoordinator {
             if (!clearCredentialForConnectOperation(appContext, attemptId)) return
         }
 
-        val browserLaunch = browserLauncher.resolveBrowser(appContext)
-        if (browserLaunch == null) {
+        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext)
+        if (requestedBrowserLaunch == null) {
             finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
             return
         }
@@ -284,17 +288,24 @@ object GitHubConnectionCoordinator {
         val codeVerifier = GitHubPkce.generateCodeVerifier()
         val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
         val callbackOutcome = CompletableDeferred<CallbackOutcome>()
-        connectStateMutex.withLock {
+        val browserLaunch = connectStateMutex.withLock {
+            if (connectInFlight?.attemptId != attemptId) return@withLock null
+            val actualLaunch = browserLaunchWithOutstandingAuthTab(requestedBrowserLaunch, authTabOutstandingAttemptId != null)
             pendingOAuth = PendingOAuth(
                 attemptId = attemptId,
                 state = state,
                 codeVerifier = codeVerifier,
                 redirectUri = GitHubEnvironment.OAUTH_CALLBACK_URL,
                 startedAtMonotonic = SystemClock.elapsedRealtime(),
-                launchKind = browserLaunch.kind,
+                launchKind = actualLaunch.kind,
                 callbackOutcome = callbackOutcome,
             )
+            if (actualLaunch.kind == LaunchKind.AuthTab) authTabOutstandingAttemptId = attemptId
+            actualLaunch
         }
+        // A disconnected/superseded worker can reach this point after its launcher lookup.
+        // It must not launch a browser or overwrite the currently-owned transaction.
+        if (browserLaunch == null) return
 
         val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
         // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
@@ -806,31 +817,42 @@ object GitHubConnectionCoordinator {
         return ParsedOAuthCallback(states.single(), codes.singleOrNull(), errors.singleOrNull())
     }
 
-    /** [consumeOutstandingAttemptId] reads-and-clears the SavedState-persisted
-     * `authTabOutstandingAttemptId` -- called for *every* AuthTab result, matching or not (see
-     * the plan's "atomically reads and clears... for *any* result"); only the non-OK branch
-     * actually uses the returned id as a matching key, since a non-OK result carries no URI/
-     * state to check against `pendingOAuth` directly. */
-    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, consumeOutstandingAttemptId: () -> UUID?) {
-        val resolvedId = consumeOutstandingAttemptId()
-        if (result.resultCode == AuthTabIntent.RESULT_OK) {
-            val resultUri = result.resultUri ?: return
-            coordinatorScope.launch { handleOAuthCallbackUri(resultUri) }
-            return
-        }
-        if (resolvedId == null) return
-        val outcome = if (result.resultCode == AuthTabIntent.RESULT_CANCELED) {
-            CallbackOutcome.AuthTabCancelled
-        } else {
-            CallbackOutcome.AuthTabVerificationFailed
-        }
+    /** Every Auth Tab result clears the Activity's SavedState mirror, then consumes the
+     * coordinator-owned marker under the same mutex that owns pending OAuth. The mirror is
+     * never used as authority for deciding which attempt a late result may affect. */
+    fun handleAuthTabResult(result: AuthTabIntent.AuthResult, clearPersistedOutstandingAttemptId: () -> Unit) {
+        clearPersistedOutstandingAttemptId()
         coordinatorScope.launch {
+            val resolvedId = connectStateMutex.withLock {
+                authTabOutstandingAttemptId.also { authTabOutstandingAttemptId = null }
+            } ?: return@launch
+            if (result.resultCode == AuthTabIntent.RESULT_OK) {
+                result.resultUri?.let { handleOAuthCallbackUri(it) }
+                return@launch
+            }
+            val outcome = if (result.resultCode == AuthTabIntent.RESULT_CANCELED) {
+                CallbackOutcome.AuthTabCancelled
+            } else {
+                CallbackOutcome.AuthTabVerificationFailed
+            }
             connectStateMutex.withLock {
                 val current = pendingOAuth
                 if (current != null && current.attemptId == resolvedId) {
                     current.callbackOutcome.complete(outcome)
                 }
                 // else: discard -- current pendingOAuth (whatever it is) left untouched.
+            }
+        }
+    }
+
+    /** Restores only the non-secret Activity marker after process death. There is no pending
+     * OAuth in a new process, so any result carrying it is discarded; its presence merely
+     * prevents a fresh Auth Tab from sharing the same launcher registration first. */
+    fun restoreAuthTabOutstandingAttemptId(attemptId: UUID?) {
+        if (attemptId == null) return
+        coordinatorScope.launch {
+            connectStateMutex.withLock {
+                if (authTabOutstandingAttemptId == null) authTabOutstandingAttemptId = attemptId
             }
         }
     }
@@ -868,6 +890,18 @@ object GitHubConnectionCoordinator {
     // ================= Browser launch abstraction (UI-layer injected) =================
 
     enum class LaunchKind { AuthTab, CustomTab, ExternalBrowser }
+
+    /** Auth Tab result registration is single-use until its result is consumed. The fallback
+     * stays on the same pinned Custom Tabs provider but returns through the App Link path. */
+    internal fun browserLaunchWithOutstandingAuthTab(
+        requested: BrowserLaunch,
+        hasOutstandingAuthTab: Boolean,
+    ): BrowserLaunch =
+        if (requested.kind == LaunchKind.AuthTab && hasOutstandingAuthTab) {
+            requested.copy(kind = LaunchKind.CustomTab)
+        } else {
+            requested
+        }
 
     internal fun isCancellableBrowserLaunch(kind: LaunchKind): Boolean =
         kind == LaunchKind.CustomTab || kind == LaunchKind.ExternalBrowser
