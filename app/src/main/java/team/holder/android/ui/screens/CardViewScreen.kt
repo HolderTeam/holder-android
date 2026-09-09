@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,7 +73,6 @@ fun CardViewScreen(
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
     onConnectionsClick: () -> Unit,
-    onHistoryClick: () -> Unit,
     onCreateChildCard: () -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
@@ -138,9 +136,6 @@ fun CardViewScreen(
                         }
                         IconButton(onClick = onConnectionsClick) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Connections")
-                        }
-                        IconButton(onClick = onHistoryClick) {
-                            Icon(Icons.Filled.History, contentDescription = "History")
                         }
                         IconButton(onClick = onCreateChildCard) {
                             Icon(Icons.Filled.Add, contentDescription = "New child card")

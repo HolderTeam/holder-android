@@ -439,9 +439,6 @@ private fun HolderNavHost(
                 onConnectionsClick = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections")
                 },
-                onHistoryClick = {
-                    navController.navigate("projects/$projectId/cards/$cardId/history")
-                },
                 onCreateChildCard = {
                     saveError = null
                     pendingParentCardId = cardId
@@ -485,6 +482,9 @@ private fun HolderNavHost(
                 },
                 onAddMilestone = {
                     navController.navigate("projects/$projectId/cards/$cardId/milestones/add")
+                },
+                onHistoryClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/history")
                 },
                 onNavigateToCard = { targetCardId, title ->
                     selectedCardTitle = title
