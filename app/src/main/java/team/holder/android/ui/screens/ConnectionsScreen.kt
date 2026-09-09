@@ -6,15 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -37,45 +34,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import team.holder.android.HolderBacklink
 import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
-import team.holder.android.HolderMilestone
 import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
-import team.holder.android.R
-import team.holder.android.resource.openResourceExternally
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.cardSequenceLinks
-import team.holder.android.ui.markdown.ResourceAttachmentKind
-import team.holder.android.ui.markdown.ResourceImage
-import team.holder.android.ui.markdown.ResourceImageViewerDialog
-import team.holder.android.ui.markdown.rememberResourceAttachmentKind
-
-private val CARD_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
-private val CARD_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
-private val MILESTONE_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy").withZone(ZoneId.systemDefault())
-private val MILESTONE_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
 /**
- * "About this card": its own created/updated timestamps, plus its connections -- hierarchy
+ * The full relationship editor, reached from the Tools dashboard's Connections tile: hierarchy
  * (parent/children, shown automatically like desktop Holder's Connections tool) and explicit
  * front-matter links, with add/remove for outgoing links. Parent/children and backlinks are
  * read-only here -- hierarchy moves through parent_card_id (not this screen), and a backlink's
@@ -89,19 +67,13 @@ fun ConnectionsScreen(
     cardTitle: String,
     refreshKey: Any,
     onAddConnection: () -> Unit,
-    onAddMilestone: () -> Unit,
-    onHistoryClick: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
 ) {
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
     var allCards by remember(cardId) { mutableStateOf<List<HolderCard>>(emptyList()) }
-    var milestones by remember(cardId) { mutableStateOf<List<HolderMilestone>>(emptyList()) }
     var menuOpenFor by remember { mutableStateOf<String?>(null) }
-    var milestoneMenuOpenFor by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<HolderOutgoingLink?>(null) }
-    var pendingRemoveMilestone by remember { mutableStateOf<HolderMilestone?>(null) }
-    var viewerAttachment by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     // Guards remove against double-tap, same rationale as other screens' isSubmitting.
     var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -115,19 +87,11 @@ fun ConnectionsScreen(
         )
     }
 
-    suspend fun refreshMilestones() {
-        milestones = runCatching {
-            withContext(Dispatchers.IO) { HolderNative.listCardMilestones(cardId) }
-        }.getOrDefault(emptyList())
-    }
-
     LaunchedEffect(cardId, refreshKey) { refresh() }
-    LaunchedEffect(cardId, refreshKey) { refreshMilestones() }
 
-    // There's no single-card fetch, so the dates and the Next/Previous/Follows/Precedes rows
-    // below all piggyback on the project's full list -- same approach CardViewScreen's
-    // ConnectionsSummary uses. Failing just leaves those rows off rather than blocking the
-    // rest of the screen.
+    // There's no single-card fetch, so the Next/Previous/Follows/Precedes rows below piggyback
+    // on the project's full list -- same approach CardViewScreen's ConnectionsSummary uses.
+    // Failing just leaves those rows off rather than blocking the rest of the screen.
     LaunchedEffect(cardId, projectId, refreshKey) {
         allCards = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
@@ -147,21 +111,6 @@ fun ConnectionsScreen(
         }
     }
 
-    fun removeMilestone(milestone: HolderMilestone) {
-        if (isSubmitting) return
-        isSubmitting = true
-        pendingRemoveMilestone = null
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    HolderNative.removeCardMilestone(cardId, milestone.milestoneId)
-                }
-            }
-            isSubmitting = false
-            refreshMilestones()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -169,7 +118,7 @@ fun ConnectionsScreen(
                     Column {
                         Text(cardTitle.ifEmpty { "Card" })
                         Text(
-                            "About this card",
+                            "Connections",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -178,14 +127,6 @@ fun ConnectionsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onAddMilestone) {
-                        Icon(Icons.Filled.DateRange, contentDescription = "Add milestone")
-                    }
-                    IconButton(onClick = onHistoryClick) {
-                        Icon(Icons.Filled.History, contentDescription = "History")
                     }
                 },
             )
@@ -205,58 +146,14 @@ fun ConnectionsScreen(
                     val links = state.value
                     val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
                     // Excludes "resource" links (a photo attached via the toolbar's structural
-                    // attachment record) -- there's no card to navigate to or manage here; the
-                    // image is already visible inline in the body.
+                    // attachment record) -- those live on the Tools dashboard's Resources tile
+                    // instead, since there's no card to navigate to or manage here.
                     val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
-                    val attachments = links.outgoing.filter { it.toType == "resource" }
                     val noConnections = links.parent == null && links.children.isEmpty() &&
                         navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
                         sequence.next == null && sequence.previous == null &&
                         sequence.follows == null && sequence.precedes == null
                     LazyColumn(modifier = Modifier.padding(innerPadding)) {
-                        allCards.find { it.cardId == cardId }?.let { CardDates(it) }
-                        if (milestones.isNotEmpty()) {
-                            item { SectionHeader("Milestones") }
-                            items(milestones, key = { "milestone:${it.milestoneId}" }) { milestone ->
-                                Box {
-                                    ListItem(
-                                        headlineContent = {
-                                            Text(
-                                                milestoneHeadline(
-                                                    milestone = milestone,
-                                                    primary = MaterialTheme.colorScheme.primary,
-                                                    muted = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                ),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = {},
-                                            onLongClick = { milestoneMenuOpenFor = milestone.milestoneId },
-                                        ),
-                                    )
-                                    DropdownMenu(
-                                        expanded = milestoneMenuOpenFor == milestone.milestoneId,
-                                        onDismissRequest = { milestoneMenuOpenFor = null },
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Remove") },
-                                            onClick = {
-                                                milestoneMenuOpenFor = null
-                                                pendingRemoveMilestone = milestone
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (attachments.isNotEmpty()) {
-                            item { SectionHeader("Attachments") }
-                            items(attachments, key = { "attachment:${it.toCardId}" }) { link ->
-                                AttachmentRow(link = link, onOpenImage = { viewerAttachment = link })
-                            }
-                        }
                         if (noConnections) {
                             item {
                                 Text(
@@ -383,106 +280,6 @@ fun ConnectionsScreen(
             },
         )
     }
-
-    pendingRemoveMilestone?.let { milestone ->
-        AlertDialog(
-            onDismissRequest = { pendingRemoveMilestone = null },
-            title = { Text("Remove this milestone?") },
-            confirmButton = {
-                TextButton(onClick = { removeMilestone(milestone) }) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRemoveMilestone = null }) { Text("Cancel") }
-            },
-        )
-    }
-
-    viewerAttachment?.let { link ->
-        ResourceImageViewerDialog(
-            resourceId = link.toCardId,
-            altText = link.label ?: "Photo",
-            onDismiss = { viewerAttachment = null },
-        )
-    }
-}
-
-/** Created always shows; Updated only shows once it actually diverges from Created -- a
- * never-edited card would otherwise display the same instant twice. */
-private fun LazyListScope.CardDates(card: HolderCard) {
-    item { DateRow(label = "Created", epochSeconds = card.createdAt) }
-    if (card.updatedAt != card.createdAt) {
-        item { DateRow(label = "Updated", epochSeconds = card.updatedAt) }
-    }
-}
-
-@Composable
-private fun DateRow(label: String, epochSeconds: Long) {
-    Text(
-        dateHeadline(
-            label = label,
-            epochSeconds = epochSeconds,
-            primary = MaterialTheme.colorScheme.primary,
-            muted = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-}
-
-/** A single Attachments-list row: an image thumbnail (tap opens the full-screen viewer,
- * via [onOpenImage]) or a generic file icon (tap opens externally, via
- * [team.holder.android.resource.openResourceExternally]) -- decided the same way
- * [team.holder.android.ui.markdown.ResourceAttachment] decides it for an inline body
- * reference, by the Resource's own recorded media type, not by guesswork. */
-@Composable
-private fun AttachmentRow(link: HolderOutgoingLink, onOpenImage: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var openError by remember(link.toCardId) { mutableStateOf<String?>(null) }
-    val displayName = link.label ?: "Attachment"
-    val kind = rememberResourceAttachmentKind(link.toCardId, displayName)
-
-    Column {
-        ListItem(
-            leadingContent = {
-                if (kind is ResourceAttachmentKind.Image) {
-                    ResourceImage(
-                        resourceId = link.toCardId,
-                        altText = displayName,
-                        modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
-                    )
-                } else {
-                    Icon(
-                        painterResource(R.drawable.ic_file),
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp).padding(8.dp),
-                    )
-                }
-            },
-            headlineContent = { Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            modifier = Modifier.combinedClickable(
-                onClick = {
-                    if (kind is ResourceAttachmentKind.Image) {
-                        onOpenImage()
-                    } else {
-                        openError = null
-                        scope.launch {
-                            runCatching { openResourceExternally(context, link.toCardId) }
-                                .onFailure { failure -> openError = failure.message ?: failure::class.java.simpleName }
-                        }
-                    }
-                },
-                onLongClick = {},
-            ),
-        )
-        openError?.let { message ->
-            Text(
-                text = "Couldn't open \"$displayName\": $message",
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-            )
-        }
-    }
 }
 
 /** A single-line "Label: Title" row (e.g. "Next: Finish The Split") for connections that carry
@@ -535,53 +332,3 @@ private fun connectionHeadline(kindLabel: String, title: String, label: String?,
         }
     }
 
-/** "Created Mar 4, 2025 · 14:34:07" -- the date carries the same weight as a connection's
- * title, with the time tacked on muted since the exact second rarely matters, but is there
- * for the rare case (a field note, a timestamped observation) where it does. */
-private fun dateHeadline(label: String, epochSeconds: Long, primary: Color, muted: Color): AnnotatedString {
-    val instant = Instant.ofEpochSecond(epochSeconds)
-    return buildAnnotatedString {
-        withStyle(SpanStyle(color = primary)) { append(label) }
-        append(" ")
-        append(CARD_DATE_FORMAT.format(instant))
-        withStyle(SpanStyle(color = muted)) {
-            append(" · ")
-            append(CARD_TIME_FORMAT.format(instant))
-        }
-    }
-}
-
-/** "Sep 25, 2026" for an all-day milestone, "Sep 25, 2026 09:30" otherwise; with an end, appends
- * just the end time when it's the same day ("09:30 - 11:00") or the full end date otherwise. */
-private fun formatMilestoneWhen(milestone: HolderMilestone): String {
-    val start = Instant.ofEpochSecond(milestone.startAt)
-    val startDate = MILESTONE_DATE_FORMAT.format(start)
-    val startText = if (milestone.allDay) startDate else "$startDate ${MILESTONE_TIME_FORMAT.format(start)}"
-    val endAt = milestone.endAt ?: return startText
-    val end = Instant.ofEpochSecond(endAt)
-    val endDate = MILESTONE_DATE_FORMAT.format(end)
-    return if (milestone.allDay) {
-        if (endDate == startDate) startDate else "$startDate - $endDate"
-    } else {
-        val endTime = MILESTONE_TIME_FORMAT.format(end)
-        if (endDate == startDate) "$startText - $endTime" else "$startText - $endDate $endTime"
-    }
-}
-
-/** "Renewal: Sep 25, 2026 · Car insurance renewal" -- same label/value/muted-annotation grammar
- * as connectionHeadline, with kind as the label (falling back to a generic "Milestone" when
- * unset) and the formatted date/time as the value. */
-private fun milestoneHeadline(milestone: HolderMilestone, primary: Color, muted: Color) =
-    buildAnnotatedString {
-        withStyle(SpanStyle(color = primary)) {
-            append(milestone.kind?.takeIf { it.isNotBlank() } ?: "Milestone")
-        }
-        append(": ")
-        append(formatMilestoneWhen(milestone))
-        if (!milestone.description.isNullOrBlank()) {
-            withStyle(SpanStyle(color = muted)) {
-                append(" · ")
-                append(milestone.description)
-            }
-        }
-    }

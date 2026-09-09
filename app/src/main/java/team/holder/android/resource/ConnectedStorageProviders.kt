@@ -8,7 +8,7 @@ import team.holder.android.resource.s3.S3Connection
 /**
  * Routes an attach flow's "ensure I have a Location to write into" step to whichever connected
  * storage provider it's asked for, by provider id -- the one place a new provider (S3, WebDAV,
- * ...) gets wired into attaching, instead of callers like [attachPickedPhoto] hard-coding a
+ * ...) gets wired into attaching, instead of callers like [attachPickedFile] hard-coding a
  * single provider by construction. See RESOURCE_STORAGE_ROADMAP.md's step 1.
  *
  * Each entry's connect-if-needed semantics (OAuth consent, a pasted credential, ...) belong to

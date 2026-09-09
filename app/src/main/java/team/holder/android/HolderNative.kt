@@ -424,6 +424,7 @@ object HolderNative {
     private external fun nativeCardListTags(contextHandle: Long, cardId: String): String
     private external fun nativeCardTagAdd(contextHandle: Long, cardId: String, tag: String): Int
     private external fun nativeCardTagRemove(contextHandle: Long, cardId: String, tag: String): Int
+    private external fun nativeCardListEditableTags(contextHandle: Long, cardId: String): String
     private external fun nativeCardsWithTag(contextHandle: Long, projectId: String, tag: String): String
     private external fun nativeProjectListTags(contextHandle: Long, projectId: String): String
     private external fun nativeCardListMilestones(contextHandle: Long, cardId: String): String
@@ -822,6 +823,16 @@ object HolderNative {
             2 -> RemoveTagResult.PRESENT_OUTSIDE_EDITABLE_TAG_LINE // HOLDER_TAG_REMOVE_PRESENT_OUTSIDE_EDITABLE_TAG_LINE
             else -> error("unexpected remove_tag status")
         }
+
+    /** The subset of cardId's tags that removeCardTag can actually remove -- those on the
+     * card's trailing tag line. A tag can be in this list and still occur in prose elsewhere;
+     * removing it still succeeds, but the card remains tagged either way. Callers should use
+     * this to show a remove control only where it will work, rather than offering one on every
+     * tag uniformly. */
+    fun listEditableCardTags(cardId: String): List<String> {
+        val tags = JSONArray(nativeCardListEditableTags(requireContext(), cardId))
+        return List(tags.length()) { index -> tags.getString(index) }
+    }
 
     /** Cards in projectId carrying tag (case-insensitive). */
     fun cardsWithTag(projectId: String, tag: String): List<HolderCardRef> {

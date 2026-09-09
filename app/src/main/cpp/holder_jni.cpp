@@ -938,6 +938,34 @@ Java_team_holder_android_HolderNative_nativeCardTagRemove(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardListEditableTags(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring card_id
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars card_id_chars(env, card_id);
+  if (card_id_chars.get() == nullptr) {
+    throw_runtime(env, "card_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_list_editable_tags(context, card_id_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeCardsWithTag(
     JNIEnv* env,
     jobject /* thiz */,

@@ -49,6 +49,7 @@ import team.holder.android.ui.screens.DiagnosticsSettingsScreen
 import team.holder.android.ui.screens.EditorSettingsScreen
 import team.holder.android.ui.screens.GitSyncScreen
 import team.holder.android.ui.screens.ProjectListScreen
+import team.holder.android.ui.screens.ResourcesScreen
 import team.holder.android.resource.drive.GoogleDriveConnection
 import team.holder.android.resource.s3.S3Connection
 import team.holder.android.ui.screens.RecoverProjectScreen
@@ -57,6 +58,7 @@ import team.holder.android.ui.screens.SettingsScreen
 import team.holder.android.ui.screens.StorageSettingsScreen
 import team.holder.android.ui.screens.SyncSettingsScreen
 import team.holder.android.ui.screens.TagResultsScreen
+import team.holder.android.ui.screens.ToolsScreen
 import team.holder.android.ui.screens.TrashScreen
 import team.holder.android.ui.theme.HolderTheme
 import java.io.File
@@ -458,6 +460,45 @@ private fun HolderNavHost(
         composable("projects/{projectId}/cards/{cardId}/connections") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            ToolsScreen(
+                cardId = cardId,
+                projectId = projectId,
+                cardTitle = selectedCardTitle,
+                refreshKey = connectionsRefreshKey,
+                onNavigateToCard = { targetCardId, title ->
+                    selectedCardTitle = title
+                    cardViewRefreshKey++
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$targetCardId")
+                },
+                onConnectionsClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/connections/detail")
+                },
+                onResourcesClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/resources")
+                },
+                onMilestonesClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/calendar")
+                },
+                onHistoryClick = {
+                    navController.navigate("projects/$projectId/cards/$cardId/history")
+                },
+                onTagClick = { tag ->
+                    navController.navigate("projects/$projectId/tags/${URLEncoder.encode(tag, "UTF-8")}")
+                },
+                onBack = {
+                    // Refreshes CardViewScreen's connections summary in case a connection,
+                    // resource, or milestone was added or removed somewhere under Tools -- it
+                    // doesn't otherwise notice since it stays on the back stack rather than
+                    // recomposing from scratch.
+                    cardViewRefreshKey++
+                    navController.popBackStack()
+                },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/connections/detail") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
             ConnectionsScreen(
                 cardId = cardId,
                 projectId = projectId,
@@ -466,24 +507,48 @@ private fun HolderNavHost(
                 onAddConnection = {
                     navController.navigate("projects/$projectId/cards/$cardId/connections/add")
                 },
-                onAddMilestone = {
-                    navController.navigate("projects/$projectId/cards/$cardId/milestones/add")
-                },
-                onHistoryClick = {
-                    navController.navigate("projects/$projectId/cards/$cardId/history")
-                },
                 onNavigateToCard = { targetCardId, title ->
                     selectedCardTitle = title
                     cardViewRefreshKey++
                     cardListRefreshKey++
                     navController.navigate("projects/$projectId/cards/$targetCardId")
                 },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/resources") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            ResourcesScreen(
+                projectId = projectId,
+                cardId = cardId,
+                cardTitle = selectedCardTitle,
+                refreshKey = connectionsRefreshKey,
                 onBack = {
-                    // Refreshes CardViewScreen's connections summary in case a connection was
-                    // added or removed here -- it doesn't otherwise notice since it stays on
-                    // the back stack rather than recomposing from scratch.
-                    cardViewRefreshKey++
+                    // Same reasoning as ToolsScreen's onBack: an attach here wouldn't otherwise
+                    // be noticed by the Tools dashboard or CardViewScreen sitting below on the
+                    // back stack.
+                    connectionsRefreshKey++
                     navController.popBackStack()
+                },
+            )
+        }
+        composable("projects/{projectId}/cards/{cardId}/calendar") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            CalendarScreen(
+                projectId = projectId,
+                // Bumped whenever AddMilestoneScreen saves -- the main way this screen's data
+                // goes stale from elsewhere; its own remove flow refreshes itself directly.
+                refreshKey = connectionsRefreshKey,
+                onNavigateToCard = { targetCardId, title ->
+                    selectedCardTitle = title
+                    cardListRefreshKey++
+                    navController.navigate("projects/$projectId/cards/$targetCardId")
+                },
+                onBack = { navController.popBackStack() },
+                onAddMilestone = {
+                    navController.navigate("projects/$projectId/cards/$cardId/milestones/add")
                 },
             )
         }
