@@ -518,6 +518,13 @@ object GitHubConnectionCoordinator {
             }
             val credential = credentialStore.get(appContext)
                 ?: return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            if (isRefreshCredentialAdvisoryExpired(credential)) {
+                // This is only an optimization for the clearly-expired case. A clock that says
+                // the credential is still current never grants anything locally: GitHub's
+                // refresh response remains the authority for every attempted refresh.
+                Log.d(LOG_TAG, "refreshAccessToken: locally expired refresh credential; skipping relay call")
+                return GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            }
             val refreshToken = credential.refreshToken
             val refreshCap = credential.refreshCap
 
@@ -592,6 +599,13 @@ object GitHubConnectionCoordinator {
         )
         return StoredGitHubCredential(tokens.refreshToken, tokens.refreshCap, expiresAt)
     }
+
+    /** A restart-safe, wall-clock optimization only. Returning false does not establish that a
+     * credential is usable; callers must still rely on GitHub's refresh response. */
+    internal fun isRefreshCredentialAdvisoryExpired(
+        credential: StoredGitHubCredential,
+        wallClockMillis: Long = System.currentTimeMillis(),
+    ): Boolean = credential.refreshTokenExpiresAtMillis <= wallClockMillis
 
     // ================= OAuth callback delivery (App Link + AuthTab) =================
 

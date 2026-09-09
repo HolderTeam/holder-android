@@ -36,4 +36,12 @@ class GitHubCredentialRecordTest {
 
         assertEquals(61_000L, credential.refreshTokenExpiresAtMillis)
     }
+
+    @Test
+    fun refreshExpiryIsOnlyAnAdvisorySkipForTheClearlyExpiredCase() {
+        val credential = StoredGitHubCredential("ghr_current", "cap_current", 10_000L)
+
+        assertEquals(false, GitHubConnectionCoordinator.isRefreshCredentialAdvisoryExpired(credential, wallClockMillis = 9_999L))
+        assertEquals(true, GitHubConnectionCoordinator.isRefreshCredentialAdvisoryExpired(credential, wallClockMillis = 10_000L))
+    }
 }

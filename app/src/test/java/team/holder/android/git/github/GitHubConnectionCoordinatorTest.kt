@@ -169,7 +169,7 @@ class GitHubConnectionCoordinatorTest {
         )
 
         unsafeErrors.forEach { error ->
-            fakeStore.credential = StoredGitHubCredential("ghr_spent", "cap_spent", 1L)
+            fakeStore.credential = StoredGitHubCredential("ghr_spent", "cap_spent", Long.MAX_VALUE)
             GitHubConnectionCoordinator.accessTokenCache = null
             GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ -> RelayResult.Failure(error) }
 
@@ -181,6 +181,23 @@ class GitHubConnectionCoordinatorTest {
             assertNull(fakeStore.credential)
             assertNull(GitHubConnectionCoordinator.accessTokenCache)
         }
+    }
+
+    @Test
+    fun advisoryExpiredRefreshCredentialSkipsTheRelayCall() = runBlocking {
+        fakeStore.credential = StoredGitHubCredential("ghr_expired", "cap_expired", 1L)
+        val relayCalls = AtomicInteger(0)
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, _, _ ->
+            relayCalls.incrementAndGet()
+            error("an advisory-expired credential must not spend a relay refresh call")
+        }
+
+        val result = GitHubConnectionCoordinator.withAccessToken<String>(fakeContext) {
+            error("an expired credential must not yield an access token")
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), result)
+        assertEquals(0, relayCalls.get())
     }
 
     @Test
