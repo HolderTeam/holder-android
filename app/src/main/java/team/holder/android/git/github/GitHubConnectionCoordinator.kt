@@ -55,6 +55,10 @@ object GitHubConnectionCoordinator {
     private val connectStateMutex = Mutex()
     private var pendingOAuth: PendingOAuth? = null
     private var connectInFlight: ConnectOperation? = null
+    /** Detachment ends public ownership, not necessarily the worker's live phase. Admission
+     * waits for this completion signal outside connectStateMutex before creating another
+     * operation. Guarded by connectStateMutex; callers never await the private worker Job. */
+    private var connectShutdown: CompletableDeferred<Unit>? = null
     /** The authoritative process-local marker for the one OS Auth Tab result registration.
      * MainActivity keeps only a non-secret SavedState mirror so a process-death result can be
      * discarded safely rather than being mistaken for a fresh attempt. This cell is atomic so
@@ -152,6 +156,7 @@ object GitHubConnectionCoordinator {
         val attemptId: UUID,
         val result: CompletableDeferred<GitHubResult<GitHubStatus>>,
         val job: Job,
+        val stopped: CompletableDeferred<Unit>,
         /** Guarded by [connectStateMutex]. This is captured when the operation becomes
          * current and advances only for this operation's own credential replacement. */
         var expectedCredentialEpoch: Long,
@@ -212,26 +217,39 @@ object GitHubConnectionCoordinator {
         // connectInFlight assignment on the very next line, since nothing before that
         // assignment actually synchronizes the two. A caller-visible side effect must never be
         // able to run before connectInFlight is visible to any concurrent joiner.
-        val deferred = CompletableDeferred<GitHubResult<GitHubStatus>>()
-        val joined: Deferred<GitHubResult<GitHubStatus>>? = connectStateMutex.withLock {
-            val existing = connectInFlight
-            if (existing != null) {
-                existing.result
-            } else {
-                val attemptId = GitHubPkce.generateAttemptId()
-                // The operation owns a precise credential generation from the instant it is
-                // registered. Any disconnect/replacement after this point makes its eventual
-                // status/commit stale, even if a blocking network call ignores cancellation.
-                val expectedCredentialEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
-                val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
-                    runConnectOperation(appContext, attemptId, browserLauncher, deferred)
+        while (true) {
+            var shutdown: Deferred<Unit>? = null
+            val result = connectStateMutex.withLock {
+                val existing = connectInFlight
+                if (existing != null) {
+                    existing.result
+                } else if (connectShutdown?.isCompleted == false) {
+                    shutdown = connectShutdown
+                    null
+                } else {
+                    connectShutdown = null
+                    val deferred = CompletableDeferred<GitHubResult<GitHubStatus>>()
+                    val stopped = CompletableDeferred<Unit>()
+                    val attemptId = GitHubPkce.generateAttemptId()
+                    // Capture the credential generation only after the old operation has
+                    // stopped, before any phase of this operation can begin.
+                    val expectedCredentialEpoch = credentialMutationMutex.withLock { credentialEpoch.get() }
+                    val job = coordinatorScope.launch(start = CoroutineStart.LAZY) {
+                        runConnectOperation(appContext, attemptId, browserLauncher, deferred)
+                    }
+                    // Completion is intentional here: cancellation requested / Call.cancel()
+                    // alone do not prove a blocking phase has returned and cleaned up.
+                    job.invokeOnCompletion { stopped.complete(Unit) }
+                    connectInFlight = ConnectOperation(attemptId, deferred, job, stopped, expectedCredentialEpoch)
+                    job.start()
+                    deferred
                 }
-                connectInFlight = ConnectOperation(attemptId, deferred, job, expectedCredentialEpoch)
-                job.start()
-                null
             }
+            if (result != null) return result.await()
+            // This is an event-driven admission retry, not another OAuth attempt. All callers
+            // waking from shutdown repeat the same atomic join-or-create decision.
+            shutdown!!.await()
         }
-        return (joined ?: deferred).await()
     }
 
     /** Runs exactly once per fresh `connect()` operation -- never re-entered by a joining
@@ -468,6 +486,10 @@ object GitHubConnectionCoordinator {
                     outcome
                 }
                 if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
+                // Publish the admission barrier in the same transition as detachment. It
+                // closes even the interval before public completion and job.cancel below,
+                // without changing the terminal protocol or waiting under this mutex.
+                connectShutdown = current.stopped
                 connectInFlight = null
                 DetachedConnectOperation(current, completedOutcome)
             }

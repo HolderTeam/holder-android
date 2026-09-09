@@ -5,10 +5,9 @@ import android.util.Log
 import java.io.IOException
 import java.net.ConnectException
 import java.net.UnknownHostException
-import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.DisposableHandle
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
@@ -103,12 +102,19 @@ internal object GitHubOAuth {
                 .post(oneShotJsonBody(payload))
                 .build()
             val call = client.newCall(request)
-            val cancellationHook = cancelCallWhenCoroutineIsCancelled(call, coroutineContext[Job])
-            try {
-                postRelayBlocking(call, url)
-            } finally {
-                cancellationHook?.dispose()
-            }
+            // A continuation's cancellation handler runs at cancellation initiation, even
+            // while this IO thread is inside execute() or reading the response body. An
+            // ordinary Job completion handler cannot run until that blocking work returns.
+            // Keep execution inline: worker completion must also mean transport/body cleanup
+            // has finished, which is the connect admission barrier's shutdown guarantee.
+            suspendCancellableCoroutine<Result<RelayResult>> { continuation ->
+                continuation.invokeOnCancellation { call.cancel() }
+                if (continuation.isActive) {
+                    // Carry exceptions as values through the cancellable boundary so a late
+                    // I/O exception after cancellation cannot escape as an unhandled resume.
+                    continuation.resume(runCatching { postRelayBlocking(call, url) })
+                }
+            }.getOrThrow()
         }
 
     /** Genuinely blocking (OkHttp's synchronous `execute()`) -- [postRelay] installs a
@@ -220,13 +226,5 @@ internal object GitHubOAuth {
             override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
 
             override fun isOneShot() = true
-        }
-
-    /** The operation worker can be cancelled by disconnect or explicit browser cancellation
-     * while [Call.execute] is blocked. OkHttp only interrupts that blocking call when its Call
-     * is explicitly cancelled; coroutine cancellation alone cannot do it. */
-    internal fun cancelCallWhenCoroutineIsCancelled(call: Call, job: Job?): DisposableHandle? =
-        job?.invokeOnCompletion { cause ->
-            if (cause != null) call.cancel()
         }
 }

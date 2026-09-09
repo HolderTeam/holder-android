@@ -7,12 +7,21 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,6 +84,18 @@ class GitHubConnectionCoordinatorTest {
 
     @After
     fun resetCoordinator() {
+        // Public completion deliberately precedes worker shutdown. Drain the last test's
+        // detached worker before replacing the singleton's store/hooks for another test.
+        runBlocking {
+            val coordinator = GitHubConnectionCoordinator
+            val mutex = coordinator.javaClass.getDeclaredField("connectStateMutex").apply { isAccessible = true }
+                .get(coordinator) as Mutex
+            val shutdown = mutex.withLock {
+                coordinator.javaClass.getDeclaredField("connectShutdown").apply { isAccessible = true }
+                    .get(coordinator) as Deferred<*>?
+            }
+            kotlinx.coroutines.withTimeout(5_000) { shutdown?.await() }
+        }
         GitHubConnectionCoordinator.credentialStore = RealGitHubCredentialStore
         GitHubConnectionCoordinator.storedCredentialStatusOverride = null
         GitHubConnectionCoordinator.relayRefreshOverride = null
@@ -112,12 +133,10 @@ class GitHubConnectionCoordinatorTest {
 
         // The first operation is now deliberately held open (blocked inside resolveBrowser,
         // on a real IO-dispatcher thread) -- connectInFlight must be non-null right now.
-        val second = async { GitHubConnectionCoordinator.connect(fakeContext, launcher) }
-        // Give the dispatcher a real, if small, window to actually run second's own (fast,
-        // non-blocking) join-or-create decision before releasing first -- otherwise first can
-        // wake from its latch and clear connectInFlight before second ever checks it, which
-        // would make this test racy against test-body scheduling, not against the coordinator.
-        delay(200)
+        // Run the join decision through its first suspension before releasing the worker.
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            GitHubConnectionCoordinator.connect(fakeContext, launcher)
+        }
 
         release.countDown() // let the first (and only, if joining worked) operation finish
         val firstResult = first.await()
@@ -129,6 +148,217 @@ class GitHubConnectionCoordinatorTest {
             1,
             launcher.resolveCallCount.get(),
         )
+    }
+
+    @Test
+    fun disconnectCancelsTheRealCallWhileTheConnectWorkerIsStillExecutingExchange() = runBlocking {
+        val transport = BlockedRelayCall()
+        val worker = exchangeInConnectWorker(transport)
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
+        }
+        try {
+            assertTrue(transport.entered.await(5, TimeUnit.SECONDS))
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+
+            assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), first.await())
+            assertFalse(worker.await().isCompleted)
+            assertTrue("disconnect must cancel the live OkHttp Call", transport.call!!.isCanceled())
+            assertEquals(1, transport.cancellations.get())
+        } finally {
+            transport.release.countDown()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            worker.await().join()
+            first.await()
+        }
+    }
+
+    @Test
+    fun replacementAndItsJoinersWaitForDetachedExchangeShutdownWithoutHoldingStateMutex() = runBlocking {
+        val transport = BlockedRelayCall()
+        val worker = exchangeInConnectWorker(transport)
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
+        }
+        val replacementStarted = CountDownLatch(1)
+        val releaseReplacement = CountDownLatch(1)
+        val browser = UnavailableBrowserLauncher(replacementStarted, releaseReplacement)
+        try {
+            assertTrue(transport.entered.await(5, TimeUnit.SECONDS))
+            val oldAttempt = currentAttempt()!!
+            val firstJoiner = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), first.await())
+            assertEquals(first.await(), firstJoiner.await())
+
+            val second = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            val secondJoiner = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            val cancelledWaiter = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            cancelledWaiter.cancel()
+            cancelledWaiter.join()
+
+            // These transitions acquire connectStateMutex while the old HTTP execution is
+            // still held. Neither the mutex nor a new operation may span the shutdown wait.
+            assertFalse(GitHubConnectionCoordinator.cancelPendingBrowserAuthorization())
+            GitHubConnectionCoordinator.beginInstallationReturn()
+            assertNull("B was admitted before A's synchronous exchange stopped", currentAttempt())
+            assertEquals(0, browser.resolveCallCount.get())
+            assertFalse(worker.await().isCompleted)
+            assertFalse(second.isCompleted)
+            assertEquals(1L, transport.exited.count)
+
+            transport.release.countDown()
+            worker.await().join()
+            // Let the callers waiting on the shutdown signal run their admission/join step.
+            kotlinx.coroutines.yield()
+            assertTrue(replacementStarted.await(5, TimeUnit.SECONDS))
+            val newAttempt = currentAttempt()!!
+            assertFalse(oldAttempt == newAttempt)
+            assertFalse(finishStaleAttempt(oldAttempt))
+            assertEquals(newAttempt, currentAttempt())
+            assertFalse(second.isCompleted)
+
+            releaseReplacement.countDown()
+            assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), second.await())
+            assertEquals(second.await(), secondJoiner.await())
+            assertEquals(1, browser.resolveCallCount.get())
+            assertEquals(1, transport.requests.get())
+        } finally {
+            transport.release.countDown()
+            releaseReplacement.countDown()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            worker.await().join()
+        }
+    }
+
+    @Test
+    fun publicCompletionCannotAdmitReplacementBeforeWorkerCancellationIsRequested() = runBlocking {
+        val transport = BlockedRelayCall()
+        val worker = exchangeInConnectWorker(transport)
+        val browser = UnavailableBrowserLauncher()
+        val reentered = CompletableDeferred<Unit>()
+        // An unconfined caller resumes inside result.complete(), before the finalizer's
+        // next statement can cancel A. This deterministically opens the audited tiny gap.
+        val caller = async(Dispatchers.Unconfined) {
+            val outcome = GitHubConnectionCoordinator.connect(fakeContext, browser)
+            assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), outcome)
+            assertFalse(transport.call!!.isCanceled())
+            assertFalse(worker.await().isCancelled)
+            val replacement = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            assertNull(currentAttempt())
+            assertEquals(0, browser.resolveCallCount.get())
+            reentered.complete(Unit)
+            replacement.await()
+        }
+        try {
+            assertTrue(transport.entered.await(5, TimeUnit.SECONDS))
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            reentered.await()
+            assertTrue(transport.call!!.isCanceled())
+            assertFalse(worker.await().isCompleted)
+            transport.release.countDown()
+            assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), caller.await())
+            assertEquals(1, browser.resolveCallCount.get())
+        } finally {
+            transport.release.countDown()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            worker.await().join()
+        }
+    }
+
+    @Test
+    fun replacementWaitsForBlockedBrowserResolutionToReturn() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher(started, release))
+        }
+        val nextBrowser = UnavailableBrowserLauncher()
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), first.await())
+            val second = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, nextBrowser)
+            }
+            assertNull(currentAttempt())
+            assertEquals(0, nextBrowser.resolveCallCount.get())
+            release.countDown()
+            assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), second.await())
+            assertEquals(1, nextBrowser.resolveCallCount.get())
+        } finally {
+            release.countDown()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+        }
+    }
+
+    @Test
+    fun cancellingAnOrdinaryCallerDoesNotCancelTheSharedOperation() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val browser = UnavailableBrowserLauncher(started, release)
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            GitHubConnectionCoordinator.connect(fakeContext, browser)
+        }
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            val attempt = currentAttempt()
+            val joiner = async(start = CoroutineStart.UNDISPATCHED) {
+                GitHubConnectionCoordinator.connect(fakeContext, browser)
+            }
+            first.cancel()
+            first.join()
+            assertEquals(attempt, currentAttempt())
+            assertFalse(joiner.isCompleted)
+            release.countDown()
+            assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), joiner.await())
+            assertEquals(1, browser.resolveCallCount.get())
+        } finally {
+            release.countDown()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+        }
+    }
+
+    /** The existing stored-status seam places a real OAuth exchange inside the actual
+     * coordinator-owned worker without requiring Android's Uri/browser runtime on the JVM.
+     * The HTTP execution, public result, finalizer, disconnect, and admission are production. */
+    private fun exchangeInConnectWorker(transport: BlockedRelayCall): CompletableDeferred<Job> {
+        fakeStore.credential = StoredGitHubCredential("refresh", "cap", Long.MAX_VALUE)
+        val worker = CompletableDeferred<Job>()
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = {
+            worker.complete(coroutineContext[Job]!!)
+            GitHubOAuth.exchangeCode(transport.client, "code", "verifier")
+            GitHubResult.Success(GitHubStatus.NotConnected)
+        }
+        return worker
+    }
+
+    // Inspect ownership under its real mutex; do not add production lifecycle test hooks.
+    private suspend fun currentAttempt(): UUID? {
+        val coordinator = GitHubConnectionCoordinator
+        val mutex = coordinator.javaClass.getDeclaredField("connectStateMutex").apply { isAccessible = true }
+            .get(coordinator) as Mutex
+        return mutex.withLock {
+            val operation = coordinator.javaClass.getDeclaredField("connectInFlight").apply { isAccessible = true }
+                .get(coordinator) ?: return@withLock null
+            operation.javaClass.getDeclaredField("attemptId").apply { isAccessible = true }.get(operation) as UUID
+        }
+    }
+
+    private suspend fun finishStaleAttempt(attemptId: UUID): Boolean = suspendCoroutineUninterceptedOrReturn { continuation ->
+        GitHubConnectionCoordinator.javaClass.declaredMethods.single { it.name == "finishConnectOperation" }
+            .apply { isAccessible = true }
+            .invoke(GitHubConnectionCoordinator, attemptId, GitHubResult.Success(GitHubStatus.NotConnected), false, true, continuation)
     }
 
     @Test
