@@ -28,12 +28,16 @@ private class FakeContext : ContextWrapper(null) {
 
 private class FakeCredentialStore : GitHubCredentialStore {
     var credential: StoredGitHubCredential? = null
+    var clearStartedLatch: CountDownLatch? = null
+    var releaseClearLatch: CountDownLatch? = null
 
     override fun get(context: Context): StoredGitHubCredential? = credential
     override fun store(context: Context, credential: StoredGitHubCredential) {
         this.credential = credential
     }
     override fun clear(context: Context) {
+        clearStartedLatch?.countDown()
+        releaseClearLatch?.await(5, TimeUnit.SECONDS)
         credential = null
     }
 }
@@ -76,6 +80,8 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.relayRefreshOverride = null
         GitHubConnectionCoordinator.standaloneStatusOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
+        fakeStore.clearStartedLatch = null
+        fakeStore.releaseClearLatch = null
     }
 
     @Test
@@ -276,6 +282,46 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.disconnect(fakeContext)
 
         assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+    }
+
+    @Test
+    fun disconnectPublishesNotConnectedOnlyWithTheCredentialClearTransaction() = runBlocking(Dispatchers.IO) {
+        fakeStore.credential = StoredGitHubCredential("ghr_current", "cap_current", Long.MAX_VALUE)
+        GitHubConnectionCoordinator.accessTokenCache =
+            GitHubConnectionCoordinator.AccessTokenCache("gho_current", expiresAtMonotonic = 60_000L)
+        val connected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+        GitHubConnectionCoordinator.standaloneStatusOverride = { GitHubResult.Success(connected) }
+        assertEquals(connected, GitHubConnectionCoordinator.status(fakeContext))
+
+        val statusStarted = CountDownLatch(1)
+        val releaseStatus = CountDownLatch(1)
+        GitHubConnectionCoordinator.storedCredentialStatusOverride = {
+            statusStarted.countDown()
+            releaseStatus.await(5, TimeUnit.SECONDS)
+            GitHubResult.Success(connected)
+        }
+        val connect = async { GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher()) }
+        assertTrue("connect never reached its held stored-credential status", statusStarted.await(5, TimeUnit.SECONDS))
+
+        val clearStarted = CountDownLatch(1)
+        val releaseClear = CountDownLatch(1)
+        fakeStore.clearStartedLatch = clearStarted
+        fakeStore.releaseClearLatch = releaseClear
+        val disconnect = async { GitHubConnectionCoordinator.disconnect(fakeContext) }
+        assertTrue("disconnect never reached durable credential clear", clearStarted.await(5, TimeUnit.SECONDS))
+
+        // The clear is still in progress under credentialMutationMutex. A connect finalizer
+        // must not have independently repainted state before this one atomic transaction.
+        assertEquals(connected, GitHubConnectionCoordinator.statusFlow.value)
+
+        releaseClear.countDown()
+        disconnect.await()
+        releaseStatus.countDown()
+
+        assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), connect.await())
+        assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+        assertNull(fakeStore.credential)
+        assertNull(GitHubConnectionCoordinator.accessTokenCache)
     }
 
     @Test

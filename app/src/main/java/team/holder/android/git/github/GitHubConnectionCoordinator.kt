@@ -429,6 +429,7 @@ object GitHubConnectionCoordinator {
         attemptId: UUID,
         outcome: GitHubResult<GitHubStatus>,
         requirePendingBrowserAuthorization: Boolean = false,
+        publishSuccessfulStatus: Boolean = true,
     ): Boolean {
         val detached = connectStateMutex.withLock {
             val current = connectInFlight
@@ -443,7 +444,7 @@ object GitHubConnectionCoordinator {
                 // A success may authoritatively describe the coordinator only while its
                 // operation still owns the generation it queried. Returning the current
                 // status on mismatch keeps joiners from receiving a historical answer too.
-                val completedOutcome = if (outcome is GitHubResult.Success) {
+                val completedOutcome = if (outcome is GitHubResult.Success && publishSuccessfulStatus) {
                     if (credentialEpoch.get() == current.expectedCredentialEpoch) {
                         mutableStatusFlow.value = outcome.value
                         outcome
@@ -479,7 +480,15 @@ object GitHubConnectionCoordinator {
         controlPlaneMutex.withLock {
             val inFlightAttemptId = connectStateMutex.withLock { connectInFlight?.attemptId }
             if (inFlightAttemptId != null) {
-                finishConnectOperation(inFlightAttemptId, GitHubResult.Success(GitHubStatus.NotConnected))
+                // Complete joiners before cancellation, but leave authoritative publication
+                // to the one credential-mutation transaction below. Otherwise an in-flight
+                // connect's finalizer exposes a preliminary NotConnected state while durable
+                // credential/cache state still exists.
+                finishConnectOperation(
+                    inFlightAttemptId,
+                    GitHubResult.Success(GitHubStatus.NotConnected),
+                    publishSuccessfulStatus = false,
+                )
             }
             credentialMutationMutex.withLock {
                 credentialStore.clear(appContext)
