@@ -95,6 +95,7 @@ fun ToolsScreen(
     var milestones by remember(cardId) { mutableStateOf<List<HolderMilestone>>(emptyList()) }
     var historySummary by remember(cardId) { mutableStateOf<HistorySummary?>(null) }
     var tags by remember(cardId) { mutableStateOf<List<String>>(emptyList()) }
+    var editableTags by remember(cardId) { mutableStateOf<List<String>>(emptyList()) }
     var projectTags by remember(projectId) { mutableStateOf<List<String>>(emptyList()) }
     var tagRefreshKey by remember { mutableStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -104,6 +105,12 @@ fun ToolsScreen(
         tags = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCardTags(cardId) }
         }.getOrDefault(tags)
+        // The subset of `tags` on the card's trailing tag line -- the only ones removeCardTag
+        // can actually remove. Drives which chips get a remove ("x") control at all, rather
+        // than showing one on every chip and letting removal fail reactively.
+        editableTags = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listEditableCardTags(cardId) }
+        }.getOrDefault(editableTags)
     }
 
     fun addTag(tag: String) {
@@ -199,6 +206,7 @@ fun ToolsScreen(
             item {
                 TagsRow(
                     tags = tags,
+                    editableTags = editableTags,
                     suggestions = projectTags,
                     onAdd = ::addTag,
                     onRemove = ::removeTag,
@@ -448,16 +456,19 @@ private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?, on
  * inline text field with live suggestions from the project's other tags (tap one to add it
  * directly), rather than navigating away.
  *
- * Removing a chip is reactive, not pre-emptive: every tag looks the same regardless of whether
- * Holder could actually remove it from here (see CardStore::remove_tag) -- greying out chips
- * whose tag happens to live in prose rather than the card's trailing tag line would expose an
- * implementation distinction ordinary users shouldn't need to understand up front. If removal
- * fails for that reason, the snackbar explains it then.
+ * A chip only gets a remove ("x") control when the tag is in [editableTags] -- i.e. it's on the
+ * card's trailing tag line, so removeCardTag can actually act on it. A tag that only occurs in
+ * prose gets no "x" at all, rather than one that's greyed out or that fails when tapped: an
+ * always-present control that sometimes silently doesn't work reads as broken, whereas a chip
+ * that simply has no remove control doesn't promise anything it can't deliver. The reactive
+ * snackbar in onRemove stays as a defensive fallback (e.g. editableTags going stale between a
+ * fetch and a tap), not the primary signal anymore.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TagsRow(
     tags: List<String>,
+    editableTags: List<String>,
     suggestions: List<String>,
     onAdd: (String) -> Unit,
     onRemove: (String) -> Unit,
@@ -485,12 +496,16 @@ private fun TagsRow(
                 selected = false,
                 onClick = { onTagClick(tag) },
                 label = { Text(tag) },
-                trailingIcon = {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Remove $tag",
-                        modifier = Modifier.size(16.dp).clickable { onRemove(tag) },
-                    )
+                trailingIcon = if (tag in editableTags) {
+                    {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Remove $tag",
+                            modifier = Modifier.size(16.dp).clickable { onRemove(tag) },
+                        )
+                    }
+                } else {
+                    null
                 },
             )
         }
