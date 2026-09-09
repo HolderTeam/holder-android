@@ -62,6 +62,10 @@ object GitHubConnection {
      * doesn't match a currently-pending attempt. */
     suspend fun handleOAuthCallbackUri(uri: Uri) = GitHubConnectionCoordinator.handleOAuthCallbackUri(uri)
 
+    /** Process-scoped handoff used by the exported callback Activity, which must finish as
+     * soon as it has delivered the raw URI rather than waiting on callback processing. */
+    fun dispatchOAuthCallbackUri(uri: Uri) = GitHubConnectionCoordinator.dispatchOAuthCallbackUri(uri)
+
     /** Forward an Auth Tab result here from the `ActivityResultLauncher` callback. The
      * Activity clears its SavedState mirror, while the coordinator alone consumes the
      * authoritative outstanding-attempt marker. */
@@ -83,6 +87,11 @@ object GitHubConnection {
      * missing, doesn't match, or has expired -- no automatic API call is made in that case. */
     suspend fun handleInstallationReturn(context: Context, returnedState: String?): GitHubStatus? =
         GitHubConnectionCoordinator.handleInstallationReturn(context, returnedState)
+
+    /** Process-scoped counterpart to [handleInstallationReturn] for the narrow exported
+     * callback Activity. */
+    fun dispatchInstallationReturn(context: Context, returnedState: String?) =
+        GitHubConnectionCoordinator.dispatchInstallationReturn(context, returnedState)
 
     /** `POST /user/repos`, private, named from [project]. Idempotent in the sense that
      * matters here: a name collision against a repo Holder itself already created is treated

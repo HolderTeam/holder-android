@@ -782,6 +782,18 @@ object GitHubConnectionCoordinator {
         pending.callbackOutcome.complete(outcome)
     }
 
+    /** Entry point for the exported, immediately-finishing callback Activity. The work belongs
+     * to this process-scoped coordinator rather than that Activity's lifecycle coroutine. */
+    fun dispatchOAuthCallbackUri(uri: Uri) {
+        coordinatorScope.launch { handleOAuthCallbackUri(uri) }
+    }
+
+    /** Installation completion has the same narrow callback-Activity lifetime boundary as
+     * OAuth. The correlated state remains the only authority inside handleInstallationReturn. */
+    fun dispatchInstallationReturn(context: Context, returnedState: String?) {
+        coordinatorScope.launch { handleInstallationReturn(context.applicationContext, returnedState) }
+    }
+
     /** Exact endpoint comparison intentionally ignores only the query string. */
     private fun matchesOAuthCallbackEndpoint(uri: Uri, expectedRedirectUri: String): Boolean =
         matchesOAuthCallbackEndpointParts(uri.scheme, uri.host, uri.port, uri.path, expectedRedirectUri)

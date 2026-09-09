@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
             authTabOutstandingAttemptId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
         )
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
-        handleGitHubIntent(intent)
 
         // Captured before initialize() below, which creates this directory if it's missing --
         // its absence right now is the exact, one-shot signal that this is the first launch
@@ -177,30 +176,13 @@ class MainActivity : ComponentActivity() {
         outState.putString(KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID, authTabOutstandingAttemptId)
     }
 
-    // Fires when a .hrk file is opened, or a GitHub App Link fallback delivery arrives, while
-    // this activity is already running (launchMode "singleTop" in the manifest routes it here
-    // instead of spinning up a second instance).
+    // Fires when a .hrk file is opened while this activity is already running (launchMode
+    // "singleTop" in the manifest routes it here instead of spinning up a second instance).
+    // GitHub App Link returns have their own narrow exported GitHubCallbackActivity.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
-        handleGitHubIntent(intent)
-    }
-
-    /** Forwards a matching GitHub App Link `VIEW` intent -- the OAuth callback's Custom Tab/
-     * browser fallback delivery path, or a Setup URL installation return -- to
-     * GitHubConnectionCoordinator. Silently does nothing for any other intent (the normal case:
-     * a plain launcher-icon tap, or a .hrk file open). Auth Tab's own `ActivityResultCallback`
-     * (see [authTabLauncher] above) is a separate delivery path that never reaches this method
-     * at all -- both funnel into the same coordinator completion logic regardless. */
-    private fun handleGitHubIntent(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_VIEW) return
-        val uri = intent.data ?: return
-        when (uri.path) {
-            "/android/oauth-callback" -> lifecycleScope.launch { GitHubConnection.handleOAuthCallbackUri(uri) }
-            "/github/install-complete" ->
-                lifecycleScope.launch { GitHubConnection.handleInstallationReturn(this@MainActivity, uri.getQueryParameter("state")) }
-        }
     }
 
     /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
