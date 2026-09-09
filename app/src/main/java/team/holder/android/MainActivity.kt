@@ -502,6 +502,9 @@ private fun HolderNavHost(
                 onHistoryClick = {
                     navController.navigate("projects/$projectId/cards/$cardId/history")
                 },
+                onTagClick = { tag ->
+                    navController.navigate("projects/$projectId/tags/${URLEncoder.encode(tag, "UTF-8")}")
+                },
                 onBack = {
                     // Refreshes CardViewScreen's connections summary in case a connection,
                     // resource, or milestone was added or removed somewhere under Tools -- it

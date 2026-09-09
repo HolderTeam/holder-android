@@ -87,6 +87,7 @@ fun ToolsScreen(
     onResourcesClick: () -> Unit,
     onMilestonesClick: () -> Unit,
     onHistoryClick: () -> Unit,
+    onTagClick: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     var allCards by remember(cardId) { mutableStateOf<List<HolderCard>>(emptyList()) }
@@ -201,6 +202,7 @@ fun ToolsScreen(
                     suggestions = projectTags,
                     onAdd = ::addTag,
                     onRemove = ::removeTag,
+                    onTagClick = onTagClick,
                 )
             }
 
@@ -440,8 +442,11 @@ private fun CardVitalsLine(card: HolderCard, historySummary: HistorySummary?, on
 
 /** Tags as removable chips, always visible right at the top of the page -- small, cheap, and
  * glanceable enough that, unlike Connections/Resources/Milestones, they don't need a dedicated
- * destination screen. Tapping "+" opens an inline text field with live suggestions from the
- * project's other tags (tap one to add it directly), rather than navigating away.
+ * destination screen for *managing* them. Tapping a chip's body (not its "x") goes to the same
+ * cards-with-this-tag list reached by tapping a #tag inline in the card body -- tags are still
+ * a real navigable connection, just to a set of cards rather than one. Tapping "+" opens an
+ * inline text field with live suggestions from the project's other tags (tap one to add it
+ * directly), rather than navigating away.
  *
  * Removing a chip is reactive, not pre-emptive: every tag looks the same regardless of whether
  * Holder could actually remove it from here (see CardStore::remove_tag) -- greying out chips
@@ -456,6 +461,7 @@ private fun TagsRow(
     suggestions: List<String>,
     onAdd: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onTagClick: (String) -> Unit,
 ) {
     var adding by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
@@ -477,7 +483,7 @@ private fun TagsRow(
         tags.forEach { tag ->
             InputChip(
                 selected = false,
-                onClick = {},
+                onClick = { onTagClick(tag) },
                 label = { Text(tag) },
                 trailingIcon = {
                     Icon(
