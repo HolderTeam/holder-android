@@ -1,14 +1,17 @@
 package team.holder.android.ui.screens
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,6 +61,7 @@ import team.holder.android.HolderCard
 import team.holder.android.HolderCardLinks
 import team.holder.android.HolderMilestone
 import team.holder.android.HolderNative
+import team.holder.android.HolderOutgoingLink
 import team.holder.android.R
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
@@ -72,8 +78,10 @@ import team.holder.android.ui.markdown.rememberResourceAttachmentKind
  * editor, resource list, calendar, or history timeline); tapping an individual named connection
  * jumps straight to that card instead, preserving Holder's existing graph-navigation feel.
  *
- * Sections never disappear when empty -- this screen is the one place a user discovers what
- * Holder can attach to a card, so an empty section still shows its header with a way in.
+ * The bottom bar (Connections, Milestones, Resources) is the permanent way in to each concern,
+ * so a tile only renders -- header included -- when it actually has something to show; an empty
+ * section would just repeat what the bar already offers. Connections leads the bar, reflecting
+ * a deliberate bias toward cards being linked rather than islands.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,7 +205,40 @@ fun ToolsScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                ToolsBarButton(
+                    icon = { Icon(Icons.Filled.Link, contentDescription = "Connections") },
+                    label = "Connections",
+                    onClick = onConnectionsClick,
+                )
+                ToolsBarButton(
+                    icon = { Icon(Icons.Filled.DateRange, contentDescription = "Milestones") },
+                    label = "Milestones",
+                    onClick = onMilestonesClick,
+                )
+                ToolsBarButton(
+                    icon = { Icon(painterResource(R.drawable.ic_file), contentDescription = "Resources") },
+                    label = "Resources",
+                    onClick = onResourcesClick,
+                )
+            }
+        },
     ) { innerPadding ->
+        val connectionsSummary = (linksState as? LoadState.Success)?.let {
+            connectionsSummary(cardId, it.value, allCards)
+        }
+        val resourceAttachments = (linksState as? LoadState.Success)?.value?.outgoing
+            ?.filter { it.toType == "resource" }
+
         LazyColumn(modifier = Modifier.padding(innerPadding)) {
             allCards.find { it.cardId == cardId }?.let { card ->
                 item { CardVitalsLine(card, historySummary, onClick = onHistoryClick) }
@@ -214,33 +255,43 @@ fun ToolsScreen(
                 )
             }
 
-            item {
-                ToolTile(title = "Connections", onClick = onConnectionsClick) {
-                    when (val state = linksState) {
-                        is LoadState.Loading -> LoadingLine()
-                        is LoadState.Error -> ErrorLine("Couldn't load connections: ${state.message}")
-                        is LoadState.Success -> ConnectionsTileBody(
-                            cardId = cardId,
-                            links = state.value,
-                            allCards = allCards,
-                            onNavigateToCard = onNavigateToCard,
-                        )
+            val connectionsVisible = when (linksState) {
+                is LoadState.Loading, is LoadState.Error -> true
+                is LoadState.Success -> connectionsSummary?.isEmpty == false
+            }
+            if (connectionsVisible) {
+                item {
+                    ToolTile(title = "Connections", onClick = onConnectionsClick) {
+                        when (val state = linksState) {
+                            is LoadState.Loading -> LoadingLine()
+                            is LoadState.Error -> ErrorLine("Couldn't load connections: ${state.message}")
+                            is LoadState.Success -> ConnectionsTileBody(
+                                summary = requireNotNull(connectionsSummary),
+                                onNavigateToCard = onNavigateToCard,
+                            )
+                        }
                     }
                 }
             }
 
-            item {
-                ToolTile(title = "Milestones", onClick = onMilestonesClick) {
-                    MilestonesTileBody(milestones)
+            if (milestones.isNotEmpty()) {
+                item {
+                    ToolTile(title = "Milestones", onClick = onMilestonesClick) {
+                        MilestonesTileBody(milestones)
+                    }
                 }
             }
 
-            item {
-                ToolTile(title = "Resources", onClick = onResourcesClick) {
-                    when (val state = linksState) {
-                        is LoadState.Loading -> LoadingLine()
-                        is LoadState.Error -> {} // Already surfaced by the Connections tile above.
-                        is LoadState.Success -> ResourcesTileBody(state.value)
+            // On error, the failure is already surfaced by the Connections tile above -- no
+            // need for a second error line here, so the tile just stays hidden.
+            val resourcesVisible = linksState is LoadState.Loading || !resourceAttachments.isNullOrEmpty()
+            if (resourcesVisible) {
+                item {
+                    ToolTile(title = "Resources", onClick = onResourcesClick) {
+                        when (linksState) {
+                            is LoadState.Loading -> LoadingLine()
+                            else -> ResourcesTileBody(requireNotNull(resourceAttachments))
+                        }
                     }
                 }
             }
@@ -249,6 +300,23 @@ fun ToolsScreen(
 }
 
 private data class HistorySummary(val versionCount: Int, val hasMore: Boolean, val lastEditedAt: Long?)
+
+/** A labeled icon action for the bottom bar, matching [CardViewScreen]'s own action buttons
+ * exactly -- min 64dp wide with 4dp vertical padding around icon+label. */
+@Composable
+private fun ToolsBarButton(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .widthIn(min = 64.dp)
+            .padding(vertical = 4.dp),
+    ) {
+        icon()
+        Text(label, style = MaterialTheme.typography.labelSmall)
+    }
+}
 
 /** A tile's shell: a tappable header (opens the full screen for this concern) plus whatever
  * summary content [body] renders beneath it. Kept deliberately plain -- no card background or
@@ -282,16 +350,6 @@ private fun ErrorLine(message: String) {
 }
 
 @Composable
-private fun EmptyLine(message: String) {
-    Text(
-        message,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-}
-
-@Composable
 private fun SummaryLine(text: String) {
     Text(
         text,
@@ -302,17 +360,18 @@ private fun SummaryLine(text: String) {
     )
 }
 
-/** Named/curated relationships (parent, sequence links, up to 3 total) shown individually and
- * directly tappable to the linked card -- separate from this tile's own onClick, which opens
- * the full relationship editor. Backlinks are Holder-derived, not user-curated, so they're
- * summarized as a count rather than previewed individually. */
-@Composable
-private fun ConnectionsTileBody(
-    cardId: String,
-    links: HolderCardLinks,
-    allCards: List<HolderCard>,
-    onNavigateToCard: (cardId: String, title: String) -> Unit,
+/** [ConnectionsTileBody]'s data, computed once and shared with the tile's own visibility check
+ * so "is this section empty" and "what does it show" can't drift apart. */
+private data class ConnectionsSummary(
+    val named: List<Triple<String, String, String>>,
+    val childCount: Int,
+    val outgoingCount: Int,
+    val backlinkCount: Int,
 ) {
+    val isEmpty: Boolean get() = named.isEmpty() && childCount == 0 && outgoingCount == 0 && backlinkCount == 0
+}
+
+private fun connectionsSummary(cardId: String, links: HolderCardLinks, allCards: List<HolderCard>): ConnectionsSummary {
     val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
     val named = buildList {
         links.parent?.let { add(Triple("Parent", it.cardId, it.title)) }
@@ -321,16 +380,24 @@ private fun ConnectionsTileBody(
         sequence.next?.let { add(Triple("Next", it.cardId, it.title)) }
         sequence.previous?.let { add(Triple("Previous", it.cardId, it.title)) }
     }.take(3)
-    val outgoingCount = links.outgoing.count { it.toType != "resource" }
-    val backlinkCount = links.backlinks.size
-    val childCount = links.children.size
-    val totalOthers = outgoingCount + backlinkCount + childCount
+    return ConnectionsSummary(
+        named = named,
+        childCount = links.children.size,
+        outgoingCount = links.outgoing.count { it.toType != "resource" },
+        backlinkCount = links.backlinks.size,
+    )
+}
 
-    if (named.isEmpty() && totalOthers == 0) {
-        EmptyLine("No connections yet")
-        return
-    }
-    named.forEach { (label, targetCardId, title) ->
+/** Named/curated relationships (parent, sequence links, up to 3 total) shown individually and
+ * directly tappable to the linked card -- separate from this tile's own onClick, which opens
+ * the full relationship editor. Backlinks are Holder-derived, not user-curated, so they're
+ * summarized as a count rather than previewed individually. */
+@Composable
+private fun ConnectionsTileBody(
+    summary: ConnectionsSummary,
+    onNavigateToCard: (cardId: String, title: String) -> Unit,
+) {
+    summary.named.forEach { (label, targetCardId, title) ->
         Text(
             "$label: $title",
             style = MaterialTheme.typography.bodyMedium,
@@ -343,9 +410,11 @@ private fun ConnectionsTileBody(
         )
     }
     val extras = buildList {
-        if (childCount > 0) add("$childCount ${if (childCount == 1) "child" else "children"}")
-        if (outgoingCount > 0) add("$outgoingCount other")
-        if (backlinkCount > 0) add("$backlinkCount ${if (backlinkCount == 1) "backlink" else "backlinks"}")
+        if (summary.childCount > 0) add("${summary.childCount} ${if (summary.childCount == 1) "child" else "children"}")
+        if (summary.outgoingCount > 0) add("${summary.outgoingCount} other")
+        if (summary.backlinkCount > 0) {
+            add("${summary.backlinkCount} ${if (summary.backlinkCount == 1) "backlink" else "backlinks"}")
+        }
     }
     if (extras.isNotEmpty()) {
         SummaryLine(extras.joinToString(" · "))
@@ -356,12 +425,7 @@ private fun ConnectionsTileBody(
  * full Resources screen uses -- a bare count would throw away exactly the glanceable
  * information a preview is for. */
 @Composable
-private fun ResourcesTileBody(links: HolderCardLinks) {
-    val attachments = links.outgoing.filter { it.toType == "resource" }
-    if (attachments.isEmpty()) {
-        EmptyLine("No resources yet")
-        return
-    }
+private fun ResourcesTileBody(attachments: List<HolderOutgoingLink>) {
     attachments.take(2).forEach { link ->
         val displayName = link.label ?: "Attachment"
         val kind = rememberResourceAttachmentKind(link.toCardId, displayName)
@@ -397,10 +461,6 @@ private fun ResourcesTileBody(links: HolderCardLinks) {
  * the most recent past one) is more useful here than an undifferentiated list would be. */
 @Composable
 private fun MilestonesTileBody(milestones: List<HolderMilestone>) {
-    if (milestones.isEmpty()) {
-        EmptyLine("No milestones yet")
-        return
-    }
     val now = Instant.now().epochSecond
     val next = milestones.filter { it.startAt >= now }.minByOrNull { it.startAt }
         ?: milestones.maxByOrNull { it.startAt }
