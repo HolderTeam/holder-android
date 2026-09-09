@@ -39,6 +39,12 @@ object GitHubConnection {
     suspend fun connect(context: Context, browserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher): GitHubResult<GitHubStatus> =
         GitHubConnectionCoordinator.connect(context, browserLauncher)
 
+    /** Abandons the currently pending Custom Tab/external-browser sign-in, if any. The
+     * browser cannot be closed by Holder, but its later App Link callback is rejected because
+     * this clears the exact pending transaction before returning. */
+    suspend fun cancelPendingBrowserAuthorization(): Boolean =
+        GitHubConnectionCoordinator.cancelPendingBrowserAuthorization()
+
     /** Clears the stored credential and connected-login display state. Always succeeds
      * locally; does not attempt to revoke anything on GitHub's side -- revocation is the
      * user's own action from GitHub's "Authorized GitHub Apps" settings, the same boundary

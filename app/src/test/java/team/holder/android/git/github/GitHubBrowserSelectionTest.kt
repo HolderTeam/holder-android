@@ -6,6 +6,13 @@ import org.junit.Test
 
 class GitHubBrowserSelectionTest {
     @Test
+    fun onlyNonResultBrowserLaunchesAreCancellable() {
+        assertEquals(false, GitHubConnectionCoordinator.isCancellableBrowserLaunch(GitHubConnectionCoordinator.LaunchKind.AuthTab))
+        assertEquals(true, GitHubConnectionCoordinator.isCancellableBrowserLaunch(GitHubConnectionCoordinator.LaunchKind.CustomTab))
+        assertEquals(true, GitHubConnectionCoordinator.isCancellableBrowserLaunch(GitHubConnectionCoordinator.LaunchKind.ExternalBrowser))
+    }
+
+    @Test
     fun pendingAuthTabForcesTheNextAttemptToUseCustomTab() {
         assertEquals(
             GitHubConnectionCoordinator.LaunchKind.CustomTab,

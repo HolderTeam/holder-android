@@ -188,6 +188,9 @@ fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoor
                         githubBusy = false
                     }
                 },
+                onCancel = {
+                    scope.launch { GitHubConnection.cancelPendingBrowserAuthorization() }
+                },
                 onDisconnect = { scope.launch { GitHubConnection.disconnect(context) } },
                 onOpenUrl = { url -> openUrlExternally(context, url) },
                 onFinishSetup = { installUrl ->
@@ -232,6 +235,7 @@ private fun GitHubConnectionSection(
     busy: Boolean,
     error: String?,
     onConnect: () -> Unit,
+    onCancel: () -> Unit,
     onDisconnect: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onFinishSetup: (String) -> Unit,
@@ -250,7 +254,10 @@ private fun GitHubConnectionSection(
             error?.let { message -> Text(message, color = MaterialTheme.colorScheme.error) }
         }
         when {
-            busy -> CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+            busy -> Row {
+                CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+                TextButton(onClick = onCancel) { Text("Cancel sign-in") }
+            }
             status is GitHubStatus.Connected -> TextButton(onClick = onDisconnect) { Text("Disconnect") }
             status is GitHubStatus.InstallationRequired ->
                 Button(onClick = { onFinishSetup(status.installUrl) }) { Text("Finish setup") }

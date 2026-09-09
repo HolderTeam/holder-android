@@ -1,6 +1,7 @@
 package team.holder.android.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -319,6 +320,9 @@ fun RecoverProjectScreen(
                         // (see its doc comment) already failed -- a manual fallback, not the
                         // primary path.
                         onConnect = { scope.launch { continueGithubRecovery(r.projectId, owner, repo) } },
+                        onCancel = {
+                            scope.launch { GitHubConnection.cancelPendingBrowserAuthorization() }
+                        },
                         onOpenUrl = { url -> openUrlExternally(context, url) },
                         onFinishSetup = { installUrl ->
                             scope.launch {
@@ -355,6 +359,7 @@ private fun GitHubRecoverySection(
     error: String?,
     actionUrl: String?,
     onConnect: () -> Unit,
+    onCancel: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onFinishSetup: (String) -> Unit,
     onRetry: () -> Unit,
@@ -376,7 +381,10 @@ private fun GitHubRecoverySection(
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp)) }
 
     when {
-        busy -> CircularProgressIndicator(modifier = Modifier.padding(top = 12.dp))
+        busy -> Row(modifier = Modifier.padding(top = 12.dp)) {
+            CircularProgressIndicator()
+            TextButton(onClick = onCancel) { Text("Cancel sign-in") }
+        }
         status == null -> {}
         status is GitHubStatus.InstallationRequired -> {
             Button(onClick = { onFinishSetup(status.installUrl) }, modifier = Modifier.padding(top = 8.dp)) {

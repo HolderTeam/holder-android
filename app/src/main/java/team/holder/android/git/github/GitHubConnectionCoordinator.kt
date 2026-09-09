@@ -362,6 +362,32 @@ object GitHubConnectionCoordinator {
         }
     }
 
+    /** Ends a Custom Tab/external-browser authorization attempt. This is intentionally not a
+     * generic cancellation hook: Auth Tab has its own result lifecycle, while these browser
+     * launches otherwise give the user no return signal until the long OAuth timeout. The
+     * finalizer's guarded lock clears the exact pending record before any later App Link can
+     * consume it. */
+    suspend fun cancelPendingBrowserAuthorization(): Boolean {
+        val attemptId = connectStateMutex.withLock {
+            val pending = pendingOAuth
+            val operation = connectInFlight
+            if (
+                pending == null ||
+                operation?.attemptId != pending.attemptId ||
+                !isCancellableBrowserLaunch(pending.launchKind)
+            ) {
+                null
+            } else {
+                pending.attemptId
+            }
+        } ?: return false
+        return finishConnectOperation(
+            attemptId = attemptId,
+            outcome = GitHubResult.Success(GitHubStatus.NotConnected),
+            requirePendingBrowserAuthorization = true,
+        )
+    }
+
     /** The sole finalizer of [connectInFlight], from any call site (the timeout branch above,
      * [runConnectOperation]'s own terminal branches, or an external Cancel/Start-over/
      * disconnect() action). This is NOT the only thing that ever clears [pendingOAuth] -- a
@@ -370,14 +396,25 @@ object GitHubConnectionCoordinator {
      * stops the same callback being replayed while exchange is still in flight. This
      * function's own clear of [pendingOAuth] is a conditional cleanup for every OTHER
      * termination path -- a no-op when a valid callback already cleared it. */
-    private suspend fun finishConnectOperation(attemptId: UUID, outcome: GitHubResult<GitHubStatus>) {
+    private suspend fun finishConnectOperation(
+        attemptId: UUID,
+        outcome: GitHubResult<GitHubStatus>,
+        requirePendingBrowserAuthorization: Boolean = false,
+    ): Boolean {
         val detached = connectStateMutex.withLock {
             val current = connectInFlight
-            if (current == null || current.attemptId != attemptId) return  // not mine to finish
+            if (current == null || current.attemptId != attemptId) return@withLock null  // not mine to finish
+            if (
+                requirePendingBrowserAuthorization &&
+                (pendingOAuth?.let { it.attemptId == attemptId && isCancellableBrowserLaunch(it.launchKind) } != true)
+            ) {
+                return@withLock null
+            }
             if (pendingOAuth?.attemptId == attemptId) pendingOAuth = null
             connectInFlight = null
             current
         }
+        if (detached == null) return false
         if (outcome is GitHubResult.Success) {
             publishStatus(outcome.value)
         }
@@ -386,6 +423,7 @@ object GitHubConnectionCoordinator {
         // mutex this function still held.
         detached.result.complete(outcome)
         detached.job.cancel()
+        return true
     }
 
     private fun publishStatus(status: GitHubStatus) {
@@ -704,6 +742,9 @@ object GitHubConnectionCoordinator {
     // ================= Browser launch abstraction (UI-layer injected) =================
 
     enum class LaunchKind { AuthTab, CustomTab, ExternalBrowser }
+
+    internal fun isCancellableBrowserLaunch(kind: LaunchKind): Boolean =
+        kind == LaunchKind.CustomTab || kind == LaunchKind.ExternalBrowser
 
     /** A browser capability decision together with the exact package that made it. Keeping
      * the package makes the capability check and the subsequent launch one decision rather
