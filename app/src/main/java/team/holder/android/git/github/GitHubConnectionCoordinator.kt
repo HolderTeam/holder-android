@@ -90,6 +90,11 @@ object GitHubConnectionCoordinator {
      * expiring mid-flight to GitHub. */
     private const val ACCESS_TOKEN_SAFETY_MARGIN_MILLIS = 60_000L
 
+    /** The relay bounds its one-shot upstream GitHub request at fifteen seconds.  Give its
+     * caller a real outer margin so Android does not declare a still-live relay operation lost
+     * first; that would turn a usable response into an ambiguous OAuth outcome. */
+    internal const val RELAY_CALL_TIMEOUT_MILLIS = 20_000L
+
     private data class PendingOAuth(
         val attemptId: UUID,
         val state: String,
@@ -121,10 +126,21 @@ object GitHubConnectionCoordinator {
     internal data class AccessTokenCache(val accessToken: String, val expiresAtMonotonic: Long)
 
     private val exchangeHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        newCredentialRelayHttpClient()
+    }
+
+    /**
+     * Builds the client used for credential-spending relay requests (and shared control-plane
+     * calls). The explicit read and full-call bounds are deliberately longer than the Worker's
+     * fifteen-second upstream deadline; do not replace them with OkHttp's ten-second defaults.
+     */
+    internal fun newCredentialRelayHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
             .retryOnConnectionFailure(false)
             .followRedirects(false)
             .followSslRedirects(false)
+            .readTimeout(RELAY_CALL_TIMEOUT_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .callTimeout(RELAY_CALL_TIMEOUT_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)
             .build()
     }
 

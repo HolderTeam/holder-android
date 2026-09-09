@@ -24,4 +24,15 @@ class GitHubOAuthTest {
 
         assertEquals(payload, sink.readUtf8())
     }
+
+    @Test
+    fun credentialRelayClient_outlivesTheWorkersUpstreamDeadline() {
+        val client = GitHubConnectionCoordinator.newCredentialRelayHttpClient()
+
+        // The Worker has a 15-second complete upstream deadline.  Both bounds matter: a read
+        // limit must not cut off a slow but live response, and the overall call must still
+        // leave time for Android↔relay transport around that upstream operation.
+        assertEquals(20_000, client.readTimeoutMillis)
+        assertEquals(20_000, client.callTimeoutMillis)
+    }
 }
