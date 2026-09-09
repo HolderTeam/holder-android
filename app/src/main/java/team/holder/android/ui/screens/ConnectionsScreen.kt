@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -89,6 +90,7 @@ fun ConnectionsScreen(
     refreshKey: Any,
     onAddConnection: () -> Unit,
     onAddMilestone: () -> Unit,
+    onHistoryClick: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -181,6 +183,9 @@ fun ConnectionsScreen(
                 actions = {
                     IconButton(onClick = onAddMilestone) {
                         Icon(Icons.Filled.DateRange, contentDescription = "Add milestone")
+                    }
+                    IconButton(onClick = onHistoryClick) {
+                        Icon(Icons.Filled.History, contentDescription = "History")
                     }
                 },
             )
