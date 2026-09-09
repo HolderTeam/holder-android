@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -13,6 +14,8 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
@@ -49,6 +52,16 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * [rememberSaveableStateHolder]'s [androidx.compose.runtime.saveable.SaveableStateHolder.SaveableStateProvider],
  * keyed by that page's card id, is therefore enough to make that already-saveable state survive
  * HorizontalPager disposing an off-screen page -- no bespoke per-card scroll-state map needed.
+ *
+ * Prototype B visual spike: instead of the continuous side-by-side strip HorizontalPager draws
+ * by default, each page's `graphicsLayer` is hand-computed from [androidx.compose.foundation.pager.PagerState.currentPageOffsetFraction]
+ * so it reads as a physical stack instead -- the front (settled) card tracks the drag 1:1 with
+ * a light tilt, while a neighbor cancels its own built-in side-by-side placement and instead
+ * fades/grows into place from directly underneath as the front card is dragged off it. This
+ * only changes how pages are *drawn*; HorizontalPager's own gesture handling, fling physics,
+ * and page-count/settling logic are all untouched, which is also why this needs
+ * `beyondViewportPageCount = 1` -- the one neighbor being revealed has to actually be composed
+ * during the drag, not just conceptually adjacent.
  */
 @Composable
 fun CardViewPagerScreen(
@@ -95,22 +108,52 @@ fun CardViewPagerScreen(
         }
     }
 
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        beyondViewportPageCount = 1,
+    ) { page ->
         val card = loadedDeck[page]
-        saveableStateHolder.SaveableStateProvider(card.cardId) {
-            CardViewScreen(
-                cardId = card.cardId,
-                projectId = projectId,
-                cardTitle = card.title,
-                refreshKey = refreshKey,
-                onEdit = { content -> onEdit(card.cardId, content) },
-                onNavigateToCard = onNavigateToCard,
-                onNavigateToTag = onNavigateToTag,
-                onConnectionsClick = { onConnectionsClick(card.cardId) },
-                onCreateChildCard = { onCreateChildCard(card.cardId) },
-                onDeleted = onDeleted,
-                onBack = onBack,
-            )
+        Box(
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                // Continuous, sign-agnostic distance (in pages) between this page and the
+                // settled front page -- 0 when this page is fully current, approaching +-1 as
+                // it's dragged fully away/revealed. Derived manually (rather than via the
+                // Foundation-provided getOffsetDistanceInPages) so the exact formula this
+                // transform depends on is visible right here.
+                val offset = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
+                if (page == pagerState.currentPage) {
+                    // The front card: HorizontalPager's own placement already tracks the drag
+                    // 1:1, so it's left alone -- just a light tilt for physicality.
+                    rotationZ = -offset * 10f
+                } else {
+                    // A neighboring card, waiting underneath rather than sliding in from the
+                    // side: cancel the pager's own side-by-side placement (putting it exactly
+                    // where the front card is), then reveal it in place as the front card is
+                    // dragged away, instead of letting it slide in from the edge.
+                    translationX = -offset * size.width
+                    val reveal = (1f - abs(offset)).coerceIn(0f, 1f)
+                    alpha = reveal
+                    scaleX = 0.88f + 0.12f * reveal
+                    scaleY = 0.88f + 0.12f * reveal
+                }
+            },
+        ) {
+            saveableStateHolder.SaveableStateProvider(card.cardId) {
+                CardViewScreen(
+                    cardId = card.cardId,
+                    projectId = projectId,
+                    cardTitle = card.title,
+                    refreshKey = refreshKey,
+                    onEdit = { content -> onEdit(card.cardId, content) },
+                    onNavigateToCard = onNavigateToCard,
+                    onNavigateToTag = onNavigateToTag,
+                    onConnectionsClick = { onConnectionsClick(card.cardId) },
+                    onCreateChildCard = { onCreateChildCard(card.cardId) },
+                    onDeleted = onDeleted,
+                    onBack = onBack,
+                )
+            }
         }
     }
 }
