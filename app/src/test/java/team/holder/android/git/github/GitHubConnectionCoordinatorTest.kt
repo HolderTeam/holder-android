@@ -49,15 +49,15 @@ private class UnavailableBrowserLauncher(
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
     val resolveCallCount = AtomicInteger(0)
 
-    override fun resolveLaunchKind(context: Context): GitHubConnectionCoordinator.LaunchKind? {
+    override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
         resolveCallCount.incrementAndGet()
         startedLatch?.countDown()
         releaseLatch?.await(5, TimeUnit.SECONDS)
         return null
     }
 
-    override fun launch(context: Context, kind: GitHubConnectionCoordinator.LaunchKind, uri: android.net.Uri, attemptId: UUID) {
-        error("never reached -- resolveLaunchKind always returns null in this fake")
+    override fun launch(context: Context, browser: GitHubConnectionCoordinator.BrowserLaunch, uri: android.net.Uri, attemptId: UUID) {
+        error("never reached -- resolveBrowser always returns null in this fake")
     }
 }
 
@@ -93,9 +93,9 @@ class GitHubConnectionCoordinatorTest {
         val launcher = UnavailableBrowserLauncher(startedLatch = started, releaseLatch = release)
 
         val first = async { GitHubConnectionCoordinator.connect(fakeContext, launcher) }
-        assertTrue("first connect() never reached resolveLaunchKind", started.await(5, TimeUnit.SECONDS))
+        assertTrue("first connect() never reached resolveBrowser", started.await(5, TimeUnit.SECONDS))
 
-        // The first operation is now deliberately held open (blocked inside resolveLaunchKind,
+        // The first operation is now deliberately held open (blocked inside resolveBrowser,
         // on a real IO-dispatcher thread) -- connectInFlight must be non-null right now.
         val second = async { GitHubConnectionCoordinator.connect(fakeContext, launcher) }
         // Give the dispatcher a real, if small, window to actually run second's own (fast,

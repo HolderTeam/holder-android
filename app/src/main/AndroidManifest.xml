@@ -6,7 +6,7 @@
 
     <!-- Package visibility (Android 11/API 30+): without this, PackageManager hides other
          installed apps from our own queries by default, including a genuinely installed
-         browser. GitHubActivityBrowserLauncher.resolveLaunchKind's CustomTabsClient
+         browser. GitHubActivityBrowserLauncher.resolveBrowser's CustomTabsClient
          .getPackageName and its ordinary-browser fallback both silently see nothing without
          this, misreporting BrowserUnavailable even when Chrome is actually installed.
          Confirmed live: this exact failure reproduced on real emulators (API 33/37) before

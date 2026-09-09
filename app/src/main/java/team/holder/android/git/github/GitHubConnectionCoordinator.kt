@@ -185,7 +185,7 @@ object GitHubConnectionCoordinator {
         // inside the same critical section) closes a real, if narrow, race Dispatchers.IO's
         // multiple real threads can otherwise hit: without it, the launched coroutine can begin
         // running -- reaching a caller-supplied hook such as GitHubBrowserLauncher
-        // .resolveLaunchKind -- concurrently with this thread still finishing the
+        // .resolveBrowser -- concurrently with this thread still finishing the
         // connectInFlight assignment on the very next line, since nothing before that
         // assignment actually synchronizes the two. A caller-visible side effect must never be
         // able to run before connectInFlight is visible to any concurrent joiner.
@@ -254,8 +254,8 @@ object GitHubConnectionCoordinator {
             clearStoredCredential(appContext)
         }
 
-        val launchKind = browserLauncher.resolveLaunchKind(appContext)
-        if (launchKind == null) {
+        val browserLaunch = browserLauncher.resolveBrowser(appContext)
+        if (browserLaunch == null) {
             finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
             return
         }
@@ -271,7 +271,7 @@ object GitHubConnectionCoordinator {
                 codeVerifier = codeVerifier,
                 redirectUri = GitHubEnvironment.OAUTH_CALLBACK_URL,
                 startedAtMonotonic = SystemClock.elapsedRealtime(),
-                launchKind = launchKind,
+                launchKind = browserLaunch.kind,
                 callbackOutcome = callbackOutcome,
             )
         }
@@ -280,7 +280,7 @@ object GitHubConnectionCoordinator {
         // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
         // actually launching an Activity/ActivityResultLauncher is real UI work.
         withContext(Dispatchers.Main.immediate) {
-            browserLauncher.launch(appContext, launchKind, authorizeUri, attemptId)
+            browserLauncher.launch(appContext, browserLaunch, authorizeUri, attemptId)
         }
 
         val outcome = withTimeoutOrNull(PENDING_OAUTH_TIMEOUT_MILLIS) { callbackOutcome.await() }
@@ -705,18 +705,23 @@ object GitHubConnectionCoordinator {
 
     enum class LaunchKind { AuthTab, CustomTab, ExternalBrowser }
 
+    /** A browser capability decision together with the exact package that made it. Keeping
+     * the package makes the capability check and the subsequent launch one decision rather
+     * than two resolver lookups which could disagree. */
+    data class BrowserLaunch(val kind: LaunchKind, val packageName: String)
+
     /** Everything Activity/Compose-specific that `connect()` needs, kept out of this
      * coordinator entirely -- implemented by the UI layer (see `MainActivity`/the screens that
      * call [connect]). */
     interface GitHubBrowserLauncher {
         /** Resolves a Custom Tabs provider first, then checks *that specific* provider's Auth
-         * Tab support -- capability check and eventual launch must use the same resolved
-         * package, always. Returns null when nothing can handle the URL at all. */
-        fun resolveLaunchKind(context: Context): LaunchKind?
+         * Tab support. The returned package must be the package actually launched. Returns
+         * null when no ordinary external browser can handle the authorization URL. */
+        fun resolveBrowser(context: Context): BrowserLaunch?
 
         /** For [LaunchKind.AuthTab]: must persist [attemptId] via the launching Activity's own
          * SavedState *before* actually launching. Runs on the main thread (see `connect()`'s
          * own `Dispatchers.Main.immediate` hop before calling this). */
-        fun launch(context: Context, kind: LaunchKind, uri: Uri, attemptId: UUID)
+        fun launch(context: Context, browser: BrowserLaunch, uri: Uri, attemptId: UUID)
     }
 }
