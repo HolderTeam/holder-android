@@ -1,5 +1,8 @@
 package team.holder.android.ui.screens
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -89,7 +93,8 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * front page over its neighbor: load-bearing for the styles whose neighbor sits at full
  * opacity in the same spot as the front card (it would otherwise cover the front card outright,
  * depending on whatever order HorizontalPager happens to compose pages in) and a harmless no-op
- * for the others.
+ * for the others. The one style that *isn't* a per-page transform is Snap, which draws like
+ * Slide and instead swaps the pager's settle spring for a bouncy one (see [flingBehavior] below).
  *
  * The bottom action bar (Focus/Tools/Child/Edit) lives here, not in CardViewScreen: it used to
  * be part of CardViewScreen's own per-page Scaffold, which meant it visibly moved/duplicated
@@ -169,6 +174,18 @@ fun CardViewPagerScreen(
         }
     }
 
+    // Snap draws exactly like Slide under the drag; its whole character is the pager's settle
+    // spec -- an instant cut instead of the default eased spring, so the post-fling stretch just
+    // closes.
+    val flingBehavior = PagerDefaults.flingBehavior(
+        state = pagerState,
+        snapAnimationSpec = if (resolvedStyle == ResolvedSwipeStyle.Snap) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow)
+        },
+    )
+
     LaunchedEffect(pagerState, loadedDeck) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
             loadedDeck.getOrNull(page)?.let { onPageChanged(it.cardId, it.title) }
@@ -233,6 +250,7 @@ fun CardViewPagerScreen(
             // page's own nested TopAppBar already accounts for.
             modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
             beyondViewportPageCount = 1,
+            flingBehavior = flingBehavior,
         ) { page ->
             val card = loadedDeck[page]
             val isFront = page == pagerState.currentPage
@@ -241,8 +259,9 @@ fun CardViewPagerScreen(
                     .fillMaxSize()
                     // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing,
                     // whose neighbor sits fully opaque in the same spot as the front card; a
-                    // no-op for Slide/Spin (pages never overlap) and Stealth (alpha alone
-                    // already reads as front/back regardless of z-order).
+                    // no-op for Slide/Spin/Snap (pages never overlap), Surf (the two cards are
+                    // vertically separated the whole time) and Stealth (alpha alone already
+                    // reads as front/back regardless of z-order).
                     .zIndex(if (isFront) 1f else 0f)
                     .graphicsLayer {
                         val offset = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
@@ -309,6 +328,21 @@ fun CardViewPagerScreen(
                                     val direction = if (style.followsFinger) 1f else -1f
                                     rotationZ = direction * offset * style.degrees
                                 }
+                            }
+                            ResolvedSwipeStyle.Snap -> {
+                                // Nothing per-page -- draws like Slide. The character is all in
+                                // the pager's settle spec (see flingBehavior above).
+                            }
+                            is ResolvedSwipeStyle.Surf -> {
+                                // Both cards keep their native side-by-side horizontal placement
+                                // (as in Slide); they just take opposite vertical arcs -- the
+                                // front lifts away upward, the neighbor swells up from below --
+                                // so the two ride past each other like a wave, never overlapping.
+                                translationY =
+                                    (if (isFront) -1f else 1f) *
+                                        abs(offset).coerceIn(0f, 1f) *
+                                        style.liftFraction *
+                                        size.height
                             }
                         }
                     },

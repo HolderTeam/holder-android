@@ -22,6 +22,14 @@ class CardSwipeStyleTest {
             ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false),
             HolderCardSwipeStyle.SPIN.resolve(rng),
         )
+        assertEquals(ResolvedSwipeStyle.Snap, HolderCardSwipeStyle.SNAP.resolve(rng))
+        assertEquals(ResolvedSwipeStyle.Surf(liftFraction = 0.18f), HolderCardSwipeStyle.SURF.resolve(rng))
+    }
+
+    @Test
+    fun surprise_bagExcludesSnapAndSurf() {
+        // They ride in the picker only until they've had road time (see SURPRISE_BAG's comment).
+        assertTrue(surpriseVariants.none { it is ResolvedSwipeStyle.Snap || it is ResolvedSwipeStyle.Surf })
     }
 
     @Test
