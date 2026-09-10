@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -248,15 +249,18 @@ fun CardViewPagerScreen(
     }
 
     // Haptics. Both route through Compose's HapticFeedback, so they honour the system
-    // touch-feedback setting. Settle: a light tick each time the pager actually comes to rest on
-    // a new card (settledPage only moves on a completed swipe -- nothing for a drag that snaps
-    // back, nothing mid-fling). Boundary: a firmer "no" the moment a drag pushes against the
+    // touch-feedback setting -- the in-app "Disable haptics" toggle (Appearance) is on top of
+    // that. Settle: a light tick each time the pager actually comes to rest on a new card
+    // (settledPage only moves on a completed swipe -- nothing for a drag that snaps back,
+    // nothing mid-fling). Boundary: a firmer "no" the moment a drag pushes against the
     // first/last card, fired once per push (reset when the drag eases off the wall or ends).
     val haptic = LocalHapticFeedback.current
+    val hapticsDisabled by HolderSettings.cardSwipeHapticsDisabled(context).collectAsState(initial = false)
+    val hapticsOn = rememberUpdatedState(!hapticsDisabled)
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }
             .drop(1)
-            .collect { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick) }
+            .collect { if (hapticsOn.value) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick) }
     }
     var pushingWall by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState) {
@@ -272,7 +276,7 @@ fun CardViewPagerScreen(
                     if (againstStart || againstEnd) {
                         if (!pushingWall) {
                             pushingWall = true
-                            haptic.performHapticFeedback(HapticFeedbackType.Reject)
+                            if (hapticsOn.value) haptic.performHapticFeedback(HapticFeedbackType.Reject)
                         }
                     } else if (available.x != 0f) {
                         pushingWall = false

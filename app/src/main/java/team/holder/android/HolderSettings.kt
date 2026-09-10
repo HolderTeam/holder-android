@@ -28,6 +28,7 @@ object HolderSettings {
     private val FONT_SIZE_OPTION = stringPreferencesKey("font_size_option")
     private val FONT_FAMILY_OPTION = stringPreferencesKey("font_family_option")
     private val CARD_SWIPE_STYLE = stringPreferencesKey("card_swipe_style")
+    private val CARD_SWIPE_HAPTICS_DISABLED = booleanPreferencesKey("card_swipe_haptics_disabled")
     private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
@@ -105,6 +106,15 @@ object HolderSettings {
 
     suspend fun setCardSwipeStyle(context: Context, option: HolderCardSwipeStyle) {
         context.settingsDataStore.edit { it[CARD_SWIPE_STYLE] = option.name }
+    }
+
+    /** Off by default: swiping between sibling cards gives a light tick on landing and a firmer
+     * bump against the first/last card (see CardViewPagerScreen). On silences both. */
+    fun cardSwipeHapticsDisabled(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[CARD_SWIPE_HAPTICS_DISABLED] ?: false }
+
+    suspend fun setCardSwipeHapticsDisabled(context: Context, disabled: Boolean) {
+        context.settingsDataStore.edit { it[CARD_SWIPE_HAPTICS_DISABLED] = disabled }
     }
 
     /** Off by default: a card's raw Markdown gets its trailing whitespace cleaned up on save

@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -58,6 +61,8 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
     val cardSwipeStyle by HolderSettings.cardSwipeStyle(context)
         .collectAsState(initial = HolderCardSwipeStyle.SLIDE)
     var cardSwipeStyleMenuExpanded by remember { mutableStateOf(false) }
+    val cardSwipeHapticsDisabled by HolderSettings.cardSwipeHapticsDisabled(context)
+        .collectAsState(initial = false)
 
     Scaffold(
         topBar = {
@@ -208,6 +213,22 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Disable haptics")
+                    Text("Silence the swipe's landing tick and edge bump.")
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Switch(
+                    checked = cardSwipeHapticsDisabled,
+                    onCheckedChange = { disabled ->
+                        scope.launch { HolderSettings.setCardSwipeHapticsDisabled(context, disabled) }
+                    },
+                )
             }
         }
     }
