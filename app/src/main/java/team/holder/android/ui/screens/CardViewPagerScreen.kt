@@ -44,6 +44,7 @@ import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
@@ -188,14 +189,14 @@ fun CardViewPagerScreen(
         }
     }
 
-    // A couple of styles change how the pager *settles* rather than how a page is drawn: Snap
-    // cuts instantly, Slingshot rings in on a very bouncy spring.
+    // Snap changes how the pager *settles* rather than how a page is drawn -- an instant cut.
+    // (Slingshot also overrides the settle, but by driving animateScrollToPage itself below.)
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapAnimationSpec = when (resolvedStyle) {
-            ResolvedSwipeStyle.Snap -> snap()
-            ResolvedSwipeStyle.Slingshot -> spring(dampingRatio = 0.32f, stiffness = Spring.StiffnessLow)
-            else -> spring(stiffness = Spring.StiffnessMediumLow)
+        snapAnimationSpec = if (resolvedStyle == ResolvedSwipeStyle.Snap) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow)
         },
     )
 
@@ -217,32 +218,42 @@ fun CardViewPagerScreen(
             }
     }
 
-    // Slingshot's launch. slingLaunch is the flung card's displacement in card-widths while
-    // firing; `slingLaunching` says whether to use it instead of the held pull-back. The launch
-    // is kicked from a real release event -- DragInteraction.Stop off the pager's own gesture
-    // source -- so it runs on the Animatable's clock, not the pager's fling decay.
+    // Slingshot's launch. slingLaunch is the flung card's on-screen position in card-widths
+    // while firing (the graphicsLayer cancels the pager under it); `slingLaunching` says whether
+    // to use it instead of the held pull-back. Kicked from a real release event
+    // (DragInteraction.Stop off the pager's own gesture source), and it *also* drives the page
+    // change itself -- the pull-back makes the card look stuck, so the drag distance the pager
+    // sees is never enough to commit on its own.
     val slingLaunch = remember { Animatable(0f) }
     var slingLaunching by remember { mutableStateOf(false) }
-    LaunchedEffect(pagerState, swipeStyle) {
+    LaunchedEffect(pagerState, swipeStyle, loadedDeck.size) {
         if (swipeStyle != HolderCardSwipeStyle.SLINGSHOT) return@LaunchedEffect
         pagerState.interactionSource.interactions.collect { interaction ->
             if (interaction !is DragInteraction.Stop) return@collect
             val pulled = abs(pagerState.currentPageOffsetFraction)
             if (pulled < SLINGSHOT_COMMIT_OFFSET) return@collect
+            val target = (pagerState.currentPage + if (draggingForward) 1 else -1)
+                .coerceIn(0, loadedDeck.lastIndex)
+            if (target == pagerState.currentPage) return@collect // at the deck edge, nowhere to fling
             val travel = if (draggingForward) -1f else 1f
-            val power = (pulled.coerceIn(0f, 0.5f) / 0.5f)
+            val power = pulled.coerceIn(0f, 0.5f) / 0.5f
             slingLaunching = true
-            // slingLaunch is the flung card's on-screen position in widths (the graphicsLayer
-            // cancels the pager under it). Start where the held pull-back had it -- pulled back
-            // against travel by loadFrac * MAX -- so nothing hops when the Animatable takes over.
+            // Start where the held pull-back had it so nothing hops when the Animatable takes over.
             slingLaunch.snapTo(
                 -travel * (pulled / SLINGSHOT_LOAD_WINDOW).coerceIn(0f, 1f) * SLINGSHOT_MAX_PULLBACK,
             )
+            val pageChange = launch {
+                pagerState.animateScrollToPage(
+                    target,
+                    animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow),
+                )
+            }
             slingLaunch.animateTo(
                 targetValue = travel * SLINGSHOT_FLYOFF,
                 initialVelocity = travel * SLINGSHOT_LAUNCH_VELOCITY * (0.5f + power),
                 animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
             )
+            pageChange.join() // keep the flung card parked off-screen until the pager has settled
             slingLaunching = false
             slingLaunch.snapTo(0f)
         }
