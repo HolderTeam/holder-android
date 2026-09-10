@@ -4,6 +4,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -88,17 +89,17 @@ class WholeAppSmokeTest {
                 .isNotEmpty()
         }
 
-        // Unlike every other click in this test, this one previously had no wait in front of
-        // it -- the preceding wait above only confirms the edited text is showing somewhere,
-        // which a mid-navigation-transition frame can already satisfy (both the outgoing and
-        // incoming screens can briefly coexist during a NavHost crossfade) before the incoming
-        // screen's own TopAppBar, and its Back icon, has actually settled. That gap is what
-        // made this specific click flaky on CI (`Expected exactly '1' node ... ContentDescription
-        // = 'Back'`), passing on a rerun once timing happened to line up.
+        // Wait for at least one "Back" (the card view's own TopAppBar arrow) to be present,
+        // then click the first. Not "exactly one": the card sits in a HorizontalPager of its
+        // siblings (see CardViewPagerScreen), and more than one sibling page -- each its own
+        // CardViewScreen with its own TopAppBar Back arrow -- can be composed at once. Every
+        // one of those arrows invokes the same onBack, so the first is as good as any. The
+        // earlier "exactly one" wait here predated that pager and was a source of this test's
+        // CI flakiness.
         composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().size == 1
+            composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.onAllNodesWithContentDescription("Back").onFirst().performClick()
         composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
