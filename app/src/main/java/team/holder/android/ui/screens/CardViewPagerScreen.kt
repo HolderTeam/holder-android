@@ -2,6 +2,7 @@ package team.holder.android.ui.screens
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -176,15 +177,15 @@ fun CardViewPagerScreen(
     }
 
     // Snap draws exactly like Slide; its whole character is the pager's settle spec -- a short
-    // fixed linear tween instead of the default eased spring, so the post-fling stretch snaps
-    // shut fast and mechanically.
+    // fixed linear tween (or, at durationMillis 0, an instant cut) instead of the default eased
+    // spring, so the post-fling stretch closes fast and mechanically.
     val snapStyle = resolvedStyle as? ResolvedSwipeStyle.Snap
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapAnimationSpec = if (snapStyle != null) {
-            tween(durationMillis = snapStyle.durationMillis, easing = LinearEasing)
-        } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
+        snapAnimationSpec = when {
+            snapStyle == null -> spring(stiffness = Spring.StiffnessMediumLow)
+            snapStyle.durationMillis <= 0 -> snap()
+            else -> tween(durationMillis = snapStyle.durationMillis, easing = LinearEasing)
         },
     )
 
