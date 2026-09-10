@@ -45,6 +45,12 @@ android {
         versionName = "0.2.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Paired with testOptions.execution below: Orchestrator runs each androidTest class in
+        // its own instrumentation and, with this argument, wipes app storage between them --
+        // without it, a test that fails mid-way (leaving e.g. HolderNative's native context in
+        // an unexpected state, or a stray card the failure skipped past its own cleanup for)
+        // could otherwise bleed into whichever test happens to run next in the same process.
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
 
         ndk {
             abiFilters += holderAndroidAbis
@@ -145,6 +151,10 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Isolates each androidTest class in its own instrumentation run instead of all of them
+        // sharing one process/app instance -- see clearPackageData above for why that sharing
+        // was a real source of CI flakiness (managed-device-tests), not just a theoretical one.
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
         managedDevices {
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
@@ -206,6 +216,9 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    // androidTestUtil, not androidTestImplementation -- this is the separate orchestrator APK
+    // Gradle installs and runs alongside the test APK, not a library the tests compile against.
+    androidTestUtil(libs.androidx.test.orchestrator)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

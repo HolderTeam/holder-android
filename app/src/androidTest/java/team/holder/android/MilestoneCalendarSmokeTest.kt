@@ -19,10 +19,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Milestone creation through the real Activity, Compose navigation, JNI, and libholder, then
- * confirms the Calendar screen actually picks it up: create a card, add a milestone from its
- * About screen, then open the project Calendar and confirm the milestone shows there with the
- * right card title -- this is the seam (range query -> JSON -> cardTitle -> Compose list) most
- * likely to regress silently, since it's normally only checked by hand on the emulator. */
+ * confirms the Calendar screen actually picks it up: create a card, add a milestone via its
+ * Tools dashboard, and confirm the milestone shows up (with the right card title) back on the
+ * same Calendar screen the dashboard's Milestones tile opens -- this is the seam (range query ->
+ * JSON -> cardTitle -> Compose list) most likely to regress silently, since it's normally only
+ * checked by hand on the emulator. */
 @RunWith(AndroidJUnit4::class)
 class MilestoneCalendarSmokeTest {
     @get:Rule
@@ -66,9 +67,19 @@ class MilestoneCalendarSmokeTest {
         }
         composeRule.onNodeWithText(title).performClick()
 
-        composeRule.onNodeWithContentDescription("Connections").performClick()
+        // Tools dashboard, not a direct "Connections" button -- see CardViewPagerScreen's
+        // bottom bar (Focus/Tools/Child/Edit).
+        composeRule.onNodeWithContentDescription("Tools").performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithText("About this card").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithContentDescription("Milestones").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // The dashboard's Milestones tile opens this same card's project Calendar directly,
+        // with "Add milestone" already wired to it (see CalendarScreen's onAddMilestone doc
+        // comment) -- no separate per-card milestone screen to go through first.
+        composeRule.onNodeWithContentDescription("Milestones").performClick()
+        composeRule.waitUntil(timeoutMillis = 20_000) {
+            composeRule.onAllNodesWithContentDescription("Add milestone").fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithContentDescription("Add milestone").performClick()
@@ -80,20 +91,8 @@ class MilestoneCalendarSmokeTest {
         // Defaults (today, all-day, no end) already make the form saveable -- no input needed.
         composeRule.onNode(hasText("Add milestone") and hasClickAction()).performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithText("Milestones").fetchSemanticsNodes().isNotEmpty()
-        }
-
-        composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithContentDescription("Connections").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithContentDescription("Calendar").fetchSemanticsNodes().isNotEmpty()
-        }
-
-        composeRule.onNodeWithContentDescription("Calendar").performClick()
+        // Saving pops straight back to the same Calendar screen (see AddMilestoneScreen's
+        // onAdded), already refreshed -- no extra navigation needed to see it land.
         composeRule.waitUntil(timeoutMillis = 20_000) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
