@@ -139,9 +139,9 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
             HolderCardSwipeStyle.SWING ->
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
-            // ~4 frames at 60Hz: still motion, not a teleport, but sharply quicker and more
-            // mechanical than the pager's ease. Drop toward 0 for a hard cut.
-            HolderCardSwipeStyle.SNAP -> ResolvedSwipeStyle.Snap(durationMillis = 60)
+            // ~2 frames at 60Hz: on the edge of a hard cut but still animated. Drop toward 0 for
+            // a true teleport.
+            HolderCardSwipeStyle.SNAP -> ResolvedSwipeStyle.Snap(durationMillis = 30)
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
