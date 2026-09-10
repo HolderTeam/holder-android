@@ -81,12 +81,13 @@ sealed interface ResolvedSwipeStyle {
     data class Spin(val degrees: Float, val followsFinger: Boolean) : ResolvedSwipeStyle
 
     /**
-     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle
-     * spring: [stiffness] cranked right up with [dampingRatio] at ~1 (no bounce), so a released
-     * swipe reaches its slot noticeably faster than the pager's default ease. Unlike every other
-     * style this one isn't a per-page transform -- it's a `flingBehavior` on the pager itself.
+     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle: a
+     * short fixed linear tween of [durationMillis] instead of the default eased spring, so the
+     * last stretch after the fling is covered fast and mechanically, whatever its length. Unlike
+     * every other style this one isn't a per-page transform -- it's a `flingBehavior` on the
+     * pager itself.
      */
-    data class Snap(val dampingRatio: Float, val stiffness: Float) : ResolvedSwipeStyle
+    data class Snap(val durationMillis: Int) : ResolvedSwipeStyle
 
     /**
      * Both cards keep their natural side-by-side horizontal placement but take opposite vertical
@@ -138,10 +139,9 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
             HolderCardSwipeStyle.SWING ->
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
-            HolderCardSwipeStyle.SNAP ->
-                    // As fast as a spring gets without ringing: ~critical damping, very high
-                    // stiffness (Compose Spring.StiffnessHigh). Slide, but it just gets there.
-                    ResolvedSwipeStyle.Snap(dampingRatio = 1f, stiffness = 10_000f)
+            // ~4 frames at 60Hz: still motion, not a teleport, but sharply quicker and more
+            // mechanical than the pager's ease. Drop toward 0 for a hard cut.
+            HolderCardSwipeStyle.SNAP -> ResolvedSwipeStyle.Snap(durationMillis = 60)
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
