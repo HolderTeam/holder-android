@@ -140,10 +140,9 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
             HolderCardSwipeStyle.SNAP ->
-                    // Deliberately springy: damping well below 1 so the overshoot is obvious
-                    // (not just a faster Slide), stiffness ~ Compose Spring.StiffnessMediumLow so
-                    // it still arrives quickly.
-                    ResolvedSwipeStyle.Snap(dampingRatio = 0.35f, stiffness = 400f)
+                    // A firm, fast pager settle (no overshoot from the pager itself) -- the
+                    // visible bounce is the landing recoil in CardViewPagerScreen, not this.
+                    ResolvedSwipeStyle.Snap(dampingRatio = 1f, stiffness = 500f)
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)

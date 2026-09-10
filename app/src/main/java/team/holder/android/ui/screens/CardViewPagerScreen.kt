@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -119,6 +120,11 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * moment a fresh variant is chosen, so a drag that's flung, settled, or cancelled and re-dragged
  * keeps the look it started with.
  */
+// Snap's kick on landing: the front card overshoots this fraction of its width in the direction
+// it was travelling, then springs back. The pager's own snap spec animates only the sliver of
+// distance left after the fling -- often nothing -- so a visible Snap needs this on top.
+private const val SNAP_RECOIL_FRACTION = 0.12f
+
 @Composable
 fun CardViewPagerScreen(
     cardId: String,
@@ -173,9 +179,10 @@ fun CardViewPagerScreen(
         }
     }
 
-    // Snap is the only style that changes how the pager *settles* rather than how a page is drawn:
-    // a bouncy spring instead of the default ease. Every other style leaves this at the pager's
-    // own default (approximated here as the not-Snap branch).
+    // Snap gives the pager a firm, fast settle spec (its own dampingRatio/stiffness) and, on top,
+    // a visible landing recoil: when a page settles onto a *new* card, the front card overshoots
+    // in its travel direction and springs back. The recoil is what actually makes Snap read as
+    // different from Slide -- the settle spec alone animates too little distance to notice.
     val snapStyle = resolvedStyle as? ResolvedSwipeStyle.Snap
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
@@ -185,6 +192,19 @@ fun CardViewPagerScreen(
             spring(stiffness = Spring.StiffnessMediumLow)
         },
     )
+    val snapRecoil = remember { Animatable(0f) }
+    LaunchedEffect(pagerState, swipeStyle) {
+        if (swipeStyle != HolderCardSwipeStyle.SNAP) return@LaunchedEffect
+        var previous = pagerState.currentPage
+        snapshotFlow { pagerState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling && pagerState.currentPage != previous) {
+                val travelDir = if (pagerState.currentPage > previous) -1f else 1f
+                previous = pagerState.currentPage
+                snapRecoil.snapTo(travelDir)
+                snapRecoil.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow))
+            }
+        }
+    }
 
     LaunchedEffect(pagerState, loadedDeck) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
@@ -330,8 +350,10 @@ fun CardViewPagerScreen(
                                 }
                             }
                             is ResolvedSwipeStyle.Snap -> {
-                                // Draws exactly like Slide -- the whole effect is the bouncy
-                                // settle spring applied to the pager above.
+                                // Draws like Slide during the drag; the character is the landing
+                                // recoil -- the front card kicked past its slot and springing
+                                // back (snapRecoil, driven above).
+                                if (isFront) translationX = snapRecoil.value * SNAP_RECOIL_FRACTION * size.width
                             }
                             is ResolvedSwipeStyle.Surf -> {
                                 // Both cards keep their native side-by-side horizontal placement
