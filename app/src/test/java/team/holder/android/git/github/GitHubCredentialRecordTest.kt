@@ -1,7 +1,6 @@
 package team.holder.android.git.github
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GitHubCredentialRecordTest {
@@ -9,14 +8,23 @@ class GitHubCredentialRecordTest {
     fun roundTripsTheWholeVersionedCredentialAsOneRecord() {
         val credential = StoredGitHubCredential("ghr_current", "cap_current", 1_800_000_000_000L)
 
-        assertEquals(credential, GitHubCredentialRecord.decode(GitHubCredentialRecord.encode(credential)))
+        listOf(
+            DurableGitHubCredentialState.Ready(credential),
+            DurableGitHubCredentialState.Refreshing(credential),
+        ).forEach { state ->
+            assertEquals(state, GitHubCredentialStateRecord.decode(GitHubCredentialStateRecord.encode(state)))
+        }
     }
 
     @Test
     fun rejectsAnIncompleteOrUnknownVersionCredentialRecord() {
-        assertNull(GitHubCredentialRecord.decode("{\"version\":1,\"refresh_token\":\"ghr\"}"))
-        assertNull(
-            GitHubCredentialRecord.decode(
+        assertEquals(
+            DurableGitHubCredentialState.Absent,
+            GitHubCredentialStateRecord.decode("{\"version\":1,\"refresh_token\":\"ghr\"}"),
+        )
+        assertEquals(
+            DurableGitHubCredentialState.Absent,
+            GitHubCredentialStateRecord.decode(
                 "{\"version\":2,\"refresh_token\":\"ghr\",\"refresh_cap\":\"cap\",\"refresh_token_expires_at\":1}",
             ),
         )

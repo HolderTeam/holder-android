@@ -183,9 +183,13 @@ object GitHubConnectionCoordinator {
      * its credential or cache can label one logical state as another during replacement. */
     internal data class CredentialStateSnapshot(
         val epoch: Long,
-        val credential: StoredGitHubCredential?,
+        val durableState: DurableGitHubCredentialState,
         val accessTokenCache: AccessTokenCache?,
-    )
+    ) {
+        /** Normal readers receive authority only from Ready; Refreshing stays quarantined. */
+        val credential: StoredGitHubCredential?
+            get() = (durableState as? DurableGitHubCredentialState.Ready)?.credential
+    }
 
     private sealed interface CredentialStatusQueryResult {
         data class Completed(val result: GitHubResult<GitHubStatus>) : CredentialStatusQueryResult
@@ -461,7 +465,7 @@ object GitHubConnectionCoordinator {
 
     /** Commits only while this exact connect operation still owns the generation it started
      * with. Locking connect state before credentials is the coordinator's fixed lock order. */
-    private suspend fun commitCredentialForConnectOperation(
+    internal suspend fun commitCredentialForConnectOperation(
         appContext: Context,
         attemptId: UUID,
         tokens: GitHubTokens,
@@ -475,11 +479,19 @@ object GitHubConnectionCoordinator {
                 tokens.accessToken,
                 SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
             )
-            credentialStore.store(appContext, credential)
+            val previousState = credentialStore.read(appContext)
+            if (!credentialStore.compareAndSet(
+                    appContext,
+                    expected = previousState,
+                    replacement = DurableGitHubCredentialState.Ready(credential),
+                )
+            ) {
+                return@withLock null
+            }
             accessTokenCache = cache
             val epoch = credentialEpoch.incrementAndGet()
             operation.expectedCredentialEpoch = epoch
-            CredentialStateSnapshot(epoch, credential, cache)
+            CredentialStateSnapshot(epoch, DurableGitHubCredentialState.Ready(credential), cache)
         }
     }
 
@@ -574,23 +586,41 @@ object GitHubConnectionCoordinator {
     suspend fun disconnect(context: Context) = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         controlPlaneMutex.withLock {
-            val inFlightAttemptId = connectStateMutex.withLock { connectInFlight?.attemptId }
-            if (inFlightAttemptId != null) {
-                // Complete joiners before cancellation, but leave authoritative publication
-                // to the one credential-mutation transaction below. Otherwise an in-flight
-                // connect's finalizer exposes a preliminary NotConnected state while durable
-                // credential/cache state still exists.
-                finishConnectOperation(
-                    inFlightAttemptId,
-                    GitHubResult.Success(GitHubStatus.NotConnected),
-                    publishSuccessfulStatus = false,
-                )
+            // Keep connect ownership intact unless the durable clear succeeds. In particular,
+            // a DataStore failure must not complete joiners with NotConnected while restart
+            // would still recover Ready(A). The established connect -> credential lock order is
+            // preserved, and no browser wait or network call runs under either lock.
+            val detached = connectStateMutex.withLock {
+                val current = connectInFlight
+                credentialMutationMutex.withLock {
+                    val previousState = credentialStore.read(appContext)
+                    check(
+                        credentialStore.compareAndSet(
+                            appContext,
+                            expected = previousState,
+                            replacement = DurableGitHubCredentialState.Absent,
+                        ),
+                    ) { "GitHub credential authority changed during disconnect" }
+                    accessTokenCache = null
+                    credentialEpoch.incrementAndGet()
+                    mutableStatusFlow.value = GitHubStatus.NotConnected
+
+                    if (current == null) {
+                        null
+                    } else {
+                        if (pendingOAuth?.attemptId == current.attemptId) pendingOAuth = null
+                        connectShutdown = current.stopped
+                        connectInFlight = null
+                        DetachedConnectOperation(
+                            current,
+                            GitHubResult.Success(GitHubStatus.NotConnected),
+                        )
+                    }
+                }
             }
-            credentialMutationMutex.withLock {
-                credentialStore.clear(appContext)
-                accessTokenCache = null
-                credentialEpoch.incrementAndGet()
-                mutableStatusFlow.value = GitHubStatus.NotConnected
+            if (detached != null) {
+                detached.operation.result.complete(detached.outcome)
+                detached.operation.job.cancel()
             }
         }
     }
@@ -679,7 +709,16 @@ object GitHubConnectionCoordinator {
             val operation = connectInFlight
             if (operation?.attemptId != attemptId) return@withLock false
             credentialMutationMutex.withLock {
-                credentialStore.clear(appContext)
+                if (credentialEpoch.get() != operation.expectedCredentialEpoch) return@withLock false
+                val previousState = credentialStore.read(appContext)
+                if (!credentialStore.compareAndSet(
+                        appContext,
+                        expected = previousState,
+                        replacement = DurableGitHubCredentialState.Absent,
+                    )
+                ) {
+                    return@withLock false
+                }
                 accessTokenCache = null
                 operation.expectedCredentialEpoch = credentialEpoch.incrementAndGet()
                 mutableStatusFlow.value = GitHubStatus.NotConnected
@@ -689,9 +728,13 @@ object GitHubConnectionCoordinator {
 
     internal suspend fun snapshotCredentialState(context: Context): CredentialStateSnapshot =
         credentialMutationMutex.withLock {
+            val durableState = credentialStore.read(context)
+            if (durableState !is DurableGitHubCredentialState.Ready) {
+                accessTokenCache = null
+            }
             CredentialStateSnapshot(
                 epoch = credentialEpoch.get(),
-                credential = credentialStore.get(context),
+                durableState = durableState,
                 accessTokenCache = accessTokenCache,
             )
         }
@@ -802,9 +845,13 @@ object GitHubConnectionCoordinator {
         appContext: Context,
         snapshot: CredentialStateSnapshot,
     ): Boolean = credentialMutationMutex.withLock {
+        val durableState = credentialStore.read(appContext)
+        if (durableState !is DurableGitHubCredentialState.Ready) {
+            accessTokenCache = null
+        }
         snapshot == CredentialStateSnapshot(
             epoch = credentialEpoch.get(),
-            credential = credentialStore.get(appContext),
+            durableState = durableState,
             accessTokenCache = accessTokenCache,
         )
     }
@@ -839,32 +886,78 @@ object GitHubConnectionCoordinator {
             val refreshToken = credential.refreshToken
             val refreshCap = credential.refreshCap
 
+            // Quarantine before the one-shot request. A failed DataStore update leaves Ready(A)
+            // authoritative and, critically, prevents the relay call from starting.
+            val quarantinedSnapshot = try {
+                credentialMutationMutex.withLock {
+                    val currentState = credentialStore.read(appContext)
+                    if (!refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), currentState)) {
+                        null
+                    } else {
+                        val refreshing = DurableGitHubCredentialState.Refreshing(credential)
+                        if (!credentialStore.compareAndSet(appContext, snapshot.durableState, refreshing)) {
+                            null
+                        } else {
+                            accessTokenCache = null
+                            CredentialStateSnapshot(snapshot.epoch, refreshing, null)
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Could not durably quarantine the GitHub refresh credential", e)
+                return SnapshotAccessTokenResult.Failure(credentialPersistenceError())
+            } ?: return SnapshotAccessTokenResult.Stale
+
             val refreshResult = relayRefreshOverride?.invoke(exchangeHttpClient, refreshToken, refreshCap)
                 ?: GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)
             return when (refreshResult) {
                 is RelayResult.Success -> {
-                    val committedSnapshot = credentialMutationMutex.withLock {
-                        // The refresh snapshot's generation AND credential must still be
-                        // current. Token equality alone can accept a pre-supersession refresh
-                        // when the same token happens to be present in a later generation.
-                        if (!refreshSnapshotStillCurrent(
-                                snapshot = snapshot,
-                                currentEpoch = credentialEpoch.get(),
-                                currentCredential = credentialStore.get(appContext),
-                            )
-                        ) {
-                            null
-                        } else {
-                            val tokens = refreshResult.tokens
-                            val credential = durableCredential(tokens)
-                            val cache = AccessTokenCache(
-                                tokens.accessToken,
-                                SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
-                            )
-                            credentialStore.store(appContext, credential)
-                            accessTokenCache = cache
-                            CredentialStateSnapshot(snapshot.epoch, credential, cache)
+                    val committedSnapshot = try {
+                        credentialMutationMutex.withLock {
+                            // Revalidate the exact quarantined state and generation. A stale
+                            // response can neither replace nor delete a newer authority.
+                            val currentState = credentialStore.read(appContext)
+                            if (!refreshSnapshotStillCurrent(
+                                    snapshot = quarantinedSnapshot,
+                                    currentEpoch = credentialEpoch.get(),
+                                    currentState = currentState,
+                                )
+                            ) {
+                                null
+                            } else {
+                                val tokens = refreshResult.tokens
+                                val rotatedCredential = durableCredential(tokens)
+                                val ready = DurableGitHubCredentialState.Ready(rotatedCredential)
+                                val cache = AccessTokenCache(
+                                    tokens.accessToken,
+                                    SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
+                                )
+                                if (!credentialStore.compareAndSet(
+                                        appContext,
+                                        expected = quarantinedSnapshot.durableState,
+                                        replacement = ready,
+                                    )
+                                ) {
+                                    null
+                                } else {
+                                    // A' and its access token become process authority only
+                                    // after Ready(A') is durably committed.
+                                    accessTokenCache = cache
+                                    CredentialStateSnapshot(snapshot.epoch, ready, cache)
+                                }
+                            }
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(LOG_TAG, "Could not durably commit the rotated GitHub credential", e)
+                        credentialMutationMutex.withLock {
+                            accessTokenCache = null
+                            mutableStatusFlow.value = GitHubStatus.NotConnected
+                        }
+                        return SnapshotAccessTokenResult.Failure(GitHubError.AuthorizationRequired)
                     }
                     if (committedSnapshot != null) {
                         SnapshotAccessTokenResult.Available(
@@ -876,15 +969,32 @@ object GitHubConnectionCoordinator {
                     }
                 }
                 is RelayResult.Failure -> when (val error = refreshResult.error) {
-                    is RelayError.AuthorizationRequired -> abandonRejectedRefreshCredential(appContext, snapshot)
+                    is RelayError.AuthorizationRequired -> abandonRejectedRefreshCredential(appContext, quarantinedSnapshot)
                     RelayError.OutcomeUnknown,
-                    RelayError.AmbiguousTransportFailure -> abandonUnsafeRefreshCredential(appContext, snapshot)
+                    RelayError.AmbiguousTransportFailure -> abandonUnsafeRefreshCredential(appContext, quarantinedSnapshot)
                     // The relay rejected this request before it could reach GitHub, so its
-                    // stored credential remains safe to retain for diagnostics/recovery.
-                    RelayError.InvalidRequest -> SnapshotAccessTokenResult.Failure(GitHubError.Unexpected(null, "invalid refresh request"))
-                    is RelayError.RateLimited -> SnapshotAccessTokenResult.Failure(GitHubError.RateLimited(error.retryAfterSeconds))
-                    is RelayError.Unexpected -> SnapshotAccessTokenResult.Failure(GitHubError.Unexpected(error.httpStatus, error.body))
-                    is RelayError.NetworkError -> SnapshotAccessTokenResult.Failure(GitHubError.NetworkError(error.cause))
+                    // stored credential remains safe to reuse, but only after Ready(A) is
+                    // durably restored from the quarantine.
+                    RelayError.InvalidRequest -> restoreOperationalRefreshCredential(
+                        appContext,
+                        quarantinedSnapshot,
+                        GitHubError.Unexpected(null, "invalid refresh request"),
+                    )
+                    is RelayError.RateLimited -> restoreOperationalRefreshCredential(
+                        appContext,
+                        quarantinedSnapshot,
+                        GitHubError.RateLimited(error.retryAfterSeconds),
+                    )
+                    is RelayError.Unexpected -> restoreOperationalRefreshCredential(
+                        appContext,
+                        quarantinedSnapshot,
+                        GitHubError.Unexpected(error.httpStatus, error.body),
+                    )
+                    is RelayError.NetworkError -> restoreOperationalRefreshCredential(
+                        appContext,
+                        quarantinedSnapshot,
+                        GitHubError.NetworkError(error.cause),
+                    )
                 }
             }
         }
@@ -918,27 +1028,77 @@ object GitHubConnectionCoordinator {
         }
     }
 
-    /** Disposal after a spent/rejected refresh is itself snapshot-bound. If OAuth or
-     * disconnect installed a later generation while the relay was in flight, leave that newer
-     * authority untouched and report the old refresh as stale. */
+    /** Disposal after a spent/rejected refresh is snapshot-bound. A failed clear safely leaves
+     * Refreshing(A), not Ready(A), so restart still cannot submit it again. */
     private suspend fun clearStoredCredentialIfCurrent(
         appContext: Context,
         snapshot: CredentialStateSnapshot,
     ): Boolean = credentialMutationMutex.withLock {
-        if (!refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), credentialStore.get(appContext))) {
+        val currentState = credentialStore.read(appContext)
+        if (!refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), currentState)) {
             return@withLock false
         }
-        credentialStore.clear(appContext)
-        accessTokenCache = null
-        credentialEpoch.incrementAndGet()
+        try {
+            if (!credentialStore.compareAndSet(
+                    appContext,
+                    expected = snapshot.durableState,
+                    replacement = DurableGitHubCredentialState.Absent,
+                )
+            ) {
+                return@withLock false
+            }
+            accessTokenCache = null
+            credentialEpoch.incrementAndGet()
+            mutableStatusFlow.value = GitHubStatus.NotConnected
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Could not durably dispose the quarantined GitHub credential", e)
+            // The failed DataStore transaction leaves Refreshing(A) durable. It remains
+            // unusable; publish no connected authority and still require reauthorization.
+            accessTokenCache = null
+            mutableStatusFlow.value = GitHubStatus.NotConnected
+        }
         true
+    }
+
+    /** Operational failures are the only outcomes for which A is known reusable. Re-enable it
+     * only after the reverse durable transition succeeds; restoration failure stays closed. */
+    private suspend fun restoreOperationalRefreshCredential(
+        appContext: Context,
+        snapshot: CredentialStateSnapshot,
+        error: GitHubError,
+    ): SnapshotAccessTokenResult = credentialMutationMutex.withLock {
+        val currentState = credentialStore.read(appContext)
+        if (!refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), currentState)) {
+            return@withLock SnapshotAccessTokenResult.Stale
+        }
+        val credential = (snapshot.durableState as DurableGitHubCredentialState.Refreshing).credential
+        try {
+            if (!credentialStore.compareAndSet(
+                    appContext,
+                    expected = snapshot.durableState,
+                    replacement = DurableGitHubCredentialState.Ready(credential),
+                )
+            ) {
+                return@withLock SnapshotAccessTokenResult.Stale
+            }
+            SnapshotAccessTokenResult.Failure(error)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Could not durably restore the reusable GitHub credential", e)
+            accessTokenCache = null
+            mutableStatusFlow.value = GitHubStatus.NotConnected
+            SnapshotAccessTokenResult.Failure(GitHubError.AuthorizationRequired)
+        }
     }
 
     private suspend fun credentialSnapshotStillCurrent(
         appContext: Context,
         snapshot: CredentialStateSnapshot,
     ): Boolean = credentialMutationMutex.withLock {
-        refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), credentialStore.get(appContext))
+        refreshSnapshotStillCurrent(snapshot, credentialEpoch.get(), credentialStore.read(appContext))
     }
 
     /** The refresh commit boundary is deliberately stricter than refresh-token equality. An
@@ -947,10 +1107,13 @@ object GitHubConnectionCoordinator {
     internal fun refreshSnapshotStillCurrent(
         snapshot: CredentialStateSnapshot,
         currentEpoch: Long,
-        currentCredential: StoredGitHubCredential?,
+        currentState: DurableGitHubCredentialState,
     ): Boolean =
         snapshot.epoch == currentEpoch &&
-            snapshot.credential == currentCredential
+            snapshot.durableState == currentState
+
+    private fun credentialPersistenceError(): GitHubError =
+        GitHubError.Unexpected(null, "Could not durably update GitHub credentials")
 
     /** A definite authorization rejection is represented either as the status result reached
      * after a cached token, or directly as refresh's typed error before status can run. Both

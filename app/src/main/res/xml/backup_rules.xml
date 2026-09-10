@@ -7,4 +7,5 @@
     <exclude domain="file" path="holder/" />
     <exclude domain="file" path="local_state/" />
     <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
+    <exclude domain="file" path="datastore/github_credential.preferences_pb" />
 </full-backup-content>

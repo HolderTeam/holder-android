@@ -76,6 +76,12 @@ object AndroidKeyringStore {
         return String(cipher.doFinal(ciphertext), Charsets.UTF_8)
     }
 
+    /** Encrypts one opaque payload for a dedicated durable store using the same non-exportable
+     * Keystore key and AES-256-GCM envelope as the rest of Holder's Android keyring. */
+    internal fun encryptLocalPayload(plaintext: String): String = encrypt(plaintext)
+
+    internal fun decryptLocalPayload(stored: String): String = decrypt(stored)
+
     /** Stores an arbitrary Android-only local secret (e.g. an S3 secret access key) under
      * the same AndroidKeyStore-backed AES-256-GCM encryption this object already uses for
      * holder-core's own keyring secrets -- callable directly from Kotlin, not just via the
@@ -86,26 +92,6 @@ object AndroidKeyringStore {
      * run before that registration happens. */
     fun storeLocalSecret(context: Context, key: String, secret: String) {
         localSecretPrefs(context).edit().putString(localSecretKey(key), encrypt(secret)).apply()
-    }
-
-    /**
-     * Atomically replaces a related set of local secrets.  Encrypt every replacement before
-     * opening the editor so an encryption failure cannot leave a half-written record; one
-     * synchronous SharedPreferences commit then makes the complete update durable together.
-     *
-     * Credential-spending callers use this rather than [storeLocalSecret], whose asynchronous
-     * single-key convenience is deliberately not a transaction boundary.
-     */
-    fun replaceLocalSecrets(
-        context: Context,
-        replacements: Map<String, String>,
-        removedKeys: Set<String> = emptySet(),
-    ): Boolean {
-        val encrypted = replacements.mapValues { (_, secret) -> encrypt(secret) }
-        val editor = localSecretPrefs(context).edit()
-        encrypted.forEach { (key, secret) -> editor.putString(localSecretKey(key), secret) }
-        removedKeys.forEach { key -> editor.remove(localSecretKey(key)) }
-        return editor.commit()
     }
 
     fun getLocalSecret(context: Context, key: String): String? =

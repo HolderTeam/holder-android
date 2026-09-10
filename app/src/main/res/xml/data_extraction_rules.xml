@@ -20,6 +20,8 @@
        ciphertext nothing can ever decrypt again, worse than losing it outright, since it would
        look "connected" in Settings while silently unable to do anything, rather than plainly
        needing to be reconnected.
+     - files/datastore/github_credential.preferences_pb, the dedicated encrypted GitHub
+       credential state, protected by the same non-exportable device key for the same reason.
 
      Included (no rule needed, it's just not inside an exclusion above):
      - files/backup/snapshot.jsonl.gz, SnapshotWriter's gzip-compressed rolling export of recent
@@ -35,10 +37,12 @@
         <exclude domain="file" path="holder/" />
         <exclude domain="file" path="local_state/" />
         <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
+        <exclude domain="file" path="datastore/github_credential.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="holder/" />
         <exclude domain="file" path="local_state/" />
         <exclude domain="sharedpref" path="holder_platform_keyring.xml" />
+        <exclude domain="file" path="datastore/github_credential.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>
