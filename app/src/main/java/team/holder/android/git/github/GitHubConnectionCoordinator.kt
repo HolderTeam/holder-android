@@ -345,15 +345,16 @@ object GitHubConnectionCoordinator {
             if (!clearCredentialForConnectOperation(appContext, attemptId)) return
         }
 
-        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext)
+        val state = GitHubPkce.generateState()
+        val codeVerifier = GitHubPkce.generateCodeVerifier()
+        val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
+        val authorizationUrl = GitHubOAuth.buildAuthorizationUrl(state, codeChallenge)
+        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext, authorizationUrl)
         if (requestedBrowserLaunch == null) {
             finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
             return
         }
 
-        val state = GitHubPkce.generateState()
-        val codeVerifier = GitHubPkce.generateCodeVerifier()
-        val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
         val callbackOutcome = CompletableDeferred<CallbackOutcome>()
         val browserLaunch = connectStateMutex.withLock {
             if (connectInFlight?.attemptId != attemptId) return@withLock null
@@ -373,7 +374,7 @@ object GitHubConnectionCoordinator {
         // It must not launch a browser or overwrite the currently-owned transaction.
         if (browserLaunch == null) return
 
-        val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
+        val authorizeUri = Uri.parse(authorizationUrl)
         // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
         // actually launching an Activity/ActivityResultLauncher is real UI work.
         withContext(Dispatchers.Main.immediate) {
@@ -1147,8 +1148,8 @@ object GitHubConnectionCoordinator {
     interface GitHubBrowserLauncher {
         /** Resolves a Custom Tabs provider first, then checks *that specific* provider's Auth
          * Tab support. The returned package must be the package actually launched. Returns
-         * null when no ordinary external browser can handle the authorization URL. */
-        fun resolveBrowser(context: Context): BrowserLaunch?
+         * null when no ordinary external browser can handle the exact [authorizationUrl]. */
+        fun resolveBrowser(context: Context, authorizationUrl: String): BrowserLaunch?
 
         /** For [LaunchKind.AuthTab]: must persist [attemptId] via the launching Activity's own
          * SavedState *before* actually launching. Runs on the main thread (see `connect()`'s

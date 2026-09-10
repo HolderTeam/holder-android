@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOAuthTest {
+    @Test
+    fun authorizationUrlRetainsTheExactOAuthParametersUsedForBrowserResolutionAndLaunch() {
+        val url = GitHubOAuth.buildAuthorizationUrl(
+            state = "state with reserved + characters",
+            codeChallenge = "challenge/value",
+        ).toHttpUrl()
+
+        assertEquals("https", url.scheme)
+        assertEquals("github.com", url.host)
+        assertEquals("/login/oauth/authorize", url.encodedPath)
+        assertEquals(GitHubEnvironment.CLIENT_ID, url.queryParameter("client_id"))
+        assertEquals(GitHubEnvironment.OAUTH_CALLBACK_URL, url.queryParameter("redirect_uri"))
+        assertEquals("state with reserved + characters", url.queryParameter("state"))
+        assertEquals("challenge/value", url.queryParameter("code_challenge"))
+        assertEquals("S256", url.queryParameter("code_challenge_method"))
+    }
+
     @Test
     fun cancellationReachesAnExecutingExchangeBeforeTheWorkerCanComplete() = assertActiveCallCancellation()
 

@@ -1,6 +1,5 @@
 package team.holder.android.git.github
 
-import android.net.Uri
 import android.util.Log
 import java.io.IOException
 import java.net.ConnectException
@@ -10,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -67,13 +67,13 @@ sealed interface RelayResult {
  */
 internal object GitHubOAuth {
     fun buildAuthorizationUrl(state: String, codeChallenge: String): String =
-        Uri.parse("https://github.com/login/oauth/authorize")
-            .buildUpon()
-            .appendQueryParameter("client_id", GitHubEnvironment.CLIENT_ID)
-            .appendQueryParameter("redirect_uri", GitHubEnvironment.OAUTH_CALLBACK_URL)
-            .appendQueryParameter("state", state)
-            .appendQueryParameter("code_challenge", codeChallenge)
-            .appendQueryParameter("code_challenge_method", "S256")
+        "https://github.com/login/oauth/authorize".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("client_id", GitHubEnvironment.CLIENT_ID)
+            .addQueryParameter("redirect_uri", GitHubEnvironment.OAUTH_CALLBACK_URL)
+            .addQueryParameter("state", state)
+            .addQueryParameter("code_challenge", codeChallenge)
+            .addQueryParameter("code_challenge_method", "S256")
             .build()
             .toString()
 

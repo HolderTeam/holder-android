@@ -63,9 +63,14 @@ private class UnavailableBrowserLauncher(
     private val releaseLatch: CountDownLatch? = null,
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
     val resolveCallCount = AtomicInteger(0)
+    @Volatile var lastAuthorizationUrl: String? = null
 
-    override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
+    override fun resolveBrowser(
+        context: Context,
+        authorizationUrl: String,
+    ): GitHubConnectionCoordinator.BrowserLaunch? {
         resolveCallCount.incrementAndGet()
+        lastAuthorizationUrl = authorizationUrl
         startedLatch?.countDown()
         releaseLatch?.await(5, TimeUnit.SECONDS)
         return null
@@ -114,8 +119,13 @@ class GitHubConnectionCoordinatorTest {
 
     @Test
     fun connect_returnsBrowserUnavailable_whenNoBrowserResolves() = runBlocking {
-        val result = GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
+        val launcher = UnavailableBrowserLauncher()
+        val result = GitHubConnectionCoordinator.connect(fakeContext, launcher)
         assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), result)
+        assertTrue(
+            launcher.lastAuthorizationUrl
+                ?.startsWith("https://github.com/login/oauth/authorize?") == true,
+        )
     }
 
     @Test
