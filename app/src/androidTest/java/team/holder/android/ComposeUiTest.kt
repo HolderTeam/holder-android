@@ -30,8 +30,10 @@ class ComposeUiTest {
     // Never actually invoked by these render-only tests (nothing here taps "Connect GitHub") --
     // just enough to satisfy SyncSettingsScreen/RecoverProjectScreen's real signature.
     private val noOpGitHubBrowserLauncher = object : GitHubConnectionCoordinator.GitHubBrowserLauncher {
-        override fun resolveBrowser(context: android.content.Context): GitHubConnectionCoordinator.BrowserLaunch? =
-            error("not used by this test")
+        override fun resolveBrowser(
+            context: android.content.Context,
+            authorizationUrl: String,
+        ): GitHubConnectionCoordinator.BrowserLaunch? = error("not used by this test")
         override fun launch(
             context: android.content.Context,
             browser: GitHubConnectionCoordinator.BrowserLaunch,
