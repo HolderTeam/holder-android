@@ -1,8 +1,10 @@
 package team.holder.android.ui.screens
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -120,12 +122,17 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * moment a fresh variant is chosen, so a drag that's flung, settled, or cancelled and re-dragged
  * keeps the look it started with.
  */
-// Slingshot: the drag spends this fraction "loading" -- the front card resists / pulls back over
-// it -- then launches for the rest. Gains are multiples of card width: how hard it pulls back
-// while loading, how far it races ahead once fired.
+// Slingshot. While dragging, the flung card is pulled back against travel by up to
+// SLINGSHOT_MAX_PULLBACK of its width, reached at SLINGSHOT_LOAD_WINDOW of a drag and held --
+// drawing the band. On release (a real event, off the pager's interaction source) an Animatable
+// fires the card SLINGSHOT_FLYOFF widths off screen with SLINGSHOT_LAUNCH_VELOCITY (widths/sec,
+// scaled by how far it was pulled), so it whips away on its own clock rather than riding the
+// pager's decay. A release short of SLINGSHOT_COMMIT_OFFSET just snaps back, no launch.
 private const val SLINGSHOT_LOAD_WINDOW = 0.35f
-private const val SLINGSHOT_PULLBACK_GAIN = 1.8f
-private const val SLINGSHOT_LAUNCH_GAIN = 2.6f
+private const val SLINGSHOT_MAX_PULLBACK = 0.22f
+private const val SLINGSHOT_FLYOFF = 2.6f
+private const val SLINGSHOT_LAUNCH_VELOCITY = 9f
+private const val SLINGSHOT_COMMIT_OFFSET = 0.12f
 
 @Composable
 fun CardViewPagerScreen(
@@ -208,6 +215,32 @@ fun CardViewPagerScreen(
                     armed = false
                 }
             }
+    }
+
+    // Slingshot's launch. slingLaunch is the flung card's displacement in card-widths while
+    // firing; `slingLaunching` says whether to use it instead of the held pull-back. The launch
+    // is kicked from a real release event -- DragInteraction.Stop off the pager's own gesture
+    // source -- so it runs on the Animatable's clock, not the pager's fling decay.
+    val slingLaunch = remember { Animatable(0f) }
+    var slingLaunching by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState, swipeStyle) {
+        if (swipeStyle != HolderCardSwipeStyle.SLINGSHOT) return@LaunchedEffect
+        pagerState.interactionSource.interactions.collect { interaction ->
+            if (interaction !is DragInteraction.Stop) return@collect
+            val pulled = abs(pagerState.currentPageOffsetFraction)
+            if (pulled < SLINGSHOT_COMMIT_OFFSET) return@collect
+            val travel = if (draggingForward) -1f else 1f
+            val power = (pulled.coerceIn(0f, 0.5f) / 0.5f)
+            slingLaunching = true
+            slingLaunch.snapTo(-travel * SLINGSHOT_MAX_PULLBACK)
+            slingLaunch.animateTo(
+                targetValue = travel * SLINGSHOT_FLYOFF,
+                initialVelocity = travel * SLINGSHOT_LAUNCH_VELOCITY * (0.5f + power),
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+            )
+            slingLaunching = false
+            slingLaunch.snapTo(0f)
+        }
     }
 
     LaunchedEffect(pagerState, loadedDeck) {
@@ -369,25 +402,29 @@ fun CardViewPagerScreen(
                                         size.height
                             }
                             ResolvedSwipeStyle.Slingshot -> {
-                                // Only the card being flung gets the treatment -- the one whose
-                                // offset points away from its slot in the drag direction. (offset
-                                // = page - absolute scroll position, so it stays that sign right
-                                // through the mid-fling page-flip.) Its translationX is a
-                                // nonlinear function of drag distance: over the load window it's
-                                // pulled *back* against travel, tension easing off as the window
-                                // fills; past the window it races *ahead* of the finger, ramping
-                                // up, and fires off screen. Every other page keeps its natural
-                                // placement -- the arriving card just slides in and does the
-                                // bouncy settle.
+                                // Only the card being flung gets moved -- the one whose offset
+                                // points away from its slot in the drag direction (offset = page
+                                // - absolute scroll position, so its sign holds through the
+                                // mid-fling page-flip). Every other page keeps its natural
+                                // placement: the arriving card just slides in and does the bouncy
+                                // settle.
+                                //   - Firing (slingLaunching): position is the Animatable,
+                                //     whipping off screen on its own clock.
+                                //   - Still loading (|offset| inside the window): pulled back
+                                //     against travel, ramping to a held maximum -- drawing the
+                                //     band.
+                                //   - Anything else (a fast flick that skipped the launch, or
+                                //     the spent card after one): natural pager placement.
                                 val beingFlung = if (draggingForward) offset < 0f else offset > 0f
                                 if (beingFlung) {
                                     val mag = abs(offset).coerceIn(0f, 1f)
-                                    translationX = if (mag < SLINGSHOT_LOAD_WINDOW) {
-                                        -offset * size.width * SLINGSHOT_PULLBACK_GAIN *
-                                            (1f - mag / SLINGSHOT_LOAD_WINDOW)
-                                    } else {
-                                        offset * size.width * SLINGSHOT_LAUNCH_GAIN *
-                                            ((mag - SLINGSHOT_LOAD_WINDOW) / (1f - SLINGSHOT_LOAD_WINDOW))
+                                    val awayFromTravel = if (offset < 0f) 1f else -1f
+                                    translationX = when {
+                                        slingLaunching -> slingLaunch.value * size.width
+                                        mag < SLINGSHOT_LOAD_WINDOW ->
+                                            awayFromTravel * (mag / SLINGSHOT_LOAD_WINDOW) *
+                                                SLINGSHOT_MAX_PULLBACK * size.width
+                                        else -> 0f
                                     }
                                 }
                             }
