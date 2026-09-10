@@ -45,12 +45,6 @@ android {
         versionName = "0.2.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Paired with testOptions.execution below: Orchestrator runs each androidTest class in
-        // its own instrumentation and, with this argument, wipes app storage between them --
-        // without it, a test that fails mid-way (leaving e.g. HolderNative's native context in
-        // an unexpected state, or a stray card the failure skipped past its own cleanup for)
-        // could otherwise bleed into whichever test happens to run next in the same process.
-        testInstrumentationRunnerArguments["clearPackageData"] = "true"
 
         ndk {
             abiFilters += holderAndroidAbis
@@ -151,38 +145,22 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
-        // Isolates each androidTest class in its own instrumentation run instead of all of them
-        // sharing one process/app instance -- see clearPackageData above for why that sharing
-        // was a real source of CI flakiness (managed-device-tests), not just a theoretical one.
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
         managedDevices {
-            // minSdk floor -- an old device profile paired with an old API level is a sensible,
-            // unremarkable combination, so this one is left as a generic profile rather than
-            // matched to anyone's real hardware.
+            // minSdk floor. Left as a generic old profile rather than matched to real hardware:
+            // an old device paired with an old API level is an unremarkable combination.
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
                 apiLevel = 28
                 systemImageSource = "aosp"
                 require64Bit = true
             }
-            // A middle API level, named after and picked to match a real device on the team
-            // (Zeth's Pixel 6) so a CI failure here can be reproduced by hand on real hardware,
-            // not just guessed at from an emulator log. (Originally meant to use Google's ATD --
-            // aosp-atd/google-atd -- images here for their extra CI-stability properties, but as
-            // of 2026-09 those tags no longer resolve against the live SDK repository, checked
-            // directly rather than assumed from (possibly stale) docs -- this is a plain image
-            // instead, purely for the extra API-level coverage and the real-device match.)
-            val pixel6Api30 = localDevices.create("pixel6Api30") {
+            // Near targetSdk. "Pixel 6" both reads sensibly next to a modern API level (unlike
+            // the "Pixel 2" that was here before) and matches a real device on the team, so a
+            // failure here can be reproduced by hand. Newer profiles ("Pixel 10a" etc.) are not
+            // usable: recent AOSP system images don't ship the devices.xml that would define
+            // them, and AGP only knows the older profiles internally.
+            val pixel6Api36 = localDevices.create("pixel6Api36") {
                 device = "Pixel 6"
-                apiLevel = 30
-                systemImageSource = "aosp"
-                require64Bit = true
-            }
-            // targetSdk-adjacent -- named after and picked to match Zeth's Pixel 10a, same
-            // reasoning as pixel6Api30 above. Previously "Pixel 2" here too, which read oddly
-            // (2017 hardware paired with the newest API level this project tests).
-            val pixel10aApi36 = localDevices.create("pixel10aApi36") {
-                device = "Pixel 10a"
                 apiLevel = 36
                 systemImageSource = "aosp"
                 require64Bit = true
@@ -190,8 +168,7 @@ android {
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
-                targetDevices.add(pixel6Api30)
-                targetDevices.add(pixel10aApi36)
+                targetDevices.add(pixel6Api36)
             }
         }
     }
@@ -236,9 +213,6 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-    // androidTestUtil, not androidTestImplementation -- this is the separate orchestrator APK
-    // Gradle installs and runs alongside the test APK, not a library the tests compile against.
-    androidTestUtil(libs.androidx.test.orchestrator)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
