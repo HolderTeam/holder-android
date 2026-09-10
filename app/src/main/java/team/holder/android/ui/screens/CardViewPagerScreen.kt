@@ -29,6 +29,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -106,6 +107,13 @@ import team.holder.android.ui.sortKeyOrderedSiblings
 // Small and restrained on purpose -- a 10-degree version of this same tilt read as too much
 // during prototyping; this is deliberately easy to retune if a future style wants more.
 private const val STACK_FRONT_CARD_TILT_DEGREES = 3f
+
+// Swing: a big rotation about a bottom-centre pivot, so the departing card reads as hinged at
+// its base and swinging out of the way rather than being dragged loose (that's Stack). Tunable.
+private const val SWING_DEPARTING_CARD_DEGREES = 70f
+
+// Spin: a full turn as the departing card leaves. Deliberately flamboyant -- see swipe-styles.md.
+private const val SPIN_DEPARTING_CARD_DEGREES = 360f
 
 @Composable
 fun CardViewPagerScreen(
@@ -220,10 +228,10 @@ fun CardViewPagerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Front-over-neighbor draw order: load-bearing for Straight/Stack, whose
-                    // neighbor sits fully opaque in the same spot as the front card; a no-op
-                    // for Slide (pages never overlap) and Stealth (alpha alone already reads as
-                    // front/back regardless of z-order).
+                    // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing,
+                    // whose neighbor sits fully opaque in the same spot as the front card; a
+                    // no-op for Slide/Spin (pages never overlap) and Stealth (alpha alone
+                    // already reads as front/back regardless of z-order).
                     .zIndex(if (isFront) 1f else 0f)
                     .graphicsLayer {
                         val offset = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
@@ -250,12 +258,36 @@ fun CardViewPagerScreen(
                                     translationX = -offset * size.width
                                 }
                             }
+                            HolderCardSwipeStyle.SWING -> {
+                                // The neighbor waits underneath (as in Straight/Stack). The
+                                // front card is pinned in place -- translationX cancels the
+                                // pager's own drag-follow drift -- and instead rotates about a
+                                // bottom-centre pivot, so it reads as hinged at its base and
+                                // swinging aside to uncover the card below, not sliding off.
+                                if (isFront) {
+                                    translationX = -offset * size.width
+                                    transformOrigin = TransformOrigin(0.5f, 1f)
+                                    // Sign follows the finger: swiping toward the next card
+                                    // swings the card's top the same way, opening it aside like
+                                    // a hinged flap rather than against the drag.
+                                    rotationZ = offset * SWING_DEPARTING_CARD_DEGREES
+                                } else {
+                                    translationX = -offset * size.width
+                                }
+                            }
                             HolderCardSwipeStyle.STEALTH -> {
                                 // No spatial motion at all: every page cancels HorizontalPager's
                                 // own side-by-side placement and stays put; dragging drives
                                 // alpha alone; front fades out as the neighbor fades in.
                                 translationX = -offset * size.width
                                 alpha = (1f - abs(offset)).coerceIn(0f, 1f)
+                            }
+                            HolderCardSwipeStyle.SPIN -> {
+                                // The neighbor slides in normally (untouched, as in Slide) so
+                                // the gesture still feels connected to the pager. The departing
+                                // front card keeps that natural drag-follow too, and on top of
+                                // it does a full turn on its way out.
+                                if (isFront) rotationZ = -offset * SPIN_DEPARTING_CARD_DEGREES
                             }
                         }
                     },
