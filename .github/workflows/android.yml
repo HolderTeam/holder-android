@@ -89,12 +89,12 @@ jobs:
     # failure) on one API level no longer blocks or gets conflated with the other, they run in
     # parallel instead of back-to-back, and a rerun only has to redo the device that actually
     # failed. Each device's own androidTest task -- pixel2Api28DebugAndroidTest /
-    # pixel6Api36DebugAndroidTest -- already existed (ciPhonesGroupDebugAndroidTest was always
+    # pixel6Api34DebugAndroidTest -- already existed (ciPhonesGroupDebugAndroidTest was always
     # just both of these back-to-back); this only changes how they're scheduled.
     strategy:
       fail-fast: false
       matrix:
-        device: [pixel2Api28, pixel6Api36]
+        device: [pixel2Api28, pixel6Api34]
     env:
       VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
