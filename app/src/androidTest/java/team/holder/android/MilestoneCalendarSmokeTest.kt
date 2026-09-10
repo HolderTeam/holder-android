@@ -29,6 +29,11 @@ class MilestoneCalendarSmokeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
+    // Generous on purpose -- see the same constant in WholeAppSmokeTest: every slow step here
+    // waits on a real libholder round trip on a software-GPU CI emulator, and a tight budget is
+    // what turns "slow" into "flaky".
+    private val settleTimeoutMs = 60_000L
+
     private var smokeTitle: String? = null
 
     @After
@@ -48,13 +53,13 @@ class MilestoneCalendarSmokeTest {
         val title = "Milestone smoke card ${UUID.randomUUID()}"
         smokeTitle = title
 
-        composeRule.waitUntil(timeoutMillis = 15_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Home").performClick()
 
         composeRule.onNodeWithContentDescription("New card").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
         }
         val fields = composeRule.onAllNodes(hasSetTextAction())
@@ -62,7 +67,7 @@ class MilestoneCalendarSmokeTest {
         fields[1].performTextInput("Created by milestone smoke test.")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
@@ -70,7 +75,7 @@ class MilestoneCalendarSmokeTest {
         // Tools dashboard, not a direct "Connections" button -- see CardViewPagerScreen's
         // bottom bar (Focus/Tools/Child/Edit).
         composeRule.onNodeWithContentDescription("Tools").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithContentDescription("Milestones").fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -78,12 +83,12 @@ class MilestoneCalendarSmokeTest {
         // with "Add milestone" already wired to it (see CalendarScreen's onAddMilestone doc
         // comment) -- no separate per-card milestone screen to go through first.
         composeRule.onNodeWithContentDescription("Milestones").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithContentDescription("Add milestone").fetchSemanticsNodes().isNotEmpty()
         }
 
         composeRule.onNodeWithContentDescription("Add milestone").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasText("Add milestone") and hasClickAction())
                 .fetchSemanticsNodes()
                 .isNotEmpty()
@@ -93,7 +98,7 @@ class MilestoneCalendarSmokeTest {
 
         // Saving pops straight back to the same Calendar screen (see AddMilestoneScreen's
         // onAdded), already refreshed -- no extra navigation needed to see it land.
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         assertTrue(composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty())

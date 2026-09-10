@@ -23,6 +23,13 @@ class WholeAppSmokeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
+    // Deliberately generous: this test's slow steps each wait on a real libholder round trip
+    // (git-backed create/save) rendered by a software-GPU emulator under CI contention. The old
+    // 20s budget was where this test's flakiness lived -- it would time out mid-flow on a loaded
+    // runner and pass on a rerun. A correct app still settles well within this; only a genuinely
+    // stuck one now waits the full minute.
+    private val settleTimeoutMs = 60_000L
+
     private var smokeTitle: String? = null
 
     @After
@@ -43,13 +50,13 @@ class WholeAppSmokeTest {
         smokeTitle = title
         val initialBody = "Created by whole-app smoke test."
 
-        composeRule.waitUntil(timeoutMillis = 15_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Home").performClick()
 
         composeRule.onNodeWithContentDescription("New card").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
         }
 
@@ -58,15 +65,15 @@ class WholeAppSmokeTest {
         fields[1].performTextInput(initialBody)
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(initialBody).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithContentDescription("Edit").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
         }
 
@@ -75,7 +82,7 @@ class WholeAppSmokeTest {
             .performTextInput("\nEdited and persisted.")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
@@ -88,16 +95,16 @@ class WholeAppSmokeTest {
         // screen's own TopAppBar, and its Back icon, has actually settled. That gap is what
         // made this specific click flaky on CI (`Expected exactly '1' node ... ContentDescription
         // = 'Back'`), passing on a rerun once timing happened to line up.
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().size == 1
         }
         composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
