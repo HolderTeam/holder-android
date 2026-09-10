@@ -156,14 +156,33 @@ android {
         // was a real source of CI flakiness (managed-device-tests), not just a theoretical one.
         execution = "ANDROIDX_TEST_ORCHESTRATOR"
         managedDevices {
+            // minSdk floor -- an old device profile paired with an old API level is a sensible,
+            // unremarkable combination, so this one is left as a generic profile rather than
+            // matched to anyone's real hardware.
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
                 apiLevel = 28
                 systemImageSource = "aosp"
                 require64Bit = true
             }
-            val pixel2Api36 = localDevices.create("pixel2Api36") {
-                device = "Pixel 2"
+            // A middle API level, named after and picked to match a real device on the team
+            // (Zeth's Pixel 6) so a CI failure here can be reproduced by hand on real hardware,
+            // not just guessed at from an emulator log. (Originally meant to use Google's ATD --
+            // aosp-atd/google-atd -- images here for their extra CI-stability properties, but as
+            // of 2026-09 those tags no longer resolve against the live SDK repository, checked
+            // directly rather than assumed from (possibly stale) docs -- this is a plain image
+            // instead, purely for the extra API-level coverage and the real-device match.)
+            val pixel6Api30 = localDevices.create("pixel6Api30") {
+                device = "Pixel 6"
+                apiLevel = 30
+                systemImageSource = "aosp"
+                require64Bit = true
+            }
+            // targetSdk-adjacent -- named after and picked to match Zeth's Pixel 10a, same
+            // reasoning as pixel6Api30 above. Previously "Pixel 2" here too, which read oddly
+            // (2017 hardware paired with the newest API level this project tests).
+            val pixel10aApi36 = localDevices.create("pixel10aApi36") {
+                device = "Pixel 10a"
                 apiLevel = 36
                 systemImageSource = "aosp"
                 require64Bit = true
@@ -171,7 +190,8 @@ android {
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
-                targetDevices.add(pixel2Api36)
+                targetDevices.add(pixel6Api30)
+                targetDevices.add(pixel10aApi36)
             }
         }
     }
