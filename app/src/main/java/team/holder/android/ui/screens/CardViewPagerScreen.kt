@@ -419,6 +419,11 @@ fun CardViewPagerScreen(
                         // neighbor (beyondViewportPageCount = 1) can't be in focus mode at all.
                         focusMode = isFront && focusMode,
                         onExitFocusMode = { if (isFront) focusMode = false },
+                        // Long-press the card body to edit -- same target as the bar's Edit
+                        // button, and gated to the front page for the same reason as focus mode.
+                        onEditRequested = {
+                            if (isFront) currentCardContent?.let { onEdit(currentCard.cardId, it) }
+                        },
                         onNavigateToCard = onNavigateToCard,
                         onNavigateToTag = onNavigateToTag,
                         onDeleted = onDeleted,
