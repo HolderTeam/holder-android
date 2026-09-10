@@ -24,12 +24,19 @@ class CardSwipeStyleTest {
         )
         assertEquals(ResolvedSwipeStyle.Snap, HolderCardSwipeStyle.SNAP.resolve(rng))
         assertEquals(ResolvedSwipeStyle.Surf(liftFraction = 0.18f), HolderCardSwipeStyle.SURF.resolve(rng))
+        assertEquals(ResolvedSwipeStyle.Slingshot, HolderCardSwipeStyle.SLINGSHOT.resolve(rng))
     }
 
     @Test
-    fun surprise_bagExcludesSnapAndSurf() {
-        // They ride in the picker only until they've had road time (see SURPRISE_BAG's comment).
-        assertTrue(surpriseVariants.none { it is ResolvedSwipeStyle.Snap || it is ResolvedSwipeStyle.Surf })
+    fun surprise_bagExcludesTheUnproven() {
+        // Snap, Surf and Slingshot ride in the picker only (see SURPRISE_BAG's comment).
+        assertTrue(
+            surpriseVariants.none {
+                it == ResolvedSwipeStyle.Snap ||
+                    it is ResolvedSwipeStyle.Surf ||
+                    it == ResolvedSwipeStyle.Slingshot
+            },
+        )
     }
 
     @Test
