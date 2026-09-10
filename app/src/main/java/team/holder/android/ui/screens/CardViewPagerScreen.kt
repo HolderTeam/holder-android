@@ -1,10 +1,12 @@
 package team.holder.android.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,7 +46,6 @@ import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
@@ -123,17 +124,12 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * moment a fresh variant is chosen, so a drag that's flung, settled, or cancelled and re-dragged
  * keeps the look it started with.
  */
-// Slingshot. While dragging, the flung card is pulled back against travel by up to
-// SLINGSHOT_MAX_PULLBACK of its width, reached at SLINGSHOT_LOAD_WINDOW of a drag and held --
-// drawing the band. On release (a real event, off the pager's interaction source) an Animatable
-// fires the card SLINGSHOT_FLYOFF widths off screen with SLINGSHOT_LAUNCH_VELOCITY (widths/sec,
-// scaled by how far it was pulled), so it whips away on its own clock rather than riding the
-// pager's decay. A release short of SLINGSHOT_COMMIT_OFFSET just snaps back, no launch.
-private const val SLINGSHOT_LOAD_WINDOW = 0.35f
-private const val SLINGSHOT_MAX_PULLBACK = 0.32f
+// Slingshot's canned move, played on the leaving card when the page flips: yank it back past
+// centre against travel by SLINGSHOT_LOADBACK of a width, then accelerate it SLINGSHOT_FLYOFF
+// widths off screen, over SLINGSHOT_FIRE_MILLIS. Fixed -- the drag doesn't feed into it.
+private const val SLINGSHOT_LOADBACK = 0.14f
 private const val SLINGSHOT_FLYOFF = 2.6f
-private const val SLINGSHOT_LAUNCH_VELOCITY = 9f
-private const val SLINGSHOT_COMMIT_OFFSET = 0.06f
+private const val SLINGSHOT_FIRE_MILLIS = 280
 
 @Composable
 fun CardViewPagerScreen(
@@ -200,62 +196,37 @@ fun CardViewPagerScreen(
         },
     )
 
-    // Which way this gesture is going, captured from the first non-zero offset after a scroll
-    // starts (currentPageOffsetFraction flips sign at the page change, so a live read isn't
-    // stable). Slingshot needs it to tell the card being flung from the one arriving.
-    var draggingForward by remember { mutableStateOf(true) }
+    // Slingshot is a canned move, not physics. The drag itself is an ordinary Slide handled by
+    // the pager; the moment the page actually flips, the card that's leaving runs a fixed
+    // keyframe animation over it -- yanked back toward centre, then accelerated off screen --
+    // the same every time, whatever the drag was. slingFire is that card's on-screen position
+    // in card-widths (the graphicsLayer cancels the pager under it); slingFiring gates it, and
+    // slingLeavingPage says which page it applies to.
+    val slingFire = remember { Animatable(0f) }
+    var slingFiring by remember { mutableStateOf(false) }
+    var slingLeavingPage by remember { mutableStateOf(-1) }
     LaunchedEffect(pagerState, swipeStyle) {
         if (swipeStyle != HolderCardSwipeStyle.SLINGSHOT) return@LaunchedEffect
-        var armed = true
-        snapshotFlow { pagerState.isScrollInProgress to pagerState.currentPageOffsetFraction }
-            .collect { (scrolling, fraction) ->
-                if (!scrolling) {
-                    armed = true
-                } else if (armed && fraction != 0f) {
-                    draggingForward = fraction > 0f
-                    armed = false
-                }
-            }
-    }
-
-    // Slingshot's launch. slingLaunch is the flung card's on-screen position in card-widths
-    // while firing (the graphicsLayer cancels the pager under it); `slingLaunching` says whether
-    // to use it instead of the held pull-back. Kicked from a real release event
-    // (DragInteraction.Stop off the pager's own gesture source), and it *also* drives the page
-    // change itself -- the pull-back makes the card look stuck, so the drag distance the pager
-    // sees is never enough to commit on its own.
-    val slingLaunch = remember { Animatable(0f) }
-    var slingLaunching by remember { mutableStateOf(false) }
-    LaunchedEffect(pagerState, swipeStyle, loadedDeck.size) {
-        if (swipeStyle != HolderCardSwipeStyle.SLINGSHOT) return@LaunchedEffect
-        pagerState.interactionSource.interactions.collect { interaction ->
-            if (interaction !is DragInteraction.Stop) return@collect
-            val pulled = abs(pagerState.currentPageOffsetFraction)
-            if (pulled < SLINGSHOT_COMMIT_OFFSET) return@collect
-            val target = (pagerState.currentPage + if (draggingForward) 1 else -1)
-                .coerceIn(0, loadedDeck.lastIndex)
-            if (target == pagerState.currentPage) return@collect // at the deck edge, nowhere to fling
-            val travel = if (draggingForward) -1f else 1f
-            val power = pulled.coerceIn(0f, 0.5f) / 0.5f
-            slingLaunching = true
-            // Start where the held pull-back had it so nothing hops when the Animatable takes over.
-            slingLaunch.snapTo(
-                -travel * (pulled / SLINGSHOT_LOAD_WINDOW).coerceIn(0f, 1f) * SLINGSHOT_MAX_PULLBACK,
-            )
-            val pageChange = launch {
-                pagerState.animateScrollToPage(
-                    target,
-                    animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow),
-                )
-            }
-            slingLaunch.animateTo(
+        var previous = pagerState.currentPage
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            if (page == previous) return@collect
+            val travel = if (page > previous) -1f else 1f // direction the leaving card is headed
+            slingLeavingPage = previous
+            previous = page
+            slingFiring = true
+            slingFire.snapTo(travel * 0.5f) // roughly where the pager has the leaving card at the flip
+            slingFire.animateTo(
                 targetValue = travel * SLINGSHOT_FLYOFF,
-                initialVelocity = travel * SLINGSHOT_LAUNCH_VELOCITY * (0.5f + power),
-                animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
+                animationSpec = keyframes {
+                    durationMillis = SLINGSHOT_FIRE_MILLIS
+                    // Load: yank it back past centre against travel.
+                    -travel * SLINGSHOT_LOADBACK at
+                        (SLINGSHOT_FIRE_MILLIS * 35 / 100) using LinearOutSlowInEasing
+                    // Fire: accelerate off screen.
+                    travel * SLINGSHOT_FLYOFF at SLINGSHOT_FIRE_MILLIS using FastOutLinearInEasing
+                },
             )
-            pageChange.join() // keep the flung card parked off-screen until the pager has settled
-            slingLaunching = false
-            slingLaunch.snapTo(0f)
+            slingFiring = false
         }
     }
 
@@ -332,10 +303,18 @@ fun CardViewPagerScreen(
                     .fillMaxSize()
                     // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing,
                     // whose neighbor sits fully opaque in the same spot as the front card; a
-                    // no-op for Slide/Spin/Snap/Slingshot (pages don't meaningfully overlap),
-                    // Surf (the two cards are vertically separated the whole time) and Stealth
-                    // (alpha alone already reads as front/back regardless of z-order).
-                    .zIndex(if (isFront) 1f else 0f)
+                    // no-op for Slide/Spin/Snap (pages don't overlap), Surf (the two cards are
+                    // vertically separated the whole time) and Stealth (alpha alone already
+                    // reads as front/back regardless of z-order). Slingshot's leaving card is
+                    // lifted above everything while its canned move plays.
+                    .zIndex(
+                        when {
+                            resolvedStyle == ResolvedSwipeStyle.Slingshot &&
+                                slingFiring && page == slingLeavingPage -> 2f
+                            isFront -> 1f
+                            else -> 0f
+                        },
+                    )
                     .graphicsLayer {
                         val offset = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
                         when (val style = resolvedStyle) {
@@ -418,36 +397,13 @@ fun CardViewPagerScreen(
                                         size.height
                             }
                             ResolvedSwipeStyle.Slingshot -> {
-                                // Only the card being flung gets moved -- the one whose offset
-                                // points away from its slot in the drag direction (offset = page
-                                // - absolute scroll position, so its sign holds through the
-                                // mid-fling page-flip). Every other page keeps its natural
-                                // placement: the arriving card just slides in and does the bouncy
-                                // settle.
-                                //
-                                // The loading and firing branches both start by *cancelling*
-                                // the pager's placement (`-offset * width`) so the card doesn't
-                                // track the finger at all, then position it explicitly:
-                                //   - Loading (|offset| in the window): held pulled back against
-                                //     travel, ramping to a maximum -- drawing the band. The card
-                                //     resists rather than following.
-                                //   - Firing (slingLaunching): the Animatable drives position,
-                                //     whipping off screen on its own clock.
-                                //   - Otherwise (fast flick that skipped the launch, or the
-                                //     spent card afterwards): natural pager placement.
-                                val beingFlung = if (draggingForward) offset < 0f else offset > 0f
-                                if (beingFlung) {
-                                    val mag = abs(offset).coerceIn(0f, 1f)
-                                    val awayFromTravel = if (offset < 0f) 1f else -1f
-                                    translationX = when {
-                                        slingLaunching ->
-                                            -offset * size.width + slingLaunch.value * size.width
-                                        mag < SLINGSHOT_LOAD_WINDOW ->
-                                            -offset * size.width +
-                                                awayFromTravel * (mag / SLINGSHOT_LOAD_WINDOW) *
-                                                SLINGSHOT_MAX_PULLBACK * size.width
-                                        else -> 0f
-                                    }
+                                // Ordinary Slide until the page flips; then the leaving page --
+                                // and only it -- is positioned by the canned keyframe animation
+                                // (slingFire), with the pager cancelled under it so its own
+                                // placement doesn't fight the move. Everything else stays natural:
+                                // the arriving card just slides in as the pager settles.
+                                if (slingFiring && page == slingLeavingPage) {
+                                    translationX = -offset * size.width + slingFire.value * size.width
                                 }
                             }
                         }
