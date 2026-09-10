@@ -259,7 +259,7 @@ fun CardViewPagerScreen(
                     .fillMaxSize()
                     // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing,
                     // whose neighbor sits fully opaque in the same spot as the front card; a
-                    // no-op for Slide/Spin/Snap (pages never overlap), Swap (the two cards are
+                    // no-op for Slide/Spin/Snap (pages never overlap), Surf (the two cards are
                     // vertically separated the whole time) and Stealth (alpha alone already
                     // reads as front/back regardless of z-order).
                     .zIndex(if (isFront) 1f else 0f)
@@ -333,11 +333,11 @@ fun CardViewPagerScreen(
                                 // Draws exactly like Slide -- the whole effect is the bouncy
                                 // settle spring applied to the pager above.
                             }
-                            is ResolvedSwipeStyle.Swap -> {
+                            is ResolvedSwipeStyle.Surf -> {
                                 // Both cards keep their native side-by-side horizontal placement
                                 // (as in Slide); they just take opposite vertical arcs -- the
-                                // front lifts away upward, the neighbor sweeps up from below --
-                                // so the two visibly pass each other without ever overlapping.
+                                // front lifts away upward, the neighbor swells up from below --
+                                // so the two ride past each other like a wave, never overlapping.
                                 translationY =
                                     (if (isFront) -1f else 1f) *
                                         abs(offset).coerceIn(0f, 1f) *

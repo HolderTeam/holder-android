@@ -19,7 +19,7 @@ enum class HolderCardSwipeStyle(val label: String, val description: String) {
     SWING("Swing", "It don't mean a thing."),
     STEALTH("Stealth", "Down to business."),
     SNAP("Snap", "Snap back to reality."),
-    SWAP("Swap", "Trading places."),
+    SURF("Surf", "Catch a wave."),
     SPIN("Spin", "Me right round."),
     SURPRISE("Surprise", "Life is like a box."),
 }
@@ -91,11 +91,11 @@ sealed interface ResolvedSwipeStyle {
 
     /**
      * Both cards keep their natural side-by-side horizontal placement but take opposite vertical
-     * arcs -- the departing card lifts away upward, the arriving one sweeps up from below -- so
-     * they visibly cross without ever overlapping. [liftFraction] is the vertical travel as a
-     * fraction of the card's height.
+     * arcs -- the departing card lifts away upward, the arriving one swells up from below -- so
+     * they ride past each other like a wave without ever overlapping. [liftFraction] is the
+     * vertical travel as a fraction of the card's height.
      */
-    data class Swap(val liftFraction: Float) : ResolvedSwipeStyle
+    data class Surf(val liftFraction: Float) : ResolvedSwipeStyle
 }
 
 /**
@@ -104,7 +104,7 @@ sealed interface ResolvedSwipeStyle {
  * / Spin ~17%, so most swipes are calm and the big turns are occasional. Slide and Straight are
  * left out (nothing to vary, and Slide is the anti-surprise); Stealth is left out (its personality
  * is having none). Swing never randomises its direction -- always toward the finger; only Spin
- * varies clockwise/anticlockwise. Snap and Swap are new and stay out of the mix until they've had
+ * varies clockwise/anticlockwise. Snap and Surf are new and stay out of the mix until they've had
  * road time.
  */
 private val SURPRISE_BAG: List<Pair<ResolvedSwipeStyle, Int>> =
@@ -140,9 +140,11 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
             HolderCardSwipeStyle.SNAP ->
-                    // stiffness ~ Compose Spring.StiffnessLow; damping < 1 for the overshoot.
-                    ResolvedSwipeStyle.Snap(dampingRatio = 0.6f, stiffness = 200f)
-            HolderCardSwipeStyle.SWAP -> ResolvedSwipeStyle.Swap(liftFraction = 0.18f)
+                    // Deliberately springy: damping well below 1 so the overshoot is obvious
+                    // (not just a faster Slide), stiffness ~ Compose Spring.StiffnessMediumLow so
+                    // it still arrives quickly.
+                    ResolvedSwipeStyle.Snap(dampingRatio = 0.35f, stiffness = 400f)
+            HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
             HolderCardSwipeStyle.SURPRISE -> drawSurpriseVariant(random)
