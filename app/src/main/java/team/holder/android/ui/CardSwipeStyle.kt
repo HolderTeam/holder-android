@@ -98,12 +98,12 @@ sealed interface ResolvedSwipeStyle {
     data class Surf(val liftFraction: Float) : ResolvedSwipeStyle
 
     /**
-     * The comedy one. The departing card resists for the first bit of the drag -- pulled back
+     * The comedy one. The card being flung resists for the first bit of the drag -- pulled back
      * against the direction of travel, tension building -- then, once the drag crosses a
-     * threshold, launches ahead of the finger and fires off screen. The pager gets a very bouncy
-     * settle spec so the card overshoots its slot and rings back on arrival. There's no real
-     * release event: it's all a nonlinear function of how far the drag has got, plus that spring.
-     * The neighbour waits underneath (as in Straight) so there's no gap behind the launch.
+     * threshold, launches ahead of the finger and fires off screen. The arriving card is left
+     * alone: it slides in normally and does a bouncy settle (the pager gets a very springy
+     * settle spec for this style). There's no real release event -- the flung card's position is
+     * just a nonlinear function of how far the drag has got.
      */
     data object Slingshot : ResolvedSwipeStyle
 }
