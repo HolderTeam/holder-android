@@ -53,11 +53,10 @@ class MilestoneCalendarSmokeTest {
         val title = "Milestone smoke card ${UUID.randomUUID()}"
         smokeTitle = title
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText("Home")
         composeRule.onNodeWithText("Home").performClick()
 
+        awaitContentDescription("New card")
         composeRule.onNodeWithContentDescription("New card").performClick()
         composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
@@ -65,28 +64,26 @@ class MilestoneCalendarSmokeTest {
         val fields = composeRule.onAllNodes(hasSetTextAction())
         fields[0].performTextInput(title)
         fields[1].performTextInput("Created by milestone smoke test.")
+        awaitContentDescription("Save")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText(title)
         composeRule.onNodeWithText(title).performClick()
 
         // Tools dashboard, not a direct "Connections" button -- see CardViewPagerScreen's
-        // bottom bar (Focus/Tools/Child/Edit).
+        // bottom bar (Focus/Tools/Child/Edit). No wait between opening the card and this tap
+        // was the API 36 flake: on a slow emulator the card view (and its bottom bar) hadn't
+        // composed yet.
+        awaitContentDescription("Tools")
         composeRule.onNodeWithContentDescription("Tools").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithContentDescription("Milestones").fetchSemanticsNodes().isNotEmpty()
-        }
 
         // The dashboard's Milestones tile opens this same card's project Calendar directly,
         // with "Add milestone" already wired to it (see CalendarScreen's onAddMilestone doc
         // comment) -- no separate per-card milestone screen to go through first.
+        awaitContentDescription("Milestones")
         composeRule.onNodeWithContentDescription("Milestones").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithContentDescription("Add milestone").fetchSemanticsNodes().isNotEmpty()
-        }
 
+        awaitContentDescription("Add milestone")
         composeRule.onNodeWithContentDescription("Add milestone").performClick()
         composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasText("Add milestone") and hasClickAction())
@@ -98,9 +95,16 @@ class MilestoneCalendarSmokeTest {
 
         // Saving pops straight back to the same Calendar screen (see AddMilestoneScreen's
         // onAdded), already refreshed -- no extra navigation needed to see it land.
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText(title)
         assertTrue(composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty())
     }
+
+    private fun awaitText(text: String) = composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+        composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun awaitContentDescription(description: String) =
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+            composeRule.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
+        }
 }

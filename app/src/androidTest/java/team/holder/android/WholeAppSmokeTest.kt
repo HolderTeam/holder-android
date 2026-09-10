@@ -51,69 +51,66 @@ class WholeAppSmokeTest {
         smokeTitle = title
         val initialBody = "Created by whole-app smoke test."
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText("Home")
         composeRule.onNodeWithText("Home").performClick()
 
+        awaitContentDescription("New card")
         composeRule.onNodeWithContentDescription("New card").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
-        }
+        awaitTextFields()
 
         val fields = composeRule.onAllNodes(hasSetTextAction())
         fields[0].performTextInput(title)
         fields[1].performTextInput(initialBody)
+        awaitContentDescription("Save")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText(title)
         composeRule.onNodeWithText(title).performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText(initialBody).fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitText(initialBody)
+        awaitContentDescription("Edit")
         composeRule.onNodeWithContentDescription("Edit").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
-        }
+        awaitTextFields()
 
         composeRule
             .onNode(hasSetTextAction() and hasText(initialBody))
             .performTextInput("\nEdited and persisted.")
+        awaitContentDescription("Save")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
+        awaitText("Edited and persisted.", substring = true)
 
-        // Wait for at least one "Back" (the card view's own TopAppBar arrow) to be present,
-        // then click the first. Not "exactly one": the card sits in a HorizontalPager of its
-        // siblings (see CardViewPagerScreen), and more than one sibling page -- each its own
-        // CardViewScreen with its own TopAppBar Back arrow -- can be composed at once. Every
-        // one of those arrows invokes the same onBack, so the first is as good as any. The
-        // earlier "exactly one" wait here predated that pager and was a source of this test's
-        // CI flakiness.
+        // Click the first "Back" (the card view's own TopAppBar arrow), not "the" one: the card
+        // sits in a HorizontalPager of its siblings (see CardViewPagerScreen), and more than one
+        // sibling page -- each its own CardViewScreen with its own TopAppBar Back arrow -- can be
+        // composed at once. They all invoke the same onBack. An earlier "exactly one" wait here
+        // predated that pager and was a source of this test's CI flakiness.
         composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onAllNodesWithContentDescription("Back").onFirst().performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
-        }
+
+        awaitText(title)
         composeRule.onNodeWithText(title).performClick()
 
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
+        awaitText("Edited and persisted.", substring = true)
         assertTrue(
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty(),
         )
+    }
+
+    private fun awaitText(text: String, substring: Boolean = false) =
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+            composeRule.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
+
+    private fun awaitContentDescription(description: String) =
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+            composeRule.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
+        }
+
+    private fun awaitTextFields() = composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+        composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
     }
 }
