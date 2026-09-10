@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.ManagedVirtualDevice
 import java.io.File
 import java.util.Properties
 
@@ -146,22 +145,32 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         managedDevices {
+            // minSdk floor. Left as a generic old profile rather than matched to real hardware:
+            // an old device paired with an old API level is an unremarkable combination.
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
                 apiLevel = 28
                 systemImageSource = "aosp"
                 require64Bit = true
             }
-            val pixel2Api36 = localDevices.create("pixel2Api36") {
-                device = "Pixel 2"
-                apiLevel = 36
+            // Recent-Android coverage. "Pixel 6" reads sensibly next to a modern API level
+            // (unlike the "Pixel 2" that was here before) and matches a real device on the
+            // team, so a failure here can be reproduced by hand. API 34, not the very latest:
+            // the API 36 AOSP image under CI's software renderer was persistently unstable
+            // (repeated "Failed to create Emulator snapshot image" retries, content that never
+            // rendered within a 60s wait) while API 34 is a long-settled image. Newer device
+            // profiles ("Pixel 10a" etc.) also aren't usable -- recent AOSP images don't ship
+            // the devices.xml that would define them, and AGP only knows older profiles
+            // internally.
+            val pixel6Api34 = localDevices.create("pixel6Api34") {
+                device = "Pixel 6"
+                apiLevel = 34
                 systemImageSource = "aosp"
                 require64Bit = true
-                pageAlignment = ManagedVirtualDevice.PageAlignment.FORCE_4KB_PAGES
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
-                targetDevices.add(pixel2Api36)
+                targetDevices.add(pixel6Api34)
             }
         }
     }

@@ -4,6 +4,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -22,6 +23,13 @@ import org.junit.runner.RunWith
 class WholeAppSmokeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
+
+    // Deliberately generous: this test's slow steps each wait on a real libholder round trip
+    // (git-backed create/save) rendered by a software-GPU emulator under CI contention. The old
+    // 20s budget was where this test's flakiness lived -- it would time out mid-flow on a loaded
+    // runner and pass on a rerun. A correct app still settles well within this; only a genuinely
+    // stuck one now waits the full minute.
+    private val settleTimeoutMs = 60_000L
 
     private var smokeTitle: String? = null
 
@@ -43,13 +51,13 @@ class WholeAppSmokeTest {
         smokeTitle = title
         val initialBody = "Created by whole-app smoke test."
 
-        composeRule.waitUntil(timeoutMillis = 15_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Home").performClick()
 
         composeRule.onNodeWithContentDescription("New card").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
         }
 
@@ -58,15 +66,15 @@ class WholeAppSmokeTest {
         fields[1].performTextInput(initialBody)
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(initialBody).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithContentDescription("Edit").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
         }
 
@@ -75,29 +83,29 @@ class WholeAppSmokeTest {
             .performTextInput("\nEdited and persisted.")
         composeRule.onNodeWithContentDescription("Save").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
 
-        // Unlike every other click in this test, this one previously had no wait in front of
-        // it -- the preceding wait above only confirms the edited text is showing somewhere,
-        // which a mid-navigation-transition frame can already satisfy (both the outgoing and
-        // incoming screens can briefly coexist during a NavHost crossfade) before the incoming
-        // screen's own TopAppBar, and its Back icon, has actually settled. That gap is what
-        // made this specific click flaky on CI (`Expected exactly '1' node ... ContentDescription
-        // = 'Back'`), passing on a rerun once timing happened to line up.
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().size == 1
+        // Wait for at least one "Back" (the card view's own TopAppBar arrow) to be present,
+        // then click the first. Not "exactly one": the card sits in a HorizontalPager of its
+        // siblings (see CardViewPagerScreen), and more than one sibling page -- each its own
+        // CardViewScreen with its own TopAppBar Back arrow -- can be composed at once. Every
+        // one of those arrows invokes the same onBack, so the first is as good as any. The
+        // earlier "exactly one" wait here predated that pager and was a source of this test's
+        // CI flakiness.
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
+            composeRule.onAllNodesWithContentDescription("Back").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithContentDescription("Back").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.onAllNodesWithContentDescription("Back").onFirst().performClick()
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(title).performClick()
 
-        composeRule.waitUntil(timeoutMillis = 20_000) {
+        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
             composeRule.onAllNodesWithText("Edited and persisted.", substring = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()

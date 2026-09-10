@@ -85,6 +85,16 @@ jobs:
 
   managed-device-tests:
     runs-on: ubuntu-24.04
+    # One job per device instead of one job running both sequentially: a flake (or a genuine
+    # failure) on one API level no longer blocks or gets conflated with the other, they run in
+    # parallel instead of back-to-back, and a rerun only has to redo the device that actually
+    # failed. Each device's own androidTest task -- pixel2Api28DebugAndroidTest /
+    # pixel6Api34DebugAndroidTest -- already existed (ciPhonesGroupDebugAndroidTest was always
+    # just both of these back-to-back); this only changes how they're scheduled.
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [pixel2Api28, pixel6Api34]
     env:
       VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
@@ -141,9 +151,9 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
-      - name: Run API 28 and API 36 managed-device tests
+      - name: Run ${{ matrix.device }} managed-device tests
         run: >-
-          ./gradlew :app:ciPhonesGroupDebugAndroidTest
+          ./gradlew :app:${{ matrix.device }}DebugAndroidTest
           -Pholder.android.abis=x86_64
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
@@ -151,7 +161,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: holder-android-managed-device-test-reports
+          name: holder-android-managed-device-test-reports-${{ matrix.device }}
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
@@ -159,7 +169,11 @@ jobs:
           retention-days: 7
 
       - name: Save x86_64 vcpkg binary package cache
-        if: success() && github.event_name != 'pull_request' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        # Both matrix legs build the identical x86_64 cache -- gated to one of them so they
+        # don't race to save the same key (harmless if they did, just wasted upload time).
+        if: >-
+          success() && github.event_name != 'pull_request' &&
+          steps.vcpkg-cache.outputs.cache-hit != 'true' && matrix.device == 'pixel2Api28'
         uses: actions/cache/save@v4
         with:
           path: .vcpkg-binary-cache
