@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONObject
+import team.holder.android.ui.HolderCardSwipeStyle
 import team.holder.android.ui.theme.HolderFontFamilyOption
 import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
@@ -26,6 +27,7 @@ object HolderSettings {
     private val THEME_OPTION = stringPreferencesKey("theme_option")
     private val FONT_SIZE_OPTION = stringPreferencesKey("font_size_option")
     private val FONT_FAMILY_OPTION = stringPreferencesKey("font_family_option")
+    private val CARD_SWIPE_STYLE = stringPreferencesKey("card_swipe_style")
     private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
@@ -92,6 +94,17 @@ object HolderSettings {
 
     suspend fun setFontFamilyOption(context: Context, option: HolderFontFamilyOption) {
         context.settingsDataStore.edit { it[FONT_FAMILY_OPTION] = option.name }
+    }
+
+    fun cardSwipeStyle(context: Context): Flow<HolderCardSwipeStyle> =
+        context.settingsDataStore.data.map { prefs ->
+            prefs[CARD_SWIPE_STYLE]?.let { stored ->
+                runCatching { HolderCardSwipeStyle.valueOf(stored) }.getOrNull()
+            } ?: HolderCardSwipeStyle.SLIDE
+        }
+
+    suspend fun setCardSwipeStyle(context: Context, option: HolderCardSwipeStyle) {
+        context.settingsDataStore.edit { it[CARD_SWIPE_STYLE] = option.name }
     }
 
     /** Off by default: a card's raw Markdown gets its trailing whitespace cleaned up on save

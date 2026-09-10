@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
+import team.holder.android.ui.HolderCardSwipeStyle
 import team.holder.android.ui.theme.HolderFontFamilyOption
 import team.holder.android.ui.theme.HolderFontSizeOption
 import team.holder.android.ui.theme.HolderThemeOption
@@ -54,6 +55,9 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
     val fontFamilyOption by HolderSettings.fontFamilyOption(context)
         .collectAsState(initial = HolderFontFamilyOption.DEFAULT)
     var fontFamilyMenuExpanded by remember { mutableStateOf(false) }
+    val cardSwipeStyle by HolderSettings.cardSwipeStyle(context)
+        .collectAsState(initial = HolderCardSwipeStyle.SLIDE)
+    var cardSwipeStyleMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -171,6 +175,34 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                 onClick = {
                                     fontFamilyMenuExpanded = false
                                     scope.launch { HolderSettings.setFontFamilyOption(context, option) }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Card swipe")
+                    Text(cardSwipeStyle.description)
+                }
+                Box {
+                    Button(onClick = { cardSwipeStyleMenuExpanded = true }) {
+                        Text(cardSwipeStyle.label)
+                    }
+                    DropdownMenu(
+                        expanded = cardSwipeStyleMenuExpanded,
+                        onDismissRequest = { cardSwipeStyleMenuExpanded = false },
+                    ) {
+                        HolderCardSwipeStyle.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = {
+                                    cardSwipeStyleMenuExpanded = false
+                                    scope.launch { HolderSettings.setCardSwipeStyle(context, option) }
                                 },
                             )
                         }

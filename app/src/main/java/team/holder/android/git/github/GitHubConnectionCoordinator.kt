@@ -104,6 +104,13 @@ object GitHubConnectionCoordinator {
      * exact access token that the status reader would send to GitHub. */
     internal var statusCredentialSnapshotOverride: (suspend (CredentialStateSnapshot) -> Unit)? = null
     internal var statusQueryOverride: (suspend (String) -> GitHubResult<GitHubStatus>)? = null
+    /** Split request seams keep the two production control-plane acquisitions observable in
+     * deterministic tests; the between-request hook runs only after the first gate is released. */
+    internal var statusAuthenticatedUserOverride:
+        (suspend (String) -> GitHubResult<GitHubAuthenticatedUser>)? = null
+    internal var statusBetweenRequestsOverride: (suspend () -> Unit)? = null
+    internal var statusInstallationsOverride:
+        (suspend (String) -> GitHubResult<List<GitHubInstallation>>)? = null
 
     /** The coordinator is the sole publisher of authoritative observable connection state -- a
      * bare per-call result is a result for that call, never an instruction to repaint global
@@ -191,13 +198,16 @@ object GitHubConnectionCoordinator {
     }
 
     private sealed interface SnapshotAccessTokenResult {
-        data class Available(val accessToken: String) : SnapshotAccessTokenResult
+        data class Available(
+            val accessToken: String,
+            val snapshot: CredentialStateSnapshot,
+        ) : SnapshotAccessTokenResult
         data class Failure(val error: GitHubError) : SnapshotAccessTokenResult
         data object Stale : SnapshotAccessTokenResult
     }
 
     private data class StatusQueryAuthority(
-        val snapshot: CredentialStateSnapshot,
+        var snapshot: CredentialStateSnapshot,
         var accessToken: String? = null,
     )
 
@@ -335,15 +345,16 @@ object GitHubConnectionCoordinator {
             if (!clearCredentialForConnectOperation(appContext, attemptId)) return
         }
 
-        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext)
+        val state = GitHubPkce.generateState()
+        val codeVerifier = GitHubPkce.generateCodeVerifier()
+        val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
+        val authorizationUrl = GitHubOAuth.buildAuthorizationUrl(state, codeChallenge)
+        val requestedBrowserLaunch = browserLauncher.resolveBrowser(appContext, authorizationUrl)
         if (requestedBrowserLaunch == null) {
             finishConnectOperation(attemptId, GitHubResult.Failure(GitHubError.BrowserUnavailable))
             return
         }
 
-        val state = GitHubPkce.generateState()
-        val codeVerifier = GitHubPkce.generateCodeVerifier()
-        val codeChallenge = GitHubPkce.codeChallengeFor(codeVerifier)
         val callbackOutcome = CompletableDeferred<CallbackOutcome>()
         val browserLaunch = connectStateMutex.withLock {
             if (connectInFlight?.attemptId != attemptId) return@withLock null
@@ -363,7 +374,7 @@ object GitHubConnectionCoordinator {
         // It must not launch a browser or overwrite the currently-owned transaction.
         if (browserLaunch == null) return
 
-        val authorizeUri = Uri.parse(GitHubOAuth.buildAuthorizationUrl(state, codeChallenge))
+        val authorizeUri = Uri.parse(authorizationUrl)
         // The coordinator's own scope is Dispatchers.IO-based (background orchestration), but
         // actually launching an Activity/ActivityResultLauncher is real UI work.
         withContext(Dispatchers.Main.immediate) {
@@ -624,15 +635,18 @@ object GitHubConnectionCoordinator {
         // looking up installations are distinct direct GitHub requests, not one compound
         // control-plane critical section.
         val userRequest = withStatusAccessToken(appContext, authority) { accessToken ->
-            GitHubApi.authenticatedUser(exchangeHttpClient, accessToken)
+            statusAuthenticatedUserOverride?.invoke(accessToken)
+                ?: GitHubApi.authenticatedUser(exchangeHttpClient, accessToken)
         }
         if (userRequest is SnapshotRequestResult.Stale) return CredentialStatusQueryResult.Stale
         val user = when (val result = (userRequest as SnapshotRequestResult.Completed).result) {
             is GitHubResult.Success -> result.value
             is GitHubResult.Failure -> return CredentialStatusQueryResult.Completed(GitHubResult.Failure(result.error))
         }
+        statusBetweenRequestsOverride?.invoke()
         val installationsRequest = withStatusAccessToken(appContext, authority) { accessToken ->
-            GitHubApi.listInstallations(exchangeHttpClient, accessToken)
+            statusInstallationsOverride?.invoke(accessToken)
+                ?: GitHubApi.listInstallations(exchangeHttpClient, accessToken)
         }
         if (installationsRequest is SnapshotRequestResult.Stale) return CredentialStatusQueryResult.Stale
         val installations = when (val result = (installationsRequest as SnapshotRequestResult.Completed).result) {
@@ -708,21 +722,43 @@ object GitHubConnectionCoordinator {
         authority: StatusQueryAuthority,
         block: suspend (accessToken: String) -> GitHubResult<T>,
     ): SnapshotRequestResult<T> = controlPlaneMutex.withLock {
+        // Linearize this request against disconnect after acquiring the same gate disconnect
+        // uses. The short epoch check is immediately before token selection/request dispatch;
+        // credentialMutationMutex is released before network I/O, while controlPlaneMutex stays
+        // held so disconnect cannot clear authority and return in between. A mismatch terminates
+        // this snapshot-bound query instead of either reusing its old token or falling forward.
+        if (!credentialStateStillCurrent(appContext, authority.snapshot)) {
+            return@withLock SnapshotRequestResult.Stale
+        }
         val accessToken = authority.accessToken ?: run {
             val cached = authority.snapshot.accessTokenCache
             val resolved = if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
-                SnapshotAccessTokenResult.Available(cached.accessToken)
+                SnapshotAccessTokenResult.Available(cached.accessToken, authority.snapshot)
             } else {
                 refreshAccessToken(appContext, requiredSnapshot = authority.snapshot)
             }
             when (resolved) {
-                is SnapshotAccessTokenResult.Available -> resolved.accessToken.also { authority.accessToken = it }
+                is SnapshotAccessTokenResult.Available -> resolved.accessToken.also {
+                    authority.snapshot = resolved.snapshot
+                    authority.accessToken = it
+                }
                 is SnapshotAccessTokenResult.Failure ->
                     return@withLock SnapshotRequestResult.Completed(GitHubResult.Failure(resolved.error))
                 SnapshotAccessTokenResult.Stale -> return@withLock SnapshotRequestResult.Stale
             }
         }
         SnapshotRequestResult.Completed(block(accessToken))
+    }
+
+    private suspend fun credentialStateStillCurrent(
+        appContext: Context,
+        snapshot: CredentialStateSnapshot,
+    ): Boolean = credentialMutationMutex.withLock {
+        snapshot == CredentialStateSnapshot(
+            epoch = credentialEpoch.get(),
+            credential = credentialStore.get(appContext),
+            accessTokenCache = accessTokenCache,
+        )
     }
 
     /** Refreshes either the state observed after entering the refresh single-flight, or an
@@ -741,7 +777,7 @@ object GitHubConnectionCoordinator {
             }
             val cached = snapshot.accessTokenCache
             if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
-                return SnapshotAccessTokenResult.Available(cached.accessToken)
+                return SnapshotAccessTokenResult.Available(cached.accessToken, snapshot)
             }
             val credential = snapshot.credential
                 ?: return SnapshotAccessTokenResult.Failure(GitHubError.AuthorizationRequired)
@@ -759,7 +795,7 @@ object GitHubConnectionCoordinator {
                 ?: GitHubOAuth.refresh(exchangeHttpClient, refreshToken, refreshCap)
             return when (refreshResult) {
                 is RelayResult.Success -> {
-                    val committed = credentialMutationMutex.withLock {
+                    val committedSnapshot = credentialMutationMutex.withLock {
                         // The refresh snapshot's generation AND credential must still be
                         // current. Token equality alone can accept a pre-supersession refresh
                         // when the same token happens to be present in a later generation.
@@ -769,19 +805,24 @@ object GitHubConnectionCoordinator {
                                 currentCredential = credentialStore.get(appContext),
                             )
                         ) {
-                            false
+                            null
                         } else {
                             val tokens = refreshResult.tokens
-                            credentialStore.store(appContext, durableCredential(tokens))
-                            accessTokenCache = AccessTokenCache(
+                            val credential = durableCredential(tokens)
+                            val cache = AccessTokenCache(
                                 tokens.accessToken,
                                 SystemClock.elapsedRealtime() + tokens.expiresInSeconds * 1000L - ACCESS_TOKEN_SAFETY_MARGIN_MILLIS,
                             )
-                            true
+                            credentialStore.store(appContext, credential)
+                            accessTokenCache = cache
+                            CredentialStateSnapshot(snapshot.epoch, credential, cache)
                         }
                     }
-                    if (committed) {
-                        SnapshotAccessTokenResult.Available(refreshResult.tokens.accessToken)
+                    if (committedSnapshot != null) {
+                        SnapshotAccessTokenResult.Available(
+                            refreshResult.tokens.accessToken,
+                            committedSnapshot,
+                        )
                     } else {
                         SnapshotAccessTokenResult.Stale
                     }
@@ -1107,8 +1148,8 @@ object GitHubConnectionCoordinator {
     interface GitHubBrowserLauncher {
         /** Resolves a Custom Tabs provider first, then checks *that specific* provider's Auth
          * Tab support. The returned package must be the package actually launched. Returns
-         * null when no ordinary external browser can handle the authorization URL. */
-        fun resolveBrowser(context: Context): BrowserLaunch?
+         * null when no ordinary external browser can handle the exact [authorizationUrl]. */
+        fun resolveBrowser(context: Context, authorizationUrl: String): BrowserLaunch?
 
         /** For [LaunchKind.AuthTab]: must persist [attemptId] via the launching Activity's own
          * SavedState *before* actually launching. Runs on the main thread (see `connect()`'s

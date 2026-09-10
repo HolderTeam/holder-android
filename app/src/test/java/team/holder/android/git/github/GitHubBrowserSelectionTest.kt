@@ -7,6 +7,9 @@ import org.junit.Test
 import java.util.UUID
 
 class GitHubBrowserSelectionTest {
+    private val authorizationUrl =
+        "https://github.com/login/oauth/authorize?client_id=holder&state=fresh"
+
     @Test
     fun onlyNonResultBrowserLaunchesAreCancellable() {
         assertEquals(false, GitHubConnectionCoordinator.isCancellableBrowserLaunch(GitHubConnectionCoordinator.LaunchKind.AuthTab))
@@ -85,23 +88,111 @@ class GitHubBrowserSelectionTest {
     }
 
     @Test
-    fun hostSpecificGitHubHandlerIsNotAcceptedAsAnExternalBrowser() {
-        assertNull(
-            GitHubActivityBrowserLauncher.selectExternalBrowserPackage(
-                githubHandlers = listOf("example.github-link-handler"),
-                genericWebHandlers = emptySet(),
-            ),
+    fun authTabTakesPrecedenceWhenSupported() {
+        assertEquals(
+            GitHubConnectionCoordinator.LaunchKind.AuthTab,
+            GitHubActivityBrowserLauncher.customTabsLaunchKind(authTabSupported = true),
         )
     }
 
     @Test
-    fun selectsOnlyAPackageThatHandlesBothGitHubAndGenericHttps() {
+    fun customTabRemainsTheFallbackForAProviderWithoutAuthTabSupport() {
         assertEquals(
-            "org.example.browser",
-            GitHubActivityBrowserLauncher.selectExternalBrowserPackage(
-                githubHandlers = listOf("example.github-link-handler", "org.example.browser"),
-                genericWebHandlers = setOf("org.example.browser"),
-            ),
+            GitHubConnectionCoordinator.LaunchKind.CustomTab,
+            GitHubActivityBrowserLauncher.customTabsLaunchKind(authTabSupported = false),
         )
+    }
+
+    @Test
+    fun genericBrowserQueryIsSchemeOnlyAndContainsNoProbeHost() {
+        assertEquals("http:", GitHubActivityBrowserLauncher.GENERIC_BROWSER_URI)
+        assertFalse(GitHubActivityBrowserLauncher.GENERIC_BROWSER_URI.contains("//"))
+    }
+
+    @Test
+    fun packageClaimingOnlyGitHubIsRejected() {
+        assertNull(
+            resolveExternalBrowser(
+                genericHandlers = emptyList(),
+                authorizationHandlers = listOf("example.github-link-handler"),
+            ).first,
+        )
+    }
+
+    @Test
+    fun packageClaimingTheOldGitHubAndExampleHostPairButNotGenericBrowsingIsRejected() {
+        val maliciousPackage = "example.two-host-link-handler"
+        val (selection, queriedUrls) = resolveExternalBrowser(
+            genericHandlers = listOf("org.example.unrelated-browser"),
+            authorizationHandlers = listOf(maliciousPackage),
+            unrelatedExampleHandlers = listOf(maliciousPackage),
+        )
+
+        assertNull(selection)
+        assertEquals(
+            listOf(GitHubActivityBrowserLauncher.GENERIC_BROWSER_URI, authorizationUrl),
+            queriedUrls,
+        )
+    }
+
+    @Test
+    fun genuineGenericBrowserThatHandlesTheActualAuthorizationUriIsAccepted() {
+        val browserPackage = "org.example.browser"
+        val (selection, queriedUrls) = resolveExternalBrowser(
+            genericHandlers = listOf("org.example.generic-only", browserPackage),
+            authorizationHandlers = listOf("example.github-link-handler", browserPackage),
+        )
+
+        assertEquals(
+            GitHubConnectionCoordinator.BrowserLaunch(
+                GitHubConnectionCoordinator.LaunchKind.ExternalBrowser,
+                browserPackage,
+            ),
+            selection,
+        )
+        assertEquals(
+            listOf(GitHubActivityBrowserLauncher.GENERIC_BROWSER_URI, authorizationUrl),
+            queriedUrls,
+        )
+    }
+
+    @Test
+    fun genericBrowserThatCannotHandleTheActualAuthorizationUriIsRejected() {
+        assertNull(
+            resolveExternalBrowser(
+                genericHandlers = listOf("org.example.generic-browser"),
+                authorizationHandlers = listOf("example.github-link-handler"),
+            ).first,
+        )
+    }
+
+    @Test
+    fun selectedExternalBrowserPackageIsRetainedForThePinnedLaunch() {
+        val browserPackage = "org.example.browser"
+        val selection = resolveExternalBrowser(
+            genericHandlers = listOf(browserPackage),
+            authorizationHandlers = listOf(browserPackage),
+        ).first
+
+        assertEquals(GitHubConnectionCoordinator.LaunchKind.ExternalBrowser, selection?.kind)
+        assertEquals(browserPackage, selection?.packageName)
+    }
+
+    private fun resolveExternalBrowser(
+        genericHandlers: List<String>,
+        authorizationHandlers: List<String>,
+        unrelatedExampleHandlers: List<String> = emptyList(),
+    ): Pair<GitHubConnectionCoordinator.BrowserLaunch?, List<String>> {
+        val queriedUrls = mutableListOf<String>()
+        val selection = GitHubActivityBrowserLauncher.resolveExternalBrowser(authorizationUrl) { url ->
+            queriedUrls += url
+            when (url) {
+                GitHubActivityBrowserLauncher.GENERIC_BROWSER_URI -> genericHandlers
+                authorizationUrl -> authorizationHandlers
+                "https://www.example.com/" -> unrelatedExampleHandlers
+                else -> emptyList()
+            }
+        }
+        return selection to queriedUrls
     }
 }

@@ -26,7 +26,10 @@ internal class GitHubActivityBrowserLauncher(
     private val setOutstandingAttemptId: (UUID?) -> Unit,
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
 
-    override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
+    override fun resolveBrowser(
+        context: Context,
+        authorizationUrl: String,
+    ): GitHubConnectionCoordinator.BrowserLaunch? {
         // Resolve a Custom Tabs provider FIRST, then check *that specific* provider's Auth Tab
         // support -- capability check and eventual launch must use the same resolved package.
         val customTabsPackage = CustomTabsClient.getPackageName(context, null, false)
@@ -44,18 +47,11 @@ internal class GitHubActivityBrowserLauncher(
         // no single unambiguous default, even if one or more real handlers exist (confirmed
         // live -- this exact call returned null on a real emulator with Chrome genuinely
         // installed, simply because nothing had been chosen as the default browser yet).
-        // A handler for GitHub alone is not an ordinary browser: a host-specific app can claim
-        // that link and receive the authorization request. Require the same package to handle
-        // an unrelated, generic browsable HTTPS URL too, then pin the actual launch to it.
-        val githubHandlers = handlerPackages(context, "https://github.com")
-        val genericWebHandlers = handlerPackages(context, "https://www.example.com/").toSet()
-        val externalBrowserPackage = selectExternalBrowserPackage(githubHandlers, genericWebHandlers)
-        return externalBrowserPackage?.let {
-            GitHubConnectionCoordinator.BrowserLaunch(
-                GitHubConnectionCoordinator.LaunchKind.ExternalBrowser,
-                it,
-            )
-        }
+        // Android's browser-role contract is an unconstrained browsable HTTP handler. Querying
+        // a scheme-only URI means a host-specific App Link filter cannot qualify. The selected
+        // package must separately resolve the exact authorization URI, and that same package is
+        // retained in BrowserLaunch so the eventual OAuth intent can be pinned to it.
+        return resolveExternalBrowser(authorizationUrl) { url -> handlerPackages(context, url) }
     }
 
     override fun launch(
@@ -88,6 +84,7 @@ internal class GitHubActivityBrowserLauncher(
             GitHubConnectionCoordinator.LaunchKind.ExternalBrowser ->
                 context.startActivity(
                     Intent(Intent.ACTION_VIEW, uri)
+                        .addCategory(Intent.CATEGORY_BROWSABLE)
                         .setPackage(browser.packageName)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
@@ -110,10 +107,33 @@ internal class GitHubActivityBrowserLauncher(
                 GitHubConnectionCoordinator.LaunchKind.CustomTab
             }
 
-        /** Pure seam for testing the fallback against a host-specific URL-handler. */
+        /** A scheme-only URI exercises Android's generic browser intent semantics. It has no
+         * arbitrary probe host for a link-handling app to claim. This works back to API 1. */
+        internal const val GENERIC_BROWSER_URI = "http:"
+
+        /** Deterministic seam around the two PackageManager queries. */
+        fun resolveExternalBrowser(
+            authorizationUrl: String,
+            handlerPackages: (String) -> List<String>,
+        ): GitHubConnectionCoordinator.BrowserLaunch? {
+            val genericBrowserHandlers = handlerPackages(GENERIC_BROWSER_URI).toSet()
+            if (genericBrowserHandlers.isEmpty()) return null
+            val authorizationHandlers = handlerPackages(authorizationUrl)
+            return selectExternalBrowserPackage(
+                authorizationHandlers = authorizationHandlers,
+                genericBrowserHandlers = genericBrowserHandlers,
+            )?.let {
+                GitHubConnectionCoordinator.BrowserLaunch(
+                    GitHubConnectionCoordinator.LaunchKind.ExternalBrowser,
+                    it,
+                )
+            }
+        }
+
+        /** Select only a generic browser that also resolves the exact authorization URI. */
         fun selectExternalBrowserPackage(
-            githubHandlers: List<String>,
-            genericWebHandlers: Set<String>,
-        ): String? = githubHandlers.firstOrNull { it in genericWebHandlers }
+            authorizationHandlers: List<String>,
+            genericBrowserHandlers: Set<String>,
+        ): String? = authorizationHandlers.firstOrNull { it in genericBrowserHandlers }
     }
 }

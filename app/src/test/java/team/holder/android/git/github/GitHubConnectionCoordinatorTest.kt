@@ -63,9 +63,14 @@ private class UnavailableBrowserLauncher(
     private val releaseLatch: CountDownLatch? = null,
 ) : GitHubConnectionCoordinator.GitHubBrowserLauncher {
     val resolveCallCount = AtomicInteger(0)
+    @Volatile var lastAuthorizationUrl: String? = null
 
-    override fun resolveBrowser(context: Context): GitHubConnectionCoordinator.BrowserLaunch? {
+    override fun resolveBrowser(
+        context: Context,
+        authorizationUrl: String,
+    ): GitHubConnectionCoordinator.BrowserLaunch? {
         resolveCallCount.incrementAndGet()
+        lastAuthorizationUrl = authorizationUrl
         startedLatch?.countDown()
         releaseLatch?.await(5, TimeUnit.SECONDS)
         return null
@@ -104,6 +109,9 @@ class GitHubConnectionCoordinatorTest {
         GitHubConnectionCoordinator.standaloneStatusOverride = null
         GitHubConnectionCoordinator.statusCredentialSnapshotOverride = null
         GitHubConnectionCoordinator.statusQueryOverride = null
+        GitHubConnectionCoordinator.statusAuthenticatedUserOverride = null
+        GitHubConnectionCoordinator.statusBetweenRequestsOverride = null
+        GitHubConnectionCoordinator.statusInstallationsOverride = null
         GitHubConnectionCoordinator.accessTokenCache = null
         fakeStore.clearStartedLatch = null
         fakeStore.releaseClearLatch = null
@@ -111,8 +119,13 @@ class GitHubConnectionCoordinatorTest {
 
     @Test
     fun connect_returnsBrowserUnavailable_whenNoBrowserResolves() = runBlocking {
-        val result = GitHubConnectionCoordinator.connect(fakeContext, UnavailableBrowserLauncher())
+        val launcher = UnavailableBrowserLauncher()
+        val result = GitHubConnectionCoordinator.connect(fakeContext, launcher)
         assertEquals(GitHubResult.Failure(GitHubError.BrowserUnavailable), result)
+        assertTrue(
+            launcher.lastAuthorizationUrl
+                ?.startsWith("https://github.com/login/oauth/authorize?") == true,
+        )
     }
 
     @Test
@@ -527,7 +540,7 @@ class GitHubConnectionCoordinatorTest {
     }
 
     @Test
-    fun standaloneStatusUsesCredentialFromItsCapturedEpochAcrossReplacement() = runBlocking(Dispatchers.IO) {
+    fun standaloneStatusStopsBeforeUsingAnyCredentialWhenItsSnapshotWasReplaced() = runBlocking(Dispatchers.IO) {
         val credentialA = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
         val cacheA = GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
         fakeStore.credential = credentialA
@@ -561,7 +574,7 @@ class GitHubConnectionCoordinatorTest {
 
         assertEquals(newerStatus, query.await())
         assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
-        assertEquals(listOf("gho_a"), usedTokens)
+        assertTrue("a stale status must use neither its old token nor the replacement token", usedTokens.isEmpty())
     }
 
     @Test
@@ -571,21 +584,139 @@ class GitHubConnectionCoordinatorTest {
         val connected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
         fakeStore.credential = credential
         GitHubConnectionCoordinator.accessTokenCache = cache
-        val usedTokens = mutableListOf<String>()
-        GitHubConnectionCoordinator.statusQueryOverride = { accessToken ->
-            usedTokens += accessToken
-            GitHubResult.Success(connected)
+        val requests = mutableListOf<Pair<String, String>>()
+        GitHubConnectionCoordinator.statusAuthenticatedUserOverride = { accessToken ->
+            requests += "/user" to accessToken
+            GitHubResult.Success(GitHubAuthenticatedUser(id = 1L, login = "alice"))
+        }
+        GitHubConnectionCoordinator.statusInstallationsOverride = { accessToken ->
+            requests += "/user/installations" to accessToken
+            GitHubResult.Success(listOf(GitHubInstallation(1L, 1L, "alice", "User")))
         }
 
         assertEquals(connected, GitHubConnectionCoordinator.status(fakeContext))
         assertEquals(connected, GitHubConnectionCoordinator.statusFlow.value)
-        assertEquals(listOf("gho_current"), usedTokens)
+        assertEquals(
+            listOf("/user" to "gho_current", "/user/installations" to "gho_current"),
+            requests,
+        )
         assertEquals(credential, fakeStore.credential)
         assertEquals(cache, GitHubConnectionCoordinator.accessTokenCache)
     }
 
     @Test
-    fun storedCredentialConnectUsesItsCoherentSnapshotAcrossReplacement() = runBlocking(Dispatchers.IO) {
+    fun standaloneStatusCarriesItsOwnRefreshAuthorityAcrossBothRequests() = runBlocking {
+        fakeStore.credential = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+        GitHubConnectionCoordinator.accessTokenCache = null
+        val refreshedTokens = GitHubTokens(
+            accessToken = "gho_a_rotated",
+            expiresInSeconds = 3600,
+            refreshToken = "ghr_a_rotated",
+            refreshCap = "cap_a_rotated",
+            refreshTokenExpiresInSeconds = 3600,
+        )
+        val refreshAuthorities = mutableListOf<Pair<String, String>>()
+        val requests = mutableListOf<Pair<String, String>>()
+        GitHubConnectionCoordinator.relayRefreshOverride = { _, refreshToken, refreshCap ->
+            refreshAuthorities += refreshToken to refreshCap
+            RelayResult.Success(refreshedTokens)
+        }
+        GitHubConnectionCoordinator.statusAuthenticatedUserOverride = { accessToken ->
+            requests += "/user" to accessToken
+            GitHubResult.Success(GitHubAuthenticatedUser(id = 1L, login = "alice"))
+        }
+        GitHubConnectionCoordinator.statusInstallationsOverride = { accessToken ->
+            requests += "/user/installations" to accessToken
+            GitHubResult.Success(listOf(GitHubInstallation(1L, 1L, "alice", "User")))
+        }
+        val connected = GitHubStatus.Connected("alice", "https://github.com/settings/installations/1")
+
+        assertEquals(connected, GitHubConnectionCoordinator.status(fakeContext))
+        assertEquals(listOf("ghr_a" to "cap_a"), refreshAuthorities)
+        assertEquals(
+            listOf("/user" to "gho_a_rotated", "/user/installations" to "gho_a_rotated"),
+            requests,
+        )
+        assertEquals("ghr_a_rotated", fakeStore.credential?.refreshToken)
+        assertEquals("cap_a_rotated", fakeStore.credential?.refreshCap)
+        assertEquals("gho_a_rotated", GitHubConnectionCoordinator.accessTokenCache?.accessToken)
+    }
+
+    @Test
+    fun standaloneStatusDoesNotStartASecondAuthenticatedRequestAfterDisconnectReturns() =
+        runBlocking(Dispatchers.IO) {
+            fakeStore.credential = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+            GitHubConnectionCoordinator.accessTokenCache =
+                GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
+            val requests = mutableListOf<Pair<String, String>>()
+            val firstRequestCompleted = CompletableDeferred<Unit>()
+            val resumeStatus = CompletableDeferred<Unit>()
+            GitHubConnectionCoordinator.statusAuthenticatedUserOverride = { accessToken ->
+                requests += "/user" to accessToken
+                GitHubResult.Success(GitHubAuthenticatedUser(id = 1L, login = "alice"))
+            }
+            GitHubConnectionCoordinator.statusBetweenRequestsOverride = {
+                firstRequestCompleted.complete(Unit)
+                resumeStatus.await()
+            }
+            GitHubConnectionCoordinator.statusInstallationsOverride = { accessToken ->
+                requests += "/user/installations" to accessToken
+                GitHubResult.Success(
+                    listOf(GitHubInstallation(1L, 1L, "alice", "User")),
+                )
+            }
+
+            val status = async { GitHubConnectionCoordinator.status(fakeContext) }
+            firstRequestCompleted.await()
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+            resumeStatus.complete(Unit)
+
+            assertEquals(GitHubStatus.NotConnected, status.await())
+            assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
+            assertEquals(listOf("/user" to "gho_a"), requests)
+        }
+
+    @Test
+    fun standaloneStatusDoesNotStartASecondRequestAfterAuthorityReplacement() =
+        runBlocking(Dispatchers.IO) {
+            fakeStore.credential = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+            GitHubConnectionCoordinator.accessTokenCache =
+                GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
+            val requests = mutableListOf<Pair<String, String>>()
+            val firstRequestCompleted = CompletableDeferred<Unit>()
+            val resumeStatus = CompletableDeferred<Unit>()
+            val newerCredential = StoredGitHubCredential("ghr_b", "cap_b", Long.MAX_VALUE)
+            val newerCache = GitHubConnectionCoordinator.AccessTokenCache("gho_b", 60_000L)
+            val newerStatus = GitHubStatus.Connected("bob", "https://github.com/settings/installations/2")
+            GitHubConnectionCoordinator.statusAuthenticatedUserOverride = { accessToken ->
+                requests += "/user" to accessToken
+                GitHubResult.Success(GitHubAuthenticatedUser(id = 1L, login = "alice"))
+            }
+            GitHubConnectionCoordinator.statusBetweenRequestsOverride = {
+                firstRequestCompleted.complete(Unit)
+                resumeStatus.await()
+            }
+            GitHubConnectionCoordinator.statusInstallationsOverride = { accessToken ->
+                requests += "/user/installations" to accessToken
+                GitHubResult.Success(
+                    listOf(GitHubInstallation(1L, 1L, "alice", "User")),
+                )
+            }
+
+            val status = async { GitHubConnectionCoordinator.status(fakeContext) }
+            firstRequestCompleted.await()
+            replaceCredentialStateForTest(newerCredential, newerCache, newerStatus)
+            resumeStatus.complete(Unit)
+
+            assertEquals(newerStatus, status.await())
+            assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
+            assertEquals(newerCredential, fakeStore.credential)
+            assertEquals(newerCache, GitHubConnectionCoordinator.accessTokenCache)
+            assertEquals(listOf("/user" to "gho_a"), requests)
+        }
+
+    @Test
+    fun storedCredentialConnectStopsBeforeUsingAnyReplacedSnapshotCredential() = runBlocking(Dispatchers.IO) {
         val credentialA = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
         val cacheA = GitHubConnectionCoordinator.AccessTokenCache("gho_a", 60_000L)
         fakeStore.credential = credentialA
@@ -617,7 +748,7 @@ class GitHubConnectionCoordinatorTest {
 
         assertEquals(GitHubResult.Success(newerStatus), connect.await())
         assertEquals(newerStatus, GitHubConnectionCoordinator.statusFlow.value)
-        assertEquals(listOf("gho_a"), usedTokens)
+        assertTrue("a stale connect query must use neither its old token nor the replacement token", usedTokens.isEmpty())
         assertEquals(0, browser.resolveCallCount.get())
     }
 

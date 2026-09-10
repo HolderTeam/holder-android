@@ -8,11 +8,11 @@
          installed apps from our own queries by default, including a genuinely installed
          browser. GitHubActivityBrowserLauncher.resolveBrowser's CustomTabsClient
          .getPackageName and its ordinary-browser fallback both silently see nothing without
-         this, misreporting BrowserUnavailable even when Chrome is actually installed.
+         this, misreporting BrowserUnavailable even when a browser is actually installed.
          Confirmed live: this exact failure reproduced on real emulators (API 33/37) before
-         this was added. One query shape covers both Custom Tabs provider detection and the
-         plain-browser fallback: CustomTabsClient's own resolution logic queries for this
-         identical intent shape internally. -->
+         this was added. This HTTPS visibility covers both CustomTabsClient's provider lookup
+         and the exact GitHub authorization-URI check. External-browser candidates are then
+         separately required to expose an unconstrained generic HTTP browser filter. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
