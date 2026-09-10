@@ -22,6 +22,17 @@ class CardSwipeStyleTest {
             ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false),
             HolderCardSwipeStyle.SPIN.resolve(rng),
         )
+        assertEquals(
+            ResolvedSwipeStyle.Snap(dampingRatio = 0.6f, stiffness = 200f),
+            HolderCardSwipeStyle.SNAP.resolve(rng),
+        )
+        assertEquals(ResolvedSwipeStyle.Swap(liftFraction = 0.18f), HolderCardSwipeStyle.SWAP.resolve(rng))
+    }
+
+    @Test
+    fun surprise_bagExcludesSnapAndSwap() {
+        // They ride in the picker only until they've had road time (see SURPRISE_BAG's comment).
+        assertTrue(surpriseVariants.none { it is ResolvedSwipeStyle.Snap || it is ResolvedSwipeStyle.Swap })
     }
 
     @Test

@@ -18,6 +18,8 @@ enum class HolderCardSwipeStyle(val label: String, val description: String) {
     STACK("Stack", "Know what to keep"),
     SWING("Swing", "It don't mean a thing."),
     STEALTH("Stealth", "Down to business."),
+    SNAP("Snap", "Snap back to reality."),
+    SWAP("Swap", "Trading places."),
     SPIN("Spin", "Me right round."),
     SURPRISE("Surprise", "Life is like a box."),
 }
@@ -77,6 +79,23 @@ sealed interface ResolvedSwipeStyle {
      * [degrees] on its way off. [followsFinger] picks the direction of the turn.
      */
     data class Spin(val degrees: Float, val followsFinger: Boolean) : ResolvedSwipeStyle
+
+    /**
+     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle: a
+     * bouncy spring instead of a smooth ease, so a released swipe snaps into place with a little
+     * overshoot. [dampingRatio] below 1 is the bounce; [stiffness] is how fast it arrives, kept
+     * high enough that a flick still feels quick. Unlike every other style this one isn't a
+     * per-page transform -- it's a `flingBehavior` on the pager itself.
+     */
+    data class Snap(val dampingRatio: Float, val stiffness: Float) : ResolvedSwipeStyle
+
+    /**
+     * Both cards keep their natural side-by-side horizontal placement but take opposite vertical
+     * arcs -- the departing card lifts away upward, the arriving one sweeps up from below -- so
+     * they visibly cross without ever overlapping. [liftFraction] is the vertical travel as a
+     * fraction of the card's height.
+     */
+    data class Swap(val liftFraction: Float) : ResolvedSwipeStyle
 }
 
 /**
@@ -85,7 +104,8 @@ sealed interface ResolvedSwipeStyle {
  * / Spin ~17%, so most swipes are calm and the big turns are occasional. Slide and Straight are
  * left out (nothing to vary, and Slide is the anti-surprise); Stealth is left out (its personality
  * is having none). Swing never randomises its direction -- always toward the finger; only Spin
- * varies clockwise/anticlockwise.
+ * varies clockwise/anticlockwise. Snap and Swap are new and stay out of the mix until they've had
+ * road time.
  */
 private val SURPRISE_BAG: List<Pair<ResolvedSwipeStyle, Int>> =
         listOf(
@@ -119,6 +139,10 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
             HolderCardSwipeStyle.SWING ->
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
+            HolderCardSwipeStyle.SNAP ->
+                    // stiffness ~ Compose Spring.StiffnessLow; damping < 1 for the overshoot.
+                    ResolvedSwipeStyle.Snap(dampingRatio = 0.6f, stiffness = 200f)
+            HolderCardSwipeStyle.SWAP -> ResolvedSwipeStyle.Swap(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
             HolderCardSwipeStyle.SURPRISE -> drawSurpriseVariant(random)
