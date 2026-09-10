@@ -267,7 +267,10 @@ fun CardViewPagerScreen(
                                 if (isFront) {
                                     translationX = -offset * size.width
                                     transformOrigin = TransformOrigin(0.5f, 1f)
-                                    rotationZ = -offset * SWING_DEPARTING_CARD_DEGREES
+                                    // Sign follows the finger: swiping toward the next card
+                                    // swings the card's top the same way, opening it aside like
+                                    // a hinged flap rather than against the drag.
+                                    rotationZ = offset * SWING_DEPARTING_CARD_DEGREES
                                 } else {
                                     translationX = -offset * size.width
                                 }
