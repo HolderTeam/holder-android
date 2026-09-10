@@ -120,6 +120,13 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * moment a fresh variant is chosen, so a drag that's flung, settled, or cancelled and re-dragged
  * keeps the look it started with.
  */
+// Slingshot: the drag spends this fraction "loading" -- the front card resists / pulls back over
+// it -- then launches for the rest. Gains are multiples of card width: how hard it pulls back
+// while loading, how far it races ahead once fired.
+private const val SLINGSHOT_LOAD_WINDOW = 0.35f
+private const val SLINGSHOT_PULLBACK_GAIN = 1.8f
+private const val SLINGSHOT_LAUNCH_GAIN = 2.6f
+
 @Composable
 fun CardViewPagerScreen(
     cardId: String,
@@ -174,15 +181,15 @@ fun CardViewPagerScreen(
         }
     }
 
-    // Snap draws exactly like Slide under the drag; its whole character is the pager's settle
-    // spec -- an instant cut instead of the default eased spring, so the post-fling stretch just
-    // closes.
+    // A couple of styles change how the pager *settles* rather than how a page is drawn: Snap
+    // cuts instantly, Slingshot rings in on a very bouncy spring (its graphicsLayer branch
+    // amplifies that ring into the overshoot-and-wobble on landing).
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapAnimationSpec = if (resolvedStyle == ResolvedSwipeStyle.Snap) {
-            snap()
-        } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
+        snapAnimationSpec = when (resolvedStyle) {
+            ResolvedSwipeStyle.Snap -> snap()
+            ResolvedSwipeStyle.Slingshot -> spring(dampingRatio = 0.32f, stiffness = Spring.StiffnessLow)
+            else -> spring(stiffness = Spring.StiffnessMediumLow)
         },
     )
 
@@ -257,11 +264,11 @@ fun CardViewPagerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing,
-                    // whose neighbor sits fully opaque in the same spot as the front card; a
-                    // no-op for Slide/Spin/Snap (pages never overlap), Surf (the two cards are
-                    // vertically separated the whole time) and Stealth (alpha alone already
-                    // reads as front/back regardless of z-order).
+                    // Front-over-neighbor draw order: load-bearing for Straight/Stack/Swing/
+                    // Slingshot, whose neighbor sits fully opaque in the same spot as the front
+                    // card; a no-op for Slide/Spin/Snap (pages never overlap), Surf (the two
+                    // cards are vertically separated the whole time) and Stealth (alpha alone
+                    // already reads as front/back regardless of z-order).
                     .zIndex(if (isFront) 1f else 0f)
                     .graphicsLayer {
                         val offset = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
@@ -343,6 +350,28 @@ fun CardViewPagerScreen(
                                         abs(offset).coerceIn(0f, 1f) *
                                         style.liftFraction *
                                         size.height
+                            }
+                            ResolvedSwipeStyle.Slingshot -> {
+                                // Neighbor waits underneath (as in Straight) so there's no gap
+                                // behind the launch. The front card's translationX is a
+                                // nonlinear function of drag distance: over the load window it's
+                                // pulled *back* against travel (tension, easing off as the
+                                // window fills); past the window it races *ahead* of the finger,
+                                // ramping up, and fires off screen. Near rest -- where the bouncy
+                                // settle spec rings the offset through zero -- the load branch's
+                                // amplification turns that into the overshoot-and-wobble.
+                                if (isFront) {
+                                    val mag = abs(offset).coerceIn(0f, 1f)
+                                    translationX = if (mag < SLINGSHOT_LOAD_WINDOW) {
+                                        -offset * size.width * SLINGSHOT_PULLBACK_GAIN *
+                                            (1f - mag / SLINGSHOT_LOAD_WINDOW)
+                                    } else {
+                                        offset * size.width * SLINGSHOT_LAUNCH_GAIN *
+                                            ((mag - SLINGSHOT_LOAD_WINDOW) / (1f - SLINGSHOT_LOAD_WINDOW))
+                                    }
+                                } else {
+                                    translationX = -offset * size.width
+                                }
                             }
                         }
                     },

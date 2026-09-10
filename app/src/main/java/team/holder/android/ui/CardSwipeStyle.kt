@@ -21,6 +21,7 @@ enum class HolderCardSwipeStyle(val label: String, val description: String) {
     SNAP("Snap", "Snap back to reality."),
     SURF("Surf", "Catch a wave."),
     SPIN("Spin", "Me right round."),
+    SLINGSHOT("Slingshot", "Ready, aim..."),
     SURPRISE("Surprise", "Life is like a box."),
 }
 
@@ -95,6 +96,16 @@ sealed interface ResolvedSwipeStyle {
      * vertical travel as a fraction of the card's height.
      */
     data class Surf(val liftFraction: Float) : ResolvedSwipeStyle
+
+    /**
+     * The comedy one. The departing card resists for the first bit of the drag -- pulled back
+     * against the direction of travel, tension building -- then, once the drag crosses a
+     * threshold, launches ahead of the finger and fires off screen. The pager gets a very bouncy
+     * settle spec so the card overshoots its slot and rings back on arrival. There's no real
+     * release event: it's all a nonlinear function of how far the drag has got, plus that spring.
+     * The neighbour waits underneath (as in Straight) so there's no gap behind the launch.
+     */
+    data object Slingshot : ResolvedSwipeStyle
 }
 
 /**
@@ -103,8 +114,8 @@ sealed interface ResolvedSwipeStyle {
  * / Spin ~17%, so most swipes are calm and the big turns are occasional. Slide and Straight are
  * left out (nothing to vary, and Slide is the anti-surprise); Stealth is left out (its personality
  * is having none). Swing never randomises its direction -- always toward the finger; only Spin
- * varies clockwise/anticlockwise. Snap and Surf are new and stay out of the mix until they've had
- * road time.
+ * varies clockwise/anticlockwise. Snap, Surf and Slingshot are new and stay out of the mix until
+ * they've had road time (Slingshot may never be a fit -- it's a novelty).
  */
 private val SURPRISE_BAG: List<Pair<ResolvedSwipeStyle, Int>> =
         listOf(
@@ -142,6 +153,7 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
+            HolderCardSwipeStyle.SLINGSHOT -> ResolvedSwipeStyle.Slingshot
             HolderCardSwipeStyle.SURPRISE -> drawSurpriseVariant(random)
         }
 
