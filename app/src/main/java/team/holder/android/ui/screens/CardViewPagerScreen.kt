@@ -129,10 +129,10 @@ import team.holder.android.ui.sortKeyOrderedSiblings
 // scaled by how far it was pulled), so it whips away on its own clock rather than riding the
 // pager's decay. A release short of SLINGSHOT_COMMIT_OFFSET just snaps back, no launch.
 private const val SLINGSHOT_LOAD_WINDOW = 0.35f
-private const val SLINGSHOT_MAX_PULLBACK = 0.22f
+private const val SLINGSHOT_MAX_PULLBACK = 0.32f
 private const val SLINGSHOT_FLYOFF = 2.6f
 private const val SLINGSHOT_LAUNCH_VELOCITY = 9f
-private const val SLINGSHOT_COMMIT_OFFSET = 0.12f
+private const val SLINGSHOT_COMMIT_OFFSET = 0.06f
 
 @Composable
 fun CardViewPagerScreen(
@@ -232,8 +232,9 @@ fun CardViewPagerScreen(
             val travel = if (draggingForward) -1f else 1f
             val power = (pulled.coerceIn(0f, 0.5f) / 0.5f)
             slingLaunching = true
-            // Start exactly where the held pull-back left the card (its own formula, evaluated
-            // at the release offset) so there's no hop at the moment it takes over.
+            // slingLaunch is the flung card's on-screen position in widths (the graphicsLayer
+            // cancels the pager under it). Start where the held pull-back had it -- pulled back
+            // against travel by loadFrac * MAX -- so nothing hops when the Animatable takes over.
             slingLaunch.snapTo(
                 -travel * (pulled / SLINGSHOT_LOAD_WINDOW).coerceIn(0f, 1f) * SLINGSHOT_MAX_PULLBACK,
             )
@@ -412,21 +413,27 @@ fun CardViewPagerScreen(
                                 // mid-fling page-flip). Every other page keeps its natural
                                 // placement: the arriving card just slides in and does the bouncy
                                 // settle.
-                                //   - Firing (slingLaunching): position is the Animatable,
+                                //
+                                // The loading and firing branches both start by *cancelling*
+                                // the pager's placement (`-offset * width`) so the card doesn't
+                                // track the finger at all, then position it explicitly:
+                                //   - Loading (|offset| in the window): held pulled back against
+                                //     travel, ramping to a maximum -- drawing the band. The card
+                                //     resists rather than following.
+                                //   - Firing (slingLaunching): the Animatable drives position,
                                 //     whipping off screen on its own clock.
-                                //   - Still loading (|offset| inside the window): pulled back
-                                //     against travel, ramping to a held maximum -- drawing the
-                                //     band.
-                                //   - Anything else (a fast flick that skipped the launch, or
-                                //     the spent card after one): natural pager placement.
+                                //   - Otherwise (fast flick that skipped the launch, or the
+                                //     spent card afterwards): natural pager placement.
                                 val beingFlung = if (draggingForward) offset < 0f else offset > 0f
                                 if (beingFlung) {
                                     val mag = abs(offset).coerceIn(0f, 1f)
                                     val awayFromTravel = if (offset < 0f) 1f else -1f
                                     translationX = when {
-                                        slingLaunching -> slingLaunch.value * size.width
+                                        slingLaunching ->
+                                            -offset * size.width + slingLaunch.value * size.width
                                         mag < SLINGSHOT_LOAD_WINDOW ->
-                                            awayFromTravel * (mag / SLINGSHOT_LOAD_WINDOW) *
+                                            -offset * size.width +
+                                                awayFromTravel * (mag / SLINGSHOT_LOAD_WINDOW) *
                                                 SLINGSHOT_MAX_PULLBACK * size.width
                                         else -> 0f
                                     }
