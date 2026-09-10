@@ -232,7 +232,11 @@ fun CardViewPagerScreen(
             val travel = if (draggingForward) -1f else 1f
             val power = (pulled.coerceIn(0f, 0.5f) / 0.5f)
             slingLaunching = true
-            slingLaunch.snapTo(-travel * SLINGSHOT_MAX_PULLBACK)
+            // Start exactly where the held pull-back left the card (its own formula, evaluated
+            // at the release offset) so there's no hop at the moment it takes over.
+            slingLaunch.snapTo(
+                -travel * (pulled / SLINGSHOT_LOAD_WINDOW).coerceIn(0f, 1f) * SLINGSHOT_MAX_PULLBACK,
+            )
             slingLaunch.animateTo(
                 targetValue = travel * SLINGSHOT_FLYOFF,
                 initialVelocity = travel * SLINGSHOT_LAUNCH_VELOCITY * (0.5f + power),
