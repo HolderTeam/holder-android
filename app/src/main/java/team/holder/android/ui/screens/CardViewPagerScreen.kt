@@ -1,10 +1,8 @@
 package team.holder.android.ui.screens
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -176,16 +174,15 @@ fun CardViewPagerScreen(
         }
     }
 
-    // Snap draws exactly like Slide; its whole character is the pager's settle spec -- a short
-    // fixed linear tween (or, at durationMillis 0, an instant cut) instead of the default eased
-    // spring, so the post-fling stretch closes fast and mechanically.
-    val snapStyle = resolvedStyle as? ResolvedSwipeStyle.Snap
+    // Snap draws exactly like Slide under the drag; its whole character is the pager's settle
+    // spec -- an instant cut instead of the default eased spring, so the post-fling stretch just
+    // closes.
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapAnimationSpec = when {
-            snapStyle == null -> spring(stiffness = Spring.StiffnessMediumLow)
-            snapStyle.durationMillis <= 0 -> snap()
-            else -> tween(durationMillis = snapStyle.durationMillis, easing = LinearEasing)
+        snapAnimationSpec = if (resolvedStyle == ResolvedSwipeStyle.Snap) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow)
         },
     )
 
@@ -332,9 +329,9 @@ fun CardViewPagerScreen(
                                     rotationZ = direction * offset * style.degrees
                                 }
                             }
-                            is ResolvedSwipeStyle.Snap -> {
-                                // Nothing per-page -- draws like Slide. The speed is all in the
-                                // pager's settle spec (see flingBehavior above).
+                            ResolvedSwipeStyle.Snap -> {
+                                // Nothing per-page -- draws like Slide. The character is all in
+                                // the pager's settle spec (see flingBehavior above).
                             }
                             is ResolvedSwipeStyle.Surf -> {
                                 // Both cards keep their native side-by-side horizontal placement

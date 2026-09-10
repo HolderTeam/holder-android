@@ -22,10 +22,7 @@ class CardSwipeStyleTest {
             ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false),
             HolderCardSwipeStyle.SPIN.resolve(rng),
         )
-        assertEquals(
-            ResolvedSwipeStyle.Snap(durationMillis = 0),
-            HolderCardSwipeStyle.SNAP.resolve(rng),
-        )
+        assertEquals(ResolvedSwipeStyle.Snap, HolderCardSwipeStyle.SNAP.resolve(rng))
         assertEquals(ResolvedSwipeStyle.Surf(liftFraction = 0.18f), HolderCardSwipeStyle.SURF.resolve(rng))
     }
 

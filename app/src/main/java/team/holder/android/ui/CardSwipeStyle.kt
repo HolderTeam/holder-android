@@ -81,13 +81,12 @@ sealed interface ResolvedSwipeStyle {
     data class Spin(val degrees: Float, val followsFinger: Boolean) : ResolvedSwipeStyle
 
     /**
-     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle: a
-     * short fixed linear tween of [durationMillis] instead of the default eased spring, so the
-     * last stretch after the fling is covered fast and mechanically, whatever its length. At
-     * [durationMillis] 0 it's an instant cut. Unlike every other style this one isn't a per-page
-     * transform -- it's a `flingBehavior` on the pager itself.
+     * No drawing change -- the card slides as in [Slide] under the drag. What differs is the
+     * settle: an instant cut instead of the pager's eased spring, so the moment the fling gives
+     * out the card is simply at the next slot. Unlike every other style this one isn't a
+     * per-page transform -- it's a `flingBehavior` on the pager itself.
      */
-    data class Snap(val durationMillis: Int) : ResolvedSwipeStyle
+    data object Snap : ResolvedSwipeStyle
 
     /**
      * Both cards keep their natural side-by-side horizontal placement but take opposite vertical
@@ -139,9 +138,7 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
             HolderCardSwipeStyle.SWING ->
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
-            // The logical conclusion: 0 -> instant. The card is just at the next slot the moment
-            // the fling gives out, no settle animation.
-            HolderCardSwipeStyle.SNAP -> ResolvedSwipeStyle.Snap(durationMillis = 0)
+            HolderCardSwipeStyle.SNAP -> ResolvedSwipeStyle.Snap
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
