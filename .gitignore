@@ -16,3 +16,5 @@
 .cxx
 local.properties
 /test_build
+.idea/deploymentTargetSelector.xml
+
