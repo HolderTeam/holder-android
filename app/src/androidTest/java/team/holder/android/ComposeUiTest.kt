@@ -27,6 +27,11 @@ class ComposeUiTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    // For the couple of waits here that depend on background work (a file read, a failing
+    // resource lookup) landing and recomposing, not just on composition. 5s was enough on
+    // fast emulators but flaked on the slower API 36 image under CI's software renderer.
+    private val backgroundWorkTimeoutMs = 15_000L
+
     // Never actually invoked by these render-only tests (nothing here taps "Connect GitHub") --
     // just enough to satisfy SyncSettingsScreen/RecoverProjectScreen's real signature.
     private val noOpGitHubBrowserLauncher = object : GitHubConnectionCoordinator.GitHubBrowserLauncher {
@@ -79,7 +84,7 @@ class ComposeUiTest {
         }
 
         composeRule.onNodeWithText("Before.").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = backgroundWorkTimeoutMs) {
             composeRule.onAllNodesWithText("Couldn't load attachment", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("After.").assertIsDisplayed()
@@ -193,7 +198,7 @@ class ComposeUiTest {
 
         // The log file read happens on a background dispatcher the compose test clock doesn't
         // track, unlike the composition itself -- wait for it explicitly rather than racing it.
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = backgroundWorkTimeoutMs) {
             composeRule.onAllNodesWithText("No activity recorded yet.").fetchSemanticsNodes().isNotEmpty()
         }
     }
