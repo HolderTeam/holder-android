@@ -154,14 +154,23 @@ android {
                 systemImageSource = "aosp"
                 require64Bit = true
             }
-            // Recent-Android coverage. "Pixel 6" reads sensibly next to a modern API level
-            // (unlike the "Pixel 2" that was here before) and matches a real device on the
-            // team, so a failure here can be reproduced by hand. Retrying API 36 now that the
-            // test-side flakiness (#13) is fixed -- an earlier attempt failed on it, but with
-            // multiple confounds in play; this checks whether the image itself is actually the
-            // problem. Newer device profiles ("Pixel 10a" etc.) still aren't usable -- recent
-            // AOSP images don't ship the devices.xml that would define them, and AGP only knows
-            // older profiles internally.
+            // Recent-Android coverage on a long-settled image. "Pixel 6" reads sensibly next to
+            // a modern API level and matches a real device on the team, so a failure here can
+            // be reproduced by hand. Newer device profiles ("Pixel 10a" etc.) still aren't
+            // usable -- recent AOSP images don't ship the devices.xml that would define them,
+            // and AGP only knows older profiles internally.
+            val pixel6Api34 = localDevices.create("pixel6Api34") {
+                device = "Pixel 6"
+                apiLevel = 34
+                systemImageSource = "aosp"
+                require64Bit = true
+            }
+            // The SDK level the app actually ships against (targetSdk 37, and a Play submission
+            // requirement). Its AOSP emulator image under CI's software renderer is genuinely
+            // flakier than 28/34 -- the same smoke test passes some runs and 60s-times-out on
+            // others, on identical code -- so this leg is advisory in CI (continue-on-error in
+            // the workflow): it still runs and reports, it just doesn't turn the run red on its
+            // own. Revisit making it blocking when the image matures.
             val pixel6Api36 = localDevices.create("pixel6Api36") {
                 device = "Pixel 6"
                 apiLevel = 36
@@ -171,6 +180,7 @@ android {
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
+                targetDevices.add(pixel6Api34)
                 targetDevices.add(pixel6Api36)
             }
         }
