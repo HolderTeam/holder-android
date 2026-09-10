@@ -18,10 +18,10 @@ enum class HolderCardSwipeStyle(val label: String, val description: String) {
     STACK("Stack", "Know what to keep"),
     SWING("Swing", "It don't mean a thing."),
     STEALTH("Stealth", "Down to business."),
-    SNAP("Snap", "Snap back to reality."),
-    SURF("Surf", "Catch a wave."),
+    SNAP("Snap", "Back to reality."),
+    SURF("Surf", "Wipe Out."),
     SPIN("Spin", "Me right round."),
-    SLINGSHOT("Slingshot", "Ready, aim..."),
+    SLINGSHOT("Slingshot", "Mighty Pigeon"),
     SURPRISE("Surprise", "Life is like a box."),
 }
 
@@ -83,9 +83,9 @@ sealed interface ResolvedSwipeStyle {
 
     /**
      * No drawing change -- the card slides as in [Slide] under the drag. What differs is the
-     * settle: an instant cut instead of the pager's eased spring, so the moment the fling gives
-     * out the card is simply at the next slot. Unlike every other style this one isn't a
-     * per-page transform -- it's a `flingBehavior` on the pager itself.
+     * settle: an instant cut instead of the pager's eased spring, so the moment the fling gives out
+     * the card is simply at the next slot. Unlike every other style this one isn't a per-page
+     * transform -- it's a `flingBehavior` on the pager itself.
      */
     data object Snap : ResolvedSwipeStyle
 
@@ -99,11 +99,11 @@ sealed interface ResolvedSwipeStyle {
 
     /**
      * The comedy one. The card being flung resists for the first bit of the drag -- pulled back
-     * against the direction of travel, tension building -- then, once the drag crosses a
-     * threshold, launches ahead of the finger and fires off screen. The arriving card is left
-     * alone: it slides in normally and does a bouncy settle (the pager gets a very springy
-     * settle spec for this style). There's no real release event -- the flung card's position is
-     * just a nonlinear function of how far the drag has got.
+     * against the direction of travel, tension building -- then, once the drag crosses a threshold,
+     * launches ahead of the finger and fires off screen. The arriving card is left alone: it slides
+     * in normally and does a bouncy settle (the pager gets a very springy settle spec for this
+     * style). There's no real release event -- the flung card's position is just a nonlinear
+     * function of how far the drag has got.
      */
     data object Slingshot : ResolvedSwipeStyle
 }
