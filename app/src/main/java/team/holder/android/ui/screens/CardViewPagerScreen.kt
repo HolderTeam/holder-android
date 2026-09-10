@@ -119,12 +119,6 @@ import team.holder.android.ui.sortKeyOrderedSiblings
  * moment a fresh variant is chosen, so a drag that's flung, settled, or cancelled and re-dragged
  * keeps the look it started with.
  */
-// Snap's wobble: while |offset| is inside this window the card is settling, and its residual
-// (bouncy) offset is multiplied by up to SNAP_SETTLE_GAIN so the few-pixel overshoot becomes a
-// visible spring. The gain ramps from 0 at the window edge to full at rest, so there's no jump.
-private const val SNAP_SETTLE_WINDOW = 0.2f
-private const val SNAP_SETTLE_GAIN = 8f
-
 @Composable
 fun CardViewPagerScreen(
     cardId: String,
@@ -179,10 +173,8 @@ fun CardViewPagerScreen(
         }
     }
 
-    // Snap gives the pager a bouncy settle spec so currentPageOffsetFraction overshoots through
-    // zero as the card lands. That overshoot is only a few pixels, so the Snap branch below
-    // amplifies it -- the wobble then reads, and it's part of the arrival (same spring) rather
-    // than a separate after-the-fact animation.
+    // Snap draws exactly like Slide; its whole character is a much faster, critically-damped
+    // settle spec on the pager -- the card just gets to its slot noticeably quicker.
     val snapStyle = resolvedStyle as? ResolvedSwipeStyle.Snap
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
@@ -337,15 +329,8 @@ fun CardViewPagerScreen(
                                 }
                             }
                             is ResolvedSwipeStyle.Snap -> {
-                                // Draws like Slide while dragging (gain is 0 out here). Inside
-                                // the settle window the pager's bouncy spec has the offset
-                                // ringing through zero; multiplying it up turns that few-pixel
-                                // overshoot into a spring you can see, as part of the landing.
-                                if (isFront) {
-                                    val gain = SNAP_SETTLE_GAIN *
-                                        (1f - abs(offset) / SNAP_SETTLE_WINDOW).coerceIn(0f, 1f)
-                                    translationX = -offset * size.width * gain
-                                }
+                                // Nothing per-page -- draws like Slide. The speed is all in the
+                                // pager's settle spec (see flingBehavior above).
                             }
                             is ResolvedSwipeStyle.Surf -> {
                                 // Both cards keep their native side-by-side horizontal placement

@@ -23,7 +23,7 @@ class CardSwipeStyleTest {
             HolderCardSwipeStyle.SPIN.resolve(rng),
         )
         assertEquals(
-            ResolvedSwipeStyle.Snap(dampingRatio = 0.4f, stiffness = 400f),
+            ResolvedSwipeStyle.Snap(dampingRatio = 1f, stiffness = 10_000f),
             HolderCardSwipeStyle.SNAP.resolve(rng),
         )
         assertEquals(ResolvedSwipeStyle.Surf(liftFraction = 0.18f), HolderCardSwipeStyle.SURF.resolve(rng))

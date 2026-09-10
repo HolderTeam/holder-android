@@ -81,11 +81,10 @@ sealed interface ResolvedSwipeStyle {
     data class Spin(val degrees: Float, val followsFinger: Boolean) : ResolvedSwipeStyle
 
     /**
-     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle: a
-     * bouncy spring instead of a smooth ease, so a released swipe snaps into place with a little
-     * overshoot. [dampingRatio] below 1 is the bounce; [stiffness] is how fast it arrives, kept
-     * high enough that a flick still feels quick. Unlike every other style this one isn't a
-     * per-page transform -- it's a `flingBehavior` on the pager itself.
+     * No drawing change -- the card slides as in [Slide]. What differs is the pager's settle
+     * spring: [stiffness] cranked right up with [dampingRatio] at ~1 (no bounce), so a released
+     * swipe reaches its slot noticeably faster than the pager's default ease. Unlike every other
+     * style this one isn't a per-page transform -- it's a `flingBehavior` on the pager itself.
      */
     data class Snap(val dampingRatio: Float, val stiffness: Float) : ResolvedSwipeStyle
 
@@ -140,9 +139,9 @@ fun HolderCardSwipeStyle.resolve(random: Random): ResolvedSwipeStyle =
                     ResolvedSwipeStyle.Swing(SwingPivot.BASE_CENTRE, arcDegrees = 70f)
             HolderCardSwipeStyle.STEALTH -> ResolvedSwipeStyle.Stealth
             HolderCardSwipeStyle.SNAP ->
-                    // Bouncy pager settle so the offset overshoots through zero on landing;
-                    // CardViewPagerScreen amplifies that residual into the visible wobble.
-                    ResolvedSwipeStyle.Snap(dampingRatio = 0.4f, stiffness = 400f)
+                    // As fast as a spring gets without ringing: ~critical damping, very high
+                    // stiffness (Compose Spring.StiffnessHigh). Slide, but it just gets there.
+                    ResolvedSwipeStyle.Snap(dampingRatio = 1f, stiffness = 10_000f)
             HolderCardSwipeStyle.SURF -> ResolvedSwipeStyle.Surf(liftFraction = 0.18f)
             HolderCardSwipeStyle.SPIN ->
                     ResolvedSwipeStyle.Spin(degrees = 360f, followsFinger = false)
