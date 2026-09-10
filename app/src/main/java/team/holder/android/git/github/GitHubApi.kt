@@ -36,14 +36,23 @@ internal data class GitHubAuthenticatedUser(val id: Long, val login: String)
  * unlike [GitHubInstallation] which stays purely internal. */
 data class GitHubRepo(val ownerLogin: String, val name: String, val sshUrl: String)
 
+internal sealed interface CreateRepositoryResponse {
+    data class Created(val repository: GitHubRepo) : CreateRepositoryResponse
+    data class NameAlreadyExists(val responseBody: String) : CreateRepositoryResponse
+}
+
+internal sealed interface AddDeployKeyResponse {
+    data object Added : AddDeployKeyResponse
+    data class KeyAlreadyInUse(val responseBody: String) : AddDeployKeyResponse
+}
+
 /**
  * Raw GitHub REST calls plus the mapping from GitHub's actual wire-level responses to
  * [GitHubError] -- internal plumbing behind [GitHubConnection]'s protocol surface, not part
  * of the protocol itself (see the plan's "Holder GitHub protocol" section: a future Swift/
  * GTK/WinUI implementation reproduces the *behavior* this encodes, not this file). Every
- * function here takes an already-minted access token; none of them refresh one themselves
- * -- see the plan's Storage section for why that's [GitHubConnection]'s job, once per
- * public operation, not this file's.
+ * function here takes an already-minted access token; none of them refresh one themselves.
+ * [GitHubConnection] obtains authority and a token separately for every HTTP request.
  */
 internal object GitHubApi {
     /** `GET /user` -- authenticates the bearer to a stable numeric account identity before
@@ -106,18 +115,16 @@ internal object GitHubApi {
      * repo name). Note [description] -- and the repo name's own slug -- are visible on GitHub
      * regardless of [private]: an encrypted project's card *contents* stay protected, but its
      * name does not, which is exactly what the New Project dialog's Encrypted+Public warning
-     * calls out. On a `422` name collision, follows up with `GET /repos/{login}/{name}` (using
-     * [login], already known from [listInstallations]' personal-account entry) and returns
-     * *that* repo instead of failing -- the idempotency guarantee
-     * [GitHubConnection.createRepository] promises. */
+     * calls out. A `422` name collision is returned as [CreateRepositoryResponse.NameAlreadyExists]
+     * so [GitHubConnection] can release the control-plane gate before independently gating the
+     * verification `GET /repos/{login}/{name}`. */
     fun createRepository(
         client: OkHttpClient,
         accessToken: String,
-        login: String,
         name: String,
         description: String,
         private: Boolean = true,
-    ): GitHubResult<GitHubRepo> = runCatching {
+    ): GitHubResult<CreateRepositoryResponse> = runCatching {
         val payload = JSONObject().put("name", name).put("private", private).put("description", description)
         val request = authedRequest(accessToken, "$API_BASE/user/repos")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -127,15 +134,15 @@ internal object GitHubApi {
             when {
                 response.isSuccessful -> {
                     Log.d("GitHubApi", "createRepository: POST /user/repos succeeded for $name")
-                    GitHubResult.Success(JSONObject(body).toGitHubRepo())
+                    GitHubResult.Success(CreateRepositoryResponse.Created(JSONObject(body).toGitHubRepo()))
                 }
                 // GitHub's actual message for this case (worth reconfirming against a live
                 // response before relying on it further): a top-level "message" of
                 // "Repository creation failed." with an errors[].message of
                 // "name already exists on this account".
                 response.code == 422 && body.contains("name already exists") -> {
-                    Log.d("GitHubApi", "createRepository: $name already exists, fetching it instead")
-                    getRepository(client, accessToken, login, name)
+                    Log.d("GitHubApi", "createRepository: $name already exists; caller must verify it")
+                    GitHubResult.Success(CreateRepositoryResponse.NameAlreadyExists(body))
                 }
                 else -> {
                     Log.w("GitHubApi", "createRepository: POST /user/repos returned HTTP ${response.code}: $body")
@@ -152,9 +159,9 @@ internal object GitHubApi {
      * *this* repo" (a genuine retried call -- success) from "already a deploy key on some
      * *other* repo" (this key can never work here at all -- a real failure, not an idempotency
      * case) -- these are two very different outcomes with the identical response shape, so
-     * [verifyKeyAlreadyOnThisRepo] actually checks which one it is via `GET .../keys` rather
-     * than assuming the friendlier one. See [GitHubConnection.registerDeployKey]'s doc comment:
-     * this is the other half of its idempotency guarantee, now verified instead of assumed. */
+     * [AddDeployKeyResponse.KeyAlreadyInUse] returns that conditional outcome to
+     * [GitHubConnection], which releases the POST's gate before independently gating the
+     * verification `GET .../keys`. */
     fun addDeployKey(
         client: OkHttpClient,
         accessToken: String,
@@ -163,7 +170,7 @@ internal object GitHubApi {
         title: String,
         publicKeyLine: String,
         installationSettingsUrl: String,
-    ): GitHubResult<Unit> = runCatching {
+    ): GitHubResult<AddDeployKeyResponse> = runCatching {
         val payload = JSONObject().put("title", title).put("key", publicKeyLine).put("read_only", false)
         val request = authedRequest(accessToken, "$API_BASE/repos/$owner/$repo/keys")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -173,29 +180,13 @@ internal object GitHubApi {
             when {
                 response.isSuccessful -> {
                     Log.d("GitHubApi", "addDeployKey: POST /repos/$owner/$repo/keys succeeded")
-                    GitHubResult.Success(Unit)
+                    GitHubResult.Success(AddDeployKeyResponse.Added)
                 }
                 // GitHub's actual message for this case (same reconfirm-against-a-live-
                 // response caveat as createRepository's collision check above): an
                 // errors[].message of "key is already in use".
                 response.code == 422 && body.contains("key is already in use") -> {
-                    if (verifyKeyAlreadyOnThisRepo(client, accessToken, owner, repo, publicKeyLine)) {
-                        Log.d("GitHubApi", "addDeployKey: verified key is already registered for $owner/$repo, treating as success")
-                        GitHubResult.Success(Unit)
-                    } else {
-                        // This key is a deploy key on a DIFFERENT repository -- GitHub will
-                        // never let it become a deploy key here too, no retry fixes this. The
-                        // caller needs a fresh, actually-unused key (see GitIdentity
-                        // .aliasForProject -- each project's own alias exists specifically so
-                        // this case shouldn't occur in the first place; hitting it for real
-                        // means something upstream reused an alias that already has a repo).
-                        Log.w(
-                            "GitHubApi",
-                            "addDeployKey: key already in use, but NOT on $owner/$repo -- it's a deploy key " +
-                                "on a different repository and can never be added here",
-                        )
-                        GitHubResult.Failure(GitHubError.Unexpected(422, body))
-                    }
+                    GitHubResult.Success(AddDeployKeyResponse.KeyAlreadyInUse(body))
                 }
                 response.code == 403 || response.code == 404 -> {
                     Log.w("GitHubApi", "addDeployKey: $owner/$repo not accessible (HTTP ${response.code})")
@@ -215,7 +206,7 @@ internal object GitHubApi {
      * space-separated fields, never the raw strings (our own line always carries a trailing
      * comment the list response never does). Fails closed: any error listing the repo's keys
      * (network, auth, whatever) means "not verified," never "assume it's fine." */
-    private fun verifyKeyAlreadyOnThisRepo(
+    fun verifyKeyAlreadyOnThisRepo(
         client: OkHttpClient,
         accessToken: String,
         owner: String,
@@ -239,13 +230,18 @@ internal object GitHubApi {
         }
     }
 
-    private fun getRepository(client: OkHttpClient, accessToken: String, owner: String, repo: String): GitHubResult<GitHubRepo> {
-        val request = authedRequest(accessToken, "$API_BASE/repos/$owner/$repo").build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            return if (!response.isSuccessful) mapGenericError(response.code, body) else GitHubResult.Success(JSONObject(body).toGitHubRepo())
-        }
-    }
+    fun getRepository(client: OkHttpClient, accessToken: String, owner: String, repo: String): GitHubResult<GitHubRepo> =
+        runCatching {
+            val request = authedRequest(accessToken, "$API_BASE/repos/$owner/$repo").build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    mapGenericError(response.code, body)
+                } else {
+                    GitHubResult.Success(JSONObject(body).toGitHubRepo())
+                }
+            }
+        }.getOrElse { networkFailure(it) }
 
     private fun JSONObject.toGitHubRepo() = GitHubRepo(
         ownerLogin = getJSONObject("owner").getString("login"),

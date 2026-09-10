@@ -2,6 +2,7 @@ package team.holder.android.git.github
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.browser.auth.AuthTabIntent
 import java.util.UUID
 import kotlinx.coroutines.flow.StateFlow
@@ -99,23 +100,42 @@ object GitHubConnection {
      * as success (returns the existing repo) rather than an error -- safe to retry after a
      * partial failure without producing a duplicate. See [ensureProjectRepo]'s doc comment for
      * the naming scheme. */
-    suspend fun createRepository(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<GitHubRepo> =
-        withPersonalInstallation(context) { installation ->
-            GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
-                GitHubApi.createRepository(githubApiHttpClient, accessToken, installation.accountLogin, repoNameFor(project), project.name, private)
-            }
+    suspend fun createRepository(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<GitHubRepo> {
+        val authority = GitHubConnectionCoordinator.captureControlPlaneRequestAuthority(context)
+        return withPersonalInstallation(context, authority) { installation ->
+            createRepositoryWithAuthority(
+                context = context,
+                authority = authority,
+                client = githubApiHttpClient,
+                login = installation.accountLogin,
+                name = repoNameFor(project),
+                description = project.name,
+                private = private,
+            )
         }
+    }
 
     /** `POST /repos/{owner}/{repo}/keys` with [projectId]'s own [GitIdentity] public key --
      * each project gets its own device keypair (see [GitIdentity.aliasForProject]), since
      * GitHub rejects the same public key being a deploy key on more than one repository.
      * Idempotent: GitHub's "key already in use" response is only ever treated as success once
-     * actually verified as *this* key already being on *this* repo (see [GitHubApi.addDeployKey]) --
+     * actually verified as *this* key already being on *this* repo (see
+     * [addDeployKeyWithAuthority]) --
      * never assumed just because the response shape matches. */
-    suspend fun registerDeployKey(context: Context, projectId: String, owner: String, repo: String): GitHubResult<Unit> =
-        withPersonalInstallation(context) { installation ->
-            GitHubConnectionCoordinator.withAccessToken(context) { accessToken -> addDeployKey(accessToken, installation, projectId, owner, repo) }
+    suspend fun registerDeployKey(context: Context, projectId: String, owner: String, repo: String): GitHubResult<Unit> {
+        val authority = GitHubConnectionCoordinator.captureControlPlaneRequestAuthority(context)
+        return withPersonalInstallation(context, authority) { installation ->
+            addDeployKeyWithAuthority(
+                context = context,
+                authority = authority,
+                client = githubApiHttpClient,
+                installation = installation,
+                owner = owner,
+                repo = repo,
+                publicKeyLine = GitIdentity.sshPublicKeyLine(alias = GitIdentity.aliasForProject(projectId)),
+            )
         }
+    }
 
     /** The actual paved-road compound operation: [createRepository] then [registerDeployKey],
      * returning the resulting `ssh_url` for `HolderNative.updateProjectGitRemote`. Safe to
@@ -125,27 +145,35 @@ object GitHubConnection {
      * The repo's GitHub `name` is `holder-<slug>-<project id>` ([repoNameFor]) -- Holder
      * project names are freeform and GitHub repo names are not, so the slug is a best-effort,
      * lossy readability aid only; uniqueness always comes from the trailing `project.projectId`. */
-    suspend fun ensureProjectRepo(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<String> =
-        withPersonalInstallation(context) { installation ->
+    suspend fun ensureProjectRepo(context: Context, project: HolderProject, private: Boolean = true): GitHubResult<String> {
+        val authority = GitHubConnectionCoordinator.captureControlPlaneRequestAuthority(context)
+        return withPersonalInstallation(context, authority) { installation ->
             when (
-                val createResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
-                    GitHubApi.createRepository(
-                        githubApiHttpClient,
-                        accessToken,
-                        installation.accountLogin,
-                        repoNameFor(project),
-                        project.name,
-                        private,
-                    )
-                }
+                val createResult = createRepositoryWithAuthority(
+                    context = context,
+                    authority = authority,
+                    client = githubApiHttpClient,
+                    login = installation.accountLogin,
+                    name = repoNameFor(project),
+                    description = project.name,
+                    private = private,
+                )
             ) {
                 is GitHubResult.Failure -> createResult
-                is GitHubResult.Success -> GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
-                    addDeployKey(accessToken, installation, project.projectId, createResult.value.ownerLogin, createResult.value.name)
-                        .map { createResult.value.sshUrl }
-                }
+                is GitHubResult.Success -> addDeployKeyWithAuthority(
+                    context = context,
+                    authority = authority,
+                    client = githubApiHttpClient,
+                    installation = installation,
+                    owner = createResult.value.ownerLogin,
+                    repo = createResult.value.name,
+                    publicKeyLine = GitIdentity.sshPublicKeyLine(
+                        alias = GitIdentity.aliasForProject(project.projectId),
+                    ),
+                ).map { createResult.value.sshUrl }
             }
         }
+    }
 
     internal fun repoNameFor(project: HolderProject): String {
         val slug = slugify(project.name)
@@ -159,34 +187,109 @@ object GitHubConnection {
             .take(40)
             .trim('-')
 
-    private fun addDeployKey(
-        accessToken: String,
+    /** One gated repository POST followed, only for a collision response, by a fresh gated GET
+     * against the same credential authority. [beforeVerification] is a deterministic test seam
+     * at the lock-free boundary between those requests. */
+    internal suspend fun createRepositoryWithAuthority(
+        context: Context,
+        authority: GitHubConnectionCoordinator.ControlPlaneRequestAuthority,
+        client: OkHttpClient,
+        login: String,
+        name: String,
+        description: String,
+        private: Boolean,
+        beforeVerification: suspend () -> Unit = {},
+    ): GitHubResult<GitHubRepo> {
+        val postResult = GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
+            GitHubApi.createRepository(client, accessToken, name, description, private)
+        }
+        return when (postResult) {
+            is GitHubResult.Failure -> GitHubResult.Failure(postResult.error)
+            is GitHubResult.Success -> when (val response = postResult.value) {
+                is CreateRepositoryResponse.Created -> GitHubResult.Success(response.repository)
+                is CreateRepositoryResponse.NameAlreadyExists -> {
+                    beforeVerification()
+                    GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
+                        GitHubApi.getRepository(client, accessToken, login, name)
+                    }
+                }
+            }
+        }
+    }
+
+    /** One gated deploy-key POST followed, only for an already-used response, by a fresh gated
+     * key-list GET against the same credential authority. [beforeVerification] is a test seam
+     * at the lock-free boundary between those requests. */
+    internal suspend fun addDeployKeyWithAuthority(
+        context: Context,
+        authority: GitHubConnectionCoordinator.ControlPlaneRequestAuthority,
+        client: OkHttpClient,
         installation: GitHubInstallation,
-        projectId: String,
         owner: String,
         repo: String,
-    ): GitHubResult<Unit> = GitHubApi.addDeployKey(
-        githubApiHttpClient, accessToken, owner, repo,
-        title = "Holder — $repo",
-        publicKeyLine = GitIdentity.sshPublicKeyLine(alias = GitIdentity.aliasForProject(projectId)),
-        installationSettingsUrl = installation.settingsUrl,
-    )
+        publicKeyLine: String,
+        beforeVerification: suspend () -> Unit = {},
+    ): GitHubResult<Unit> {
+        val postResult = GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
+            GitHubApi.addDeployKey(
+                client = client,
+                accessToken = accessToken,
+                owner = owner,
+                repo = repo,
+                title = "Holder — $repo",
+                publicKeyLine = publicKeyLine,
+                installationSettingsUrl = installation.settingsUrl,
+            )
+        }
+        return when (postResult) {
+            is GitHubResult.Failure -> GitHubResult.Failure(postResult.error)
+            is GitHubResult.Success -> when (val response = postResult.value) {
+                AddDeployKeyResponse.Added -> GitHubResult.Success(Unit)
+                is AddDeployKeyResponse.KeyAlreadyInUse -> {
+                    beforeVerification()
+                    when (
+                        val verification = GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
+                            GitHubResult.Success(
+                                GitHubApi.verifyKeyAlreadyOnThisRepo(
+                                    client,
+                                    accessToken,
+                                    owner,
+                                    repo,
+                                    publicKeyLine,
+                                ),
+                            )
+                        }
+                    ) {
+                        is GitHubResult.Failure -> GitHubResult.Failure(verification.error)
+                        is GitHubResult.Success -> if (verification.value) {
+                            Log.d("GitHubConnection", "addDeployKey: verified key is already registered for $owner/$repo")
+                            GitHubResult.Success(Unit)
+                        } else {
+                            Log.w("GitHubConnection", "addDeployKey: key is already in use, but not on $owner/$repo")
+                            GitHubResult.Failure(GitHubError.Unexpected(422, response.responseBody))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-    /** The installation lookup is one independently-gated direct GitHub request. [block] then
-     * gates every follow-up request separately, so a compound setup operation never holds the
-     * control-plane mutex across multiple REST calls. */
+    /** The identity and installation lookups are independently-gated direct GitHub requests.
+     * [block] gates every follow-up request separately against the same captured authority, so
+     * a compound setup operation never holds the mutex across calls or adopts newer authority. */
     private suspend fun <T> withPersonalInstallation(
         context: Context,
+        authority: GitHubConnectionCoordinator.ControlPlaneRequestAuthority,
         block: suspend (installation: GitHubInstallation) -> GitHubResult<T>,
     ): GitHubResult<T> {
-        val userResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+        val userResult = GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
             GitHubApi.authenticatedUser(githubApiHttpClient, accessToken)
         }
         val user = when (userResult) {
             is GitHubResult.Failure -> return GitHubResult.Failure(userResult.error)
             is GitHubResult.Success -> userResult.value
         }
-        val lookupResult = GitHubConnectionCoordinator.withAccessToken(context) { accessToken ->
+        val lookupResult = GitHubConnectionCoordinator.withAccessToken(context, authority) { accessToken ->
             GitHubApi.listInstallations(githubApiHttpClient, accessToken)
         }
         val installations = when (lookupResult) {

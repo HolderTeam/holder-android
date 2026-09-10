@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -21,6 +22,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -968,6 +973,202 @@ class GitHubConnectionCoordinatorTest {
         assertEquals(GitHubResult.Success(GitHubStatus.NotConnected), connect.await())
         assertEquals(GitHubStatus.NotConnected, GitHubConnectionCoordinator.statusFlow.value)
     }
+
+    @Test
+    fun repositoryCollisionUsesASeparatelyGatedVerificationRequest() = runBlocking(Dispatchers.IO) {
+        val requests = CopyOnWriteArrayList<String>()
+        val authority = controlPlaneAuthority()
+
+        val result = GitHubConnection.createRepositoryWithAuthority(
+            context = fakeContext,
+            authority = authority,
+            client = collisionClient(requests),
+            login = "alice",
+            name = "holder-project",
+            description = "Project",
+            private = true,
+        )
+
+        assertEquals(
+            GitHubResult.Success(
+                GitHubRepo("alice", "holder-project", "git@github.com:alice/holder-project.git"),
+            ),
+            result,
+        )
+        assertEquals(
+            listOf(
+                "POST /user/repos Bearer gho_a",
+                "GET /repos/alice/holder-project Bearer gho_a",
+            ),
+            requests,
+        )
+    }
+
+    @Test
+    fun disconnectBetweenRepositoryPostAndVerificationPreventsTheGet() = runBlocking(Dispatchers.IO) {
+        val requests = CopyOnWriteArrayList<String>()
+        val authority = controlPlaneAuthority()
+        val verificationReached = CountDownLatch(1)
+        val resumeVerification = CountDownLatch(1)
+        val operation = async {
+            GitHubConnection.createRepositoryWithAuthority(
+                context = fakeContext,
+                authority = authority,
+                client = collisionClient(requests),
+                login = "alice",
+                name = "holder-project",
+                description = "Project",
+                private = true,
+                beforeVerification = {
+                    verificationReached.countDown()
+                    resumeVerification.await(5, TimeUnit.SECONDS)
+                },
+            )
+        }
+        try {
+            assertTrue("repository POST never reached the verification boundary", verificationReached.await(5, TimeUnit.SECONDS))
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+        } finally {
+            resumeVerification.countDown()
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), operation.await())
+        assertEquals(listOf("POST /user/repos Bearer gho_a"), requests)
+    }
+
+    @Test
+    fun replacementBetweenRepositoryPostAndVerificationDoesNotFallForward() = runBlocking(Dispatchers.IO) {
+        val requests = CopyOnWriteArrayList<String>()
+        val authority = controlPlaneAuthority()
+        val verificationReached = CountDownLatch(1)
+        val resumeVerification = CountDownLatch(1)
+        val operation = async {
+            GitHubConnection.createRepositoryWithAuthority(
+                context = fakeContext,
+                authority = authority,
+                client = collisionClient(requests),
+                login = "alice",
+                name = "holder-project",
+                description = "Project",
+                private = true,
+                beforeVerification = {
+                    verificationReached.countDown()
+                    resumeVerification.await(5, TimeUnit.SECONDS)
+                },
+            )
+        }
+        try {
+            assertTrue("repository POST never reached the verification boundary", verificationReached.await(5, TimeUnit.SECONDS))
+            replaceCredentialStateForTest(
+                credential = StoredGitHubCredential("ghr_b", "cap_b", Long.MAX_VALUE),
+                cache = GitHubConnectionCoordinator.AccessTokenCache("gho_b", 60_000L),
+                status = GitHubStatus.Connected("bob", "https://github.com/settings/installations/2"),
+            )
+        } finally {
+            resumeVerification.countDown()
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), operation.await())
+        assertEquals(listOf("POST /user/repos Bearer gho_a"), requests)
+        assertEquals("gho_b", GitHubConnectionCoordinator.accessTokenCache?.accessToken)
+        assertEquals("ghr_b", fakeStore.credential?.refreshToken)
+        GitHubConnectionCoordinator.disconnect(fakeContext)
+    }
+
+    @Test
+    fun deployKeyCollisionUsesASeparatelyGatedVerificationRequest() = runBlocking(Dispatchers.IO) {
+        val requests = CopyOnWriteArrayList<String>()
+        val authority = controlPlaneAuthority()
+
+        val result = GitHubConnection.addDeployKeyWithAuthority(
+            context = fakeContext,
+            authority = authority,
+            client = collisionClient(requests),
+            installation = personalInstallation(),
+            owner = "alice",
+            repo = "holder-project",
+            publicKeyLine = "ssh-ed25519 AAAATEST holder",
+        )
+
+        assertEquals(GitHubResult.Success(Unit), result)
+        assertEquals(
+            listOf(
+                "POST /repos/alice/holder-project/keys Bearer gho_a",
+                "GET /repos/alice/holder-project/keys Bearer gho_a",
+            ),
+            requests,
+        )
+    }
+
+    @Test
+    fun disconnectBetweenDeployKeyPostAndVerificationPreventsTheGet() = runBlocking(Dispatchers.IO) {
+        val requests = CopyOnWriteArrayList<String>()
+        val authority = controlPlaneAuthority()
+        val verificationReached = CountDownLatch(1)
+        val resumeVerification = CountDownLatch(1)
+        val operation = async {
+            GitHubConnection.addDeployKeyWithAuthority(
+                context = fakeContext,
+                authority = authority,
+                client = collisionClient(requests),
+                installation = personalInstallation(),
+                owner = "alice",
+                repo = "holder-project",
+                publicKeyLine = "ssh-ed25519 AAAATEST holder",
+                beforeVerification = {
+                    verificationReached.countDown()
+                    resumeVerification.await(5, TimeUnit.SECONDS)
+                },
+            )
+        }
+        try {
+            assertTrue("deploy-key POST never reached the verification boundary", verificationReached.await(5, TimeUnit.SECONDS))
+            GitHubConnectionCoordinator.disconnect(fakeContext)
+        } finally {
+            resumeVerification.countDown()
+        }
+
+        assertEquals(GitHubResult.Failure(GitHubError.AuthorizationRequired), operation.await())
+        assertEquals(listOf("POST /repos/alice/holder-project/keys Bearer gho_a"), requests)
+    }
+
+    private suspend fun controlPlaneAuthority(): GitHubConnectionCoordinator.ControlPlaneRequestAuthority {
+        fakeStore.credential = StoredGitHubCredential("ghr_a", "cap_a", Long.MAX_VALUE)
+        GitHubConnectionCoordinator.accessTokenCache =
+            GitHubConnectionCoordinator.AccessTokenCache("gho_a", expiresAtMonotonic = 60_000L)
+        return GitHubConnectionCoordinator.captureControlPlaneRequestAuthority(fakeContext)
+    }
+
+    private fun personalInstallation() = GitHubInstallation(
+        id = 1L,
+        accountId = 42L,
+        accountLogin = "alice",
+        accountType = "User",
+    )
+
+    private fun collisionClient(requests: MutableList<String>): OkHttpClient =
+        OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            requests += "${request.method} ${request.url.encodedPath} ${request.header("Authorization")}"
+            val (code, body) = when (request.method to request.url.encodedPath) {
+                "POST" to "/user/repos" -> 422 to
+                    "{\"message\":\"Repository creation failed.\",\"errors\":[{\"message\":\"name already exists on this account\"}]}"
+                "GET" to "/repos/alice/holder-project" -> 200 to
+                    "{\"owner\":{\"login\":\"alice\"},\"name\":\"holder-project\",\"ssh_url\":\"git@github.com:alice/holder-project.git\"}"
+                "POST" to "/repos/alice/holder-project/keys" -> 422 to
+                    "{\"message\":\"Validation Failed\",\"errors\":[{\"message\":\"key is already in use\"}]}"
+                "GET" to "/repos/alice/holder-project/keys" -> 200 to
+                    "[{\"key\":\"ssh-ed25519 AAAATEST\"}]"
+                else -> error("unexpected request: ${request.method} ${request.url.encodedPath}")
+            }
+            Response.Builder()
+                .request(request)
+                .protocol(Protocol.HTTP_1_1)
+                .code(code)
+                .message("test response")
+                .body(body.toResponseBody())
+                .build()
+        }.build()
 
     @Test
     fun disconnect_waitsForAnInFlightDirectGitHubCall_ratherThanRacingIt() = runBlocking(Dispatchers.IO) {

@@ -211,6 +211,13 @@ object GitHubConnectionCoordinator {
         var accessToken: String? = null,
     )
 
+    /** Credential authority retained across a compound direct-GitHub operation. Each HTTP
+     * request revalidates this same snapshot under the control-plane gate, so a later request
+     * cannot either use superseded authority or fall forward to a replacement credential. */
+    internal class ControlPlaneRequestAuthority internal constructor(
+        internal var snapshot: CredentialStateSnapshot,
+    )
+
     private val exchangeHttpClient: OkHttpClient by lazy {
         newCredentialRelayHttpClient()
     }
@@ -713,6 +720,47 @@ object GitHubConnectionCoordinator {
                 block(accessToken)
             }
         }
+
+    /** Capture one coherent authority for a compound direct-GitHub operation. The snapshot is
+     * revalidated after each later acquisition of [controlPlaneMutex]; capturing it does not
+     * hold either mutex across caller work or network I/O. */
+    internal suspend fun captureControlPlaneRequestAuthority(
+        context: Context,
+    ): ControlPlaneRequestAuthority =
+        ControlPlaneRequestAuthority(snapshotCredentialState(context.applicationContext))
+
+    /** Execute exactly one direct GitHub request against [authority]. The control-plane gate
+     * is acquired anew for every call. Authority is checked while holding that gate and the
+     * credential mutex is released before [block] performs network I/O. A refresh, when needed,
+     * remains snapshot-bound and advances this authority only to its own committed rotation. */
+    internal suspend fun <T> withAccessToken(
+        context: Context,
+        authority: ControlPlaneRequestAuthority,
+        block: suspend (accessToken: String) -> GitHubResult<T>,
+    ): GitHubResult<T> = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        controlPlaneMutex.withLock {
+            if (!credentialStateStillCurrent(appContext, authority.snapshot)) {
+                return@withContext GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            }
+            val cached = authority.snapshot.accessTokenCache
+            val resolved = if (cached != null && cached.expiresAtMonotonic > SystemClock.elapsedRealtime()) {
+                SnapshotAccessTokenResult.Available(cached.accessToken, authority.snapshot)
+            } else {
+                refreshAccessToken(appContext, requiredSnapshot = authority.snapshot)
+            }
+            val accessToken = when (resolved) {
+                is SnapshotAccessTokenResult.Available -> resolved.accessToken.also {
+                    authority.snapshot = resolved.snapshot
+                }
+                is SnapshotAccessTokenResult.Failure ->
+                    return@withContext GitHubResult.Failure(resolved.error)
+                SnapshotAccessTokenResult.Stale ->
+                    return@withContext GitHubResult.Failure(GitHubError.AuthorizationRequired)
+            }
+            block(accessToken)
+        }
+    }
 
     /** Executes one status HTTP request with authority derived only from the status operation's
      * original coherent snapshot. A token obtained by this operation is retained locally for
