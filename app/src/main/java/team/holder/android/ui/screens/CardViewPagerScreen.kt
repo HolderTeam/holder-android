@@ -31,21 +31,29 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
@@ -130,6 +138,10 @@ import team.holder.android.ui.sortKeyOrderedSiblings
 private const val SLINGSHOT_LOADBACK = 0.14f
 private const val SLINGSHOT_FLYOFF = 2.6f
 private const val SLINGSHOT_FIRE_MILLIS = 280
+
+// Per-frame drag delta (px) below which a pull against the first/last card is treated as jitter
+// rather than a deliberate push -- see the boundary haptic.
+private const val WALL_PUSH_MIN_DRAG_PX = 2f
 
 @Composable
 fun CardViewPagerScreen(
@@ -236,6 +248,45 @@ fun CardViewPagerScreen(
         }
     }
 
+    // Haptics. Both route through Compose's HapticFeedback, so they honour the system
+    // touch-feedback setting -- the in-app "Disable haptics" toggle (Appearance) is on top of
+    // that. Settle: a light tick each time the pager actually comes to rest on a new card
+    // (settledPage only moves on a completed swipe -- nothing for a drag that snaps back,
+    // nothing mid-fling). Boundary: a firmer "no" the moment a drag pushes against the
+    // first/last card, fired once per push (reset when the drag eases off the wall or ends).
+    val haptic = LocalHapticFeedback.current
+    val hapticsDisabled by HolderSettings.cardSwipeHapticsDisabled(context).collectAsState(initial = false)
+    val hapticsOn = rememberUpdatedState(!hapticsDisabled)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .drop(1)
+            .collect { if (hapticsOn.value) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick) }
+    }
+    var pushingWall by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }.collect { if (!it) pushingWall = false }
+    }
+    val boundaryHaptics = remember(pagerState, haptic) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    val againstStart = pagerState.currentPage == 0 && available.x > WALL_PUSH_MIN_DRAG_PX
+                    val againstEnd = pagerState.currentPage == pagerState.pageCount - 1 &&
+                        available.x < -WALL_PUSH_MIN_DRAG_PX
+                    if (againstStart || againstEnd) {
+                        if (!pushingWall) {
+                            pushingWall = true
+                            if (hapticsOn.value) haptic.performHapticFeedback(HapticFeedbackType.Reject)
+                        }
+                    } else if (available.x != 0f) {
+                        pushingWall = false
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     // Reset per card rather than carried across a swipe -- see the doc comment above.
     var focusMode by remember(currentCard.cardId) { mutableStateOf(false) }
 
@@ -291,8 +342,12 @@ fun CardViewPagerScreen(
             state = pagerState,
             // Only the bottom inset -- this Scaffold has no topBar of its own, so its top
             // component would otherwise double-reserve status-bar height on top of what each
-            // page's own nested TopAppBar already accounts for.
-            modifier = Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()),
+            // page's own nested TopAppBar already accounts for. nestedScroll is only here to
+            // read the drag delta for the boundary haptic; it consumes nothing.
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding())
+                .nestedScroll(boundaryHaptics),
             beyondViewportPageCount = 1,
             flingBehavior = flingBehavior,
         ) { page ->
