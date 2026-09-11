@@ -412,7 +412,8 @@ private fun HolderNavHost(
                 projectId = projectId,
                 cardTitle = selectedCardTitle,
                 refreshKey = cardViewRefreshKey,
-                onEdit = { activeCardId, content ->
+                onEdit = { activeCardId, title, content ->
+                    selectedCardTitle = title
                     selectedCardContent = content
                     saveError = null
                     navController.navigate("projects/$projectId/cards/$activeCardId/edit")

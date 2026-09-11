@@ -137,7 +137,7 @@ fun CardViewPagerScreen(
     projectId: String,
     cardTitle: String,
     refreshKey: Any,
-    onEdit: (cardId: String, content: String) -> Unit,
+    onEdit: (cardId: String, title: String, content: String) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
     onConnectionsClick: (cardId: String) -> Unit,
@@ -281,7 +281,7 @@ fun CardViewPagerScreen(
                     CardViewActionButton(
                         icon = { Icon(Icons.Filled.Edit, contentDescription = "Edit") },
                         label = "Edit",
-                        onClick = { currentCardContent?.let { onEdit(currentCard.cardId, it) } },
+                        onClick = { currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it) } },
                     )
                 }
             }
@@ -422,7 +422,7 @@ fun CardViewPagerScreen(
                         // Long-press the card body to edit -- same target as the bar's Edit
                         // button, and gated to the front page for the same reason as focus mode.
                         onEditRequested = {
-                            if (isFront) currentCardContent?.let { onEdit(currentCard.cardId, it) }
+                            if (isFront) currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it) }
                         },
                         onNavigateToCard = onNavigateToCard,
                         onNavigateToTag = onNavigateToTag,

@@ -78,7 +78,7 @@ fun CardViewScreen(
     onEditRequested: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
-    onCardCreated: (cardId: String, content: String) -> Unit,
+    onCardCreated: (cardId: String, title: String, content: String) -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
 ) {
