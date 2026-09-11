@@ -77,6 +77,7 @@ class ResourceAttachmentViewerTest {
                 cardId = card.cardId,
                 onNavigateToCard = { _, _ -> },
                 onNavigateToTag = {},
+                onCardCreated = { _, _, _ -> },
             )
         }
 
