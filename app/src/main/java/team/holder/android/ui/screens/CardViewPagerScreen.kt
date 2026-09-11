@@ -426,6 +426,10 @@ fun CardViewPagerScreen(
                         },
                         onNavigateToCard = onNavigateToCard,
                         onNavigateToTag = onNavigateToTag,
+                        // A card created from a wikilink is empty by definition -- go straight
+                        // to the editor, same target as long-press/the bar's Edit button, rather
+                        // than the viewer showing nothing.
+                        onCardCreated = onEdit,
                         onDeleted = onDeleted,
                         onBack = onBack,
                     )

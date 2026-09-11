@@ -78,6 +78,7 @@ fun CardViewScreen(
     onEditRequested: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
+    onCardCreated: (cardId: String, content: String) -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -218,6 +219,7 @@ fun CardViewScreen(
                             cardId = cardId,
                             onNavigateToCard = onNavigateToCard,
                             onNavigateToTag = onNavigateToTag,
+                            onCardCreated = onCardCreated,
                         )
                         // Hidden in focus mode along with the rest of the chrome -- focus mode
                         // means just the card content, nothing else.
