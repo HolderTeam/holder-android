@@ -3,6 +3,7 @@ package team.holder.android.ui.screens
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,7 +43,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -71,13 +75,16 @@ fun CardViewScreen(
     refreshKey: Any,
     focusMode: Boolean,
     onExitFocusMode: () -> Unit,
+    onEditRequested: () -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
+    onCardCreated: (cardId: String, title: String, content: String) -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -190,7 +197,20 @@ fun CardViewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = minHeight)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            // Long-press anywhere on the body to open the editor. Tapping a
+                            // wikilink/tag still navigates -- those spans consume their own tap
+                            // first, so a plain tap never reaches this, and a long-press is
+                            // unambiguously "edit". Movement (scroll, the pager swipe) cancels
+                            // the long-press before it fires.
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onEditRequested()
+                                    },
+                                )
+                            },
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         HolderMarkdownViewer(
@@ -199,6 +219,7 @@ fun CardViewScreen(
                             cardId = cardId,
                             onNavigateToCard = onNavigateToCard,
                             onNavigateToTag = onNavigateToTag,
+                            onCardCreated = onCardCreated,
                         )
                         // Hidden in focus mode along with the rest of the chrome -- focus mode
                         // means just the card content, nothing else.

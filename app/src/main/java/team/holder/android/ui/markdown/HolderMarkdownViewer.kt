@@ -163,6 +163,7 @@ fun HolderMarkdownViewer(
     cardId: String?,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
+    onCardCreated: (cardId: String, title: String, content: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -239,7 +240,10 @@ fun HolderMarkdownViewer(
                             }
                             creating = false
                             pendingWikilink = null
-                            result.onSuccess { onNavigateToCard(it.cardId, it.title) }
+                            // Straight to the editor, not the viewer -- a card just created from
+                            // a wikilink is empty by definition, and viewing an empty card is
+                            // never what the "Create Card" tap was for.
+                            result.onSuccess { onCardCreated(it.cardId, it.title, "") }
                         }
                     },
                 ) { Text("Create Card") }

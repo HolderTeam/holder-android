@@ -56,6 +56,7 @@ class ComposeUiTest {
                 cardId = null,
                 onNavigateToCard = { _, _ -> },
                 onNavigateToTag = {},
+                onCardCreated = { _, _, _ -> },
             )
         }
 
@@ -80,6 +81,7 @@ class ComposeUiTest {
                 cardId = null,
                 onNavigateToCard = { _, _ -> },
                 onNavigateToTag = {},
+                onCardCreated = { _, _, _ -> },
             )
         }
 
