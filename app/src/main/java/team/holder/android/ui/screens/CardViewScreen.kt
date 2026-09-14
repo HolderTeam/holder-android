@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import android.content.Intent
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -148,6 +149,19 @@ fun CardViewScreen(
                                 expanded = showOverflowMenu,
                                 onDismissRequest = { showOverflowMenu = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        // Raw Markdown as-is, holder:// references and all -- deliberate
+                                        // first-cut choice, see share_out.md.
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, loaded!!.value)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, null))
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     onClick = {
