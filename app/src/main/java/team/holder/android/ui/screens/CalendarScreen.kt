@@ -1,5 +1,8 @@
 package team.holder.android.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.provider.CalendarContract
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -126,6 +130,7 @@ fun CalendarScreen(
     onAddMilestone: (() -> Unit)? = null,
 ) {
     val today = LocalDate.now(CALENDAR_ZONE)
+    val context = LocalContext.current
     var state by remember(projectId) { mutableStateOf<LoadState<List<HolderMilestone>>>(LoadState.Loading) }
     var allCards by remember(projectId) { mutableStateOf<List<HolderCard>>(emptyList()) }
     var visibleMonth by remember(projectId) { mutableStateOf(YearMonth.from(today)) }
@@ -226,6 +231,10 @@ fun CalendarScreen(
                     onNavigateToCard = onNavigateToCard,
                     onLongClickMilestone = { menuOpenFor = it },
                     onDismissMenu = { menuOpenFor = null },
+                    onAddToCalendar = {
+                        menuOpenFor = null
+                        addMilestoneToDeviceCalendar(context, it)
+                    },
                     onRemoveRequested = {
                         menuOpenFor = null
                         pendingRemove = it
@@ -270,6 +279,10 @@ fun CalendarScreen(
                                             },
                                             onLongClick = { menuOpenFor = milestone.milestoneId },
                                             onDismissMenu = { menuOpenFor = null },
+                                            onAddToCalendar = {
+                                                menuOpenFor = null
+                                                addMilestoneToDeviceCalendar(context, milestone)
+                                            },
                                             onRemoveRequested = {
                                                 menuOpenFor = null
                                                 pendingRemove = milestone
@@ -435,6 +448,7 @@ private fun DayDetailPanel(
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onLongClickMilestone: (String) -> Unit,
     onDismissMenu: () -> Unit,
+    onAddToCalendar: (HolderMilestone) -> Unit,
     onRemoveRequested: (HolderMilestone) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -464,6 +478,7 @@ private fun DayDetailPanel(
                             onClick = { onNavigateToCard(milestone.cardId, milestone.cardTitle ?: "") },
                             onLongClick = { onLongClickMilestone(milestone.milestoneId) },
                             onDismissMenu = onDismissMenu,
+                            onAddToCalendar = { onAddToCalendar(milestone) },
                             onRemoveRequested = { onRemoveRequested(milestone) },
                         )
                     }
@@ -519,6 +534,7 @@ private fun MilestoneRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDismissMenu: () -> Unit,
+    onAddToCalendar: () -> Unit,
     onRemoveRequested: () -> Unit,
 ) {
     Box {
@@ -528,8 +544,33 @@ private fun MilestoneRow(
             modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
         )
         DropdownMenu(expanded = expanded, onDismissRequest = onDismissMenu) {
+            DropdownMenuItem(text = { Text("Add to calendar") }, onClick = onAddToCalendar)
             DropdownMenuItem(text = { Text("Remove") }, onClick = onRemoveRequested)
         }
+    }
+}
+
+/** Hands a milestone off to whatever calendar app is installed via ACTION_INSERT -- Android's
+ * no-permission-needed contract for "let the user's own calendar app finish the save" (Level 1
+ * of the calendar plan; see holder-planning/current/android/calendar.md). Silently no-ops if no
+ * calendar app can handle the intent, matching this codebase's convention for other
+ * external-app hand-offs (e.g. [team.holder.android.ui.OpenUrl]). */
+private fun addMilestoneToDeviceCalendar(context: Context, milestone: HolderMilestone) {
+    val title = milestone.cardTitle?.takeIf { it.isNotBlank() } ?: "Untitled card"
+    val eventTitle = milestone.kind?.takeIf { it.isNotBlank() }?.let { "$it: $title" } ?: title
+    val endAt = milestone.endAt ?: (milestone.startAt + if (milestone.allDay) 86400 else 3600)
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+                putExtra(CalendarContract.Events.TITLE, eventTitle)
+                milestone.description?.takeIf { it.isNotBlank() }?.let {
+                    putExtra(CalendarContract.Events.DESCRIPTION, it)
+                }
+                putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, milestone.startAt * 1000)
+                putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endAt * 1000)
+                putExtra(CalendarContract.Events.ALL_DAY, milestone.allDay)
+            },
+        )
     }
 }
 
