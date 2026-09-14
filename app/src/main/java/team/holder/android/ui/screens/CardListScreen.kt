@@ -191,7 +191,7 @@ fun CardListScreen(
                 }
             }
 
-            if (boardViewEnabled && breadcrumbs.isNotEmpty()) {
+            if (boardViewEnabled && breadcrumbs.isNotEmpty() && searchState == null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
