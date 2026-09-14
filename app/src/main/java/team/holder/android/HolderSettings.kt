@@ -32,6 +32,7 @@ object HolderSettings {
     private val PRESERVE_TRAILING_WHITESPACE = booleanPreferencesKey("preserve_trailing_whitespace")
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
+    private val CARD_LIST_BOARD_VIEW_ENABLED = booleanPreferencesKey("card_list_board_view_enabled")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -147,6 +148,16 @@ object HolderSettings {
 
     suspend fun setTrimWhitespaceInCodeBlocks(context: Context, enabled: Boolean) {
         context.settingsDataStore.edit { it[TRIM_WHITESPACE_IN_CODE_BLOCKS] = enabled }
+    }
+
+    /** Off by default: CardListScreen shows every one of a project's cards as one flat list
+     * (today's behavior). On scopes it to one hierarchy level at a time -- folder-style rows
+     * for cards with children, drilling in on tap, with a breadcrumb trail back up. */
+    fun boardViewEnabled(context: Context): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[CARD_LIST_BOARD_VIEW_ENABLED] ?: false }
+
+    suspend fun setBoardViewEnabled(context: Context, enabled: Boolean) {
+        context.settingsDataStore.edit { it[CARD_LIST_BOARD_VIEW_ENABLED] = enabled }
     }
 
     /** Non-secret local config for a connected storage provider (e.g. Drive's connected
