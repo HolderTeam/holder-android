@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,6 +52,7 @@ import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
 import team.holder.android.R
 import team.holder.android.resource.AttachFlowConnectDialog
+import team.holder.android.resource.createCameraCaptureUri
 import team.holder.android.resource.openResourceExternally
 import team.holder.android.resource.rememberAttachFlow
 import team.holder.android.ui.CenteredMessage
@@ -80,6 +82,7 @@ fun ResourcesScreen(
     refreshKey: Any,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     var linksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
     var viewerAttachment by remember { mutableStateOf<HolderOutgoingLink?>(null) }
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -102,6 +105,11 @@ fun ResourcesScreen(
     }
     val filePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) attachFlow.attach(uri)
+    }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) pendingCameraUri?.let { attachFlow.attach(it) }
+        pendingCameraUri = null
     }
 
     LaunchedEffect(cardId, refreshKey, localRefreshKey) {
@@ -202,6 +210,19 @@ fun ResourcesScreen(
                 modifier = Modifier.clickable {
                     showAttachSheet = false
                     filePickerLauncher.launch(arrayOf("*/*"))
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Camera") },
+                supportingContent = { Text("Take a photo") },
+                leadingContent = {
+                    Icon(painterResource(R.drawable.ic_camera), contentDescription = null)
+                },
+                modifier = Modifier.clickable {
+                    showAttachSheet = false
+                    val uri = createCameraCaptureUri(context)
+                    pendingCameraUri = uri
+                    cameraLauncher.launch(uri)
                 },
             )
         }
