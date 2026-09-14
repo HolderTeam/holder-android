@@ -22,3 +22,11 @@ Advance its holder-core submodule to the committed revision.
 Test holder-android against that revision.
 
 Never treat holder-android's submodule checkout as the working copy of holder-core. If you ever find the submodule checked out at a commit that doesn't match what the current branch actually records (e.g. after switching branches without updating submodules), run `git submodule update` to reset it — don't leave it pointing at a stray commit, and don't commit that drift into holder-android's tree.
+
+# XML comments
+
+Never use `--` inside an XML comment (`<!-- ... -->`), including as an em dash or separator. It breaks the manifest merge with a vague `ManifestMerger2$MergeFailureException` that gives no hint the punctuation is the cause — this has already bitten a comment written for this exact reason more than once. Use `;` or `,` instead wherever you'd reach for `--`.
+
+# Native build cache
+
+If `./gradlew :app:assembleDebug` fails on one ABI (typically `x86_64`) with a missing header from a vcpkg-provided library (e.g. `sqlite3.h`), don't work around it by restricting the build to a single ABI (`-Pholder.android.abis=arm64-v8a`) and moving on. It's almost certainly a stale CMake configure cache under `app/.cxx/Debug/*/<abi>` left over from an earlier interrupted or partial build — AGP treats that cache as "already configured" and skips re-running vcpkg's manifest install for that triplet, so the triplet's `build/vcpkg_installed/<triplet>/` directory never gets created at all. Fix: `rm -rf app/.cxx/Debug/*/<abi>` and rebuild, which forces a fresh configure and lets vcpkg actually install the manifest. Only if that doesn't fix it is it worth investigating further — don't reach for an ABI restriction as the first move.
