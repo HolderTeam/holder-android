@@ -466,7 +466,7 @@ private fun HolderNavHost(
         ProjectPickerDialog(
             projects = projects,
             homeProjectName = HolderNative.DEFAULT_PROJECT_NAME,
-            title = "Create card in which project?",
+            title = "Pick a project",
             onSelect = { project ->
                 newCardShortcutProjectChoices = null
                 navigateToNewCard(project.projectId)
