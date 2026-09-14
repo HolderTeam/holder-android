@@ -36,8 +36,8 @@ import kotlinx.coroutines.withContext
 import team.holder.android.git.backup.RestoreOffer
 import team.holder.android.git.backup.SnapshotProtection
 import team.holder.android.git.backup.SnapshotScheduler
-import team.holder.android.resource.attachPickedFile
 import team.holder.android.git.backup.snapshotFile
+import team.holder.android.resource.attachPickedFile
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.ProjectPickerDialog
