@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No android:previewImage; omitting it falls back to the app's own launcher icon in the
+     widget picker, which avoids needing a bespoke preview asset for a single-button widget.
+     updatePeriodMillis is 0 because this widget is a static button with no content to refresh;
+     see NewCardWidget.kt, which just launches MainActivity's existing NEW_CARD intent action. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="40dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:resizeMode="none"
+    android:widgetCategory="home_screen"
+    android:initialLayout="@layout/glance_default_loading_layout" />

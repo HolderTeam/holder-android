@@ -210,6 +210,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.androidx.browser)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.androidx.glance.appwidget)
     testImplementation(libs.junit)
     // The real org.json, not the android.jar compile-time stub every other JVM unit test
     // avoids relying on -- SnapshotReaderTest genuinely needs working JSONObject/JSONArray
