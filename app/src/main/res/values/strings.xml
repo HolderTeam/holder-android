@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Holder</string>
+    <string name="shortcut_new_card_short_label">New card</string>
+    <string name="shortcut_new_card_long_label">New Holder card</string>
 </resources>

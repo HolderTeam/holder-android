@@ -119,6 +119,9 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
 
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- The sole exported App Link boundary. Both http and https declarations are required

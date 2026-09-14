@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- targetClass alone, deliberately no targetPackage: this file is under res/xml/, which
+     Gradle's ${applicationId} manifest-placeholder substitution does not reach (unlike
+     AndroidManifest.xml), and debug's applicationIdSuffix makes the actual installed
+     package team.holder.android.debug rather than team.holder.android. A hardcoded
+     android:targetPackage="team.holder.android" would silently be wrong for every local
+     debug build. A static shortcut is already scoped to its declaring app by the OS, so
+     targetClass alone is sufficient and correct across build variants. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_card"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_card_short_label"
+        android:shortcutLongLabel="@string/shortcut_new_card_long_label">
+        <intent
+            android:action="team.holder.android.action.NEW_CARD"
+            android:targetClass="team.holder.android.MainActivity" />
+    </shortcut>
+</shortcuts>
