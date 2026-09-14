@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,7 +51,9 @@ import team.holder.android.HolderCardLinks
 import team.holder.android.HolderNative
 import team.holder.android.HolderOutgoingLink
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.ConnectionsGraphView
 import team.holder.android.ui.LoadState
+import team.holder.android.ui.buildConnectionGraphNodes
 import team.holder.android.ui.cardSequenceLinks
 
 /**
@@ -78,6 +82,15 @@ fun ConnectionsScreen(
     var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    var showMap by remember { mutableStateOf(false) }
+    // Recentering the Map stays entirely internal -- it never touches cardId/cardTitle (that
+    // would change what List mode shows) or navigates away (onNavigateToCard), it just refetches
+    // links for whichever card was last tapped, same as drilling into a new card but without a
+    // screen transition.
+    var mapCenterCardId by remember(cardId) { mutableStateOf(cardId) }
+    var mapCenterCardTitle by remember(cardId) { mutableStateOf(cardTitle) }
+    var mapLinksState by remember(cardId) { mutableStateOf<LoadState<HolderCardLinks>>(LoadState.Loading) }
+
     suspend fun refresh() {
         linksState = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCardLinks(cardId) }
@@ -88,6 +101,15 @@ fun ConnectionsScreen(
     }
 
     LaunchedEffect(cardId, refreshKey) { refresh() }
+
+    LaunchedEffect(mapCenterCardId, refreshKey) {
+        mapLinksState = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.listCardLinks(mapCenterCardId) }
+        }.fold(
+            onSuccess = { LoadState.Success(it) },
+            onFailure = { LoadState.Error(it.message ?: it::class.java.simpleName) },
+        )
+    }
 
     // There's no single-card fetch, so the Next/Previous/Follows/Precedes rows below piggyback
     // on the project's full list -- same approach CardViewScreen's ConnectionsSummary uses.
@@ -129,6 +151,14 @@ fun ConnectionsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { showMap = !showMap }) {
+                        Icon(
+                            if (showMap) Icons.AutoMirrored.Filled.List else Icons.Filled.AccountTree,
+                            contentDescription = if (showMap) "Switch to List view" else "Switch to Map view",
+                        )
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -138,81 +168,139 @@ fun ConnectionsScreen(
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            when (val state = linksState) {
-                is LoadState.Loading -> CenteredMessage(Modifier.fillMaxSize()) { CircularProgressIndicator() }
-                is LoadState.Error ->
-                    CenteredMessage(Modifier.fillMaxSize()) { Text("Failed to load connections: ${state.message}") }
-                is LoadState.Success -> {
-                    val links = state.value
-                    val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
-                    // Excludes "resource" links (a photo attached via the toolbar's structural
-                    // attachment record) -- those live on the Tools dashboard's Resources tile
-                    // instead, since there's no card to navigate to or manage here.
-                    val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
-                    val noConnections = links.parent == null && links.children.isEmpty() &&
-                        navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
-                        sequence.next == null && sequence.previous == null &&
-                        sequence.follows == null && sequence.precedes == null
-                    LazyColumn(modifier = Modifier.padding(innerPadding)) {
-                        if (noConnections) {
-                            item {
-                                Text(
-                                    "No connections yet",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(16.dp),
-                                )
-                            }
-                        } else {
-                            item { SectionHeader("Connections") }
-                            sequence.next?.let { next ->
+            if (showMap) {
+                when (val state = mapLinksState) {
+                    is LoadState.Loading ->
+                        CenteredMessage(Modifier.fillMaxSize().padding(innerPadding)) { CircularProgressIndicator() }
+                    is LoadState.Error ->
+                        CenteredMessage(Modifier.fillMaxSize().padding(innerPadding)) {
+                            Text("Failed to load connections: ${state.message}")
+                        }
+                    is LoadState.Success -> {
+                        val links = state.value
+                        val parentId = allCards.find { it.cardId == mapCenterCardId }?.parentCardId
+                        val sequence = cardSequenceLinks(mapCenterCardId, parentId, allCards)
+                        ConnectionsGraphView(
+                            centerTitle = mapCenterCardTitle,
+                            nodes = buildConnectionGraphNodes(links, sequence),
+                            onNodeClick = { node ->
+                                mapCenterCardId = node.cardId
+                                mapCenterCardTitle = node.title
+                            },
+                            modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        )
+                    }
+                }
+            } else {
+                when (val state = linksState) {
+                    is LoadState.Loading -> CenteredMessage(Modifier.fillMaxSize()) { CircularProgressIndicator() }
+                    is LoadState.Error ->
+                        CenteredMessage(Modifier.fillMaxSize()) { Text("Failed to load connections: ${state.message}") }
+                    is LoadState.Success -> {
+                        val links = state.value
+                        val sequence = cardSequenceLinks(cardId, links.parent?.cardId, allCards)
+                        // Excludes "resource" links (a photo attached via the toolbar's structural
+                        // attachment record) -- those live on the Tools dashboard's Resources tile
+                        // instead, since there's no card to navigate to or manage here.
+                        val navigableOutgoing = links.outgoing.filter { it.toType != "resource" }
+                        val noConnections = links.parent == null && links.children.isEmpty() &&
+                            navigableOutgoing.isEmpty() && links.backlinks.isEmpty() &&
+                            sequence.next == null && sequence.previous == null &&
+                            sequence.follows == null && sequence.precedes == null
+                        LazyColumn(modifier = Modifier.padding(innerPadding)) {
+                            if (noConnections) {
                                 item {
-                                    ConnectionRow(label = "Next", title = next.title) {
-                                        onNavigateToCard(next.cardId, next.title)
+                                    Text(
+                                        "No connections yet",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(16.dp),
+                                    )
+                                }
+                            } else {
+                                item { SectionHeader("Connections") }
+                                sequence.next?.let { next ->
+                                    item {
+                                        ConnectionRow(label = "Next", title = next.title) {
+                                            onNavigateToCard(next.cardId, next.title)
+                                        }
                                     }
                                 }
-                            }
-                            sequence.previous?.let { previous ->
-                                item {
-                                    ConnectionRow(label = "Previous", title = previous.title) {
-                                        onNavigateToCard(previous.cardId, previous.title)
+                                sequence.previous?.let { previous ->
+                                    item {
+                                        ConnectionRow(label = "Previous", title = previous.title) {
+                                            onNavigateToCard(previous.cardId, previous.title)
+                                        }
                                     }
                                 }
-                            }
-                            sequence.follows?.let { follows ->
-                                item {
-                                    ConnectionRow(label = "Follows", title = follows.title) {
-                                        onNavigateToCard(follows.cardId, follows.title)
+                                sequence.follows?.let { follows ->
+                                    item {
+                                        ConnectionRow(label = "Follows", title = follows.title) {
+                                            onNavigateToCard(follows.cardId, follows.title)
+                                        }
                                     }
                                 }
-                            }
-                            sequence.precedes?.let { precedes ->
-                                item {
-                                    ConnectionRow(label = "Precedes", title = precedes.title) {
-                                        onNavigateToCard(precedes.cardId, precedes.title)
+                                sequence.precedes?.let { precedes ->
+                                    item {
+                                        ConnectionRow(label = "Precedes", title = precedes.title) {
+                                            onNavigateToCard(precedes.cardId, precedes.title)
+                                        }
                                     }
                                 }
-                            }
-                            links.parent?.let { parent ->
-                                item {
-                                    ConnectionRow(label = "Child of", title = parent.title) {
-                                        onNavigateToCard(parent.cardId, parent.title)
+                                links.parent?.let { parent ->
+                                    item {
+                                        ConnectionRow(label = "Child of", title = parent.title) {
+                                            onNavigateToCard(parent.cardId, parent.title)
+                                        }
                                     }
                                 }
-                            }
-                            items(links.children, key = { "child:${it.cardId}" }) { child ->
-                                ConnectionRow(label = "Parent of", title = child.title) {
-                                    onNavigateToCard(child.cardId, child.title)
+                                items(links.children, key = { "child:${it.cardId}" }) { child ->
+                                    ConnectionRow(label = "Parent of", title = child.title) {
+                                        onNavigateToCard(child.cardId, child.title)
+                                    }
                                 }
-                            }
-                            items(navigableOutgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
-                                Box {
+                                items(navigableOutgoing, key = { "out:${it.toCardId}:${it.kind}" }) { link ->
+                                    Box {
+                                        ListItem(
+                                            headlineContent = {
+                                                Text(
+                                                    connectionHeadline(
+                                                        kindLabel = HolderNative.linkKindLabel(link.kind, forward = true),
+                                                        title = link.toTitle ?: link.toCardId,
+                                                        label = link.label,
+                                                        primary = MaterialTheme.colorScheme.primary,
+                                                        muted = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
+                                            modifier = Modifier.combinedClickable(
+                                                onClick = { onNavigateToCard(link.toCardId, link.toTitle ?: "") },
+                                                onLongClick = { menuOpenFor = "${link.toCardId}:${link.kind}" },
+                                            ),
+                                        )
+                                        DropdownMenu(
+                                            expanded = menuOpenFor == "${link.toCardId}:${link.kind}",
+                                            onDismissRequest = { menuOpenFor = null },
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Remove") },
+                                                onClick = {
+                                                    menuOpenFor = null
+                                                    pendingRemove = link
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
                                     ListItem(
                                         headlineContent = {
                                             Text(
                                                 connectionHeadline(
-                                                    kindLabel = HolderNative.linkKindLabel(link.kind, forward = true),
-                                                    title = link.toTitle ?: link.toCardId,
+                                                    kindLabel = HolderNative.linkKindLabel(link.kind, forward = false),
+                                                    title = link.fromTitle ?: link.fromCardId,
                                                     label = link.label,
                                                     primary = MaterialTheme.colorScheme.primary,
                                                     muted = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -222,44 +310,11 @@ fun ConnectionsScreen(
                                             )
                                         },
                                         modifier = Modifier.combinedClickable(
-                                            onClick = { onNavigateToCard(link.toCardId, link.toTitle ?: "") },
-                                            onLongClick = { menuOpenFor = "${link.toCardId}:${link.kind}" },
+                                            onClick = { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") },
+                                            onLongClick = {},
                                         ),
                                     )
-                                    DropdownMenu(
-                                        expanded = menuOpenFor == "${link.toCardId}:${link.kind}",
-                                        onDismissRequest = { menuOpenFor = null },
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Remove") },
-                                            onClick = {
-                                                menuOpenFor = null
-                                                pendingRemove = link
-                                            },
-                                        )
-                                    }
                                 }
-                            }
-                            items(links.backlinks, key = { "back:${it.fromCardId}:${it.kind}" }) { link ->
-                                ListItem(
-                                    headlineContent = {
-                                        Text(
-                                            connectionHeadline(
-                                                kindLabel = HolderNative.linkKindLabel(link.kind, forward = false),
-                                                title = link.fromTitle ?: link.fromCardId,
-                                                label = link.label,
-                                                primary = MaterialTheme.colorScheme.primary,
-                                                muted = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            ),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    },
-                                    modifier = Modifier.combinedClickable(
-                                        onClick = { onNavigateToCard(link.fromCardId, link.fromTitle ?: "") },
-                                        onLongClick = {},
-                                    ),
-                                )
                             }
                         }
                     }
