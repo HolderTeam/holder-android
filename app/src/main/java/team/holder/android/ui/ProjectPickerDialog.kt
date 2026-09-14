@@ -23,13 +23,14 @@ import team.holder.android.HolderProject
 fun ProjectPickerDialog(
     projects: List<HolderProject>,
     homeProjectName: String,
+    title: String,
     onSelect: (HolderProject) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val ordered = projects.sortedByDescending { it.name == homeProjectName }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share to which project?") },
+        title = { Text(title) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 ordered.forEach { project ->

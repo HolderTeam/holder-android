@@ -421,6 +421,7 @@ private fun HolderNavHost(
             ProjectPickerDialog(
                 projects = projects,
                 homeProjectName = HolderNative.DEFAULT_PROJECT_NAME,
+                title = "Share to which project?",
                 onSelect = { project ->
                     sharedContentProjectChoices = null
                     scope.launch {
@@ -465,6 +466,7 @@ private fun HolderNavHost(
         ProjectPickerDialog(
             projects = projects,
             homeProjectName = HolderNative.DEFAULT_PROJECT_NAME,
+            title = "Create card in which project?",
             onSelect = { project ->
                 newCardShortcutProjectChoices = null
                 navigateToNewCard(project.projectId)
