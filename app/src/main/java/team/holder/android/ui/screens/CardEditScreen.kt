@@ -1,5 +1,6 @@
 package team.holder.android.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -44,6 +45,7 @@ import team.holder.android.HolderSettings
 import team.holder.android.R
 import team.holder.android.combineTitleAndBody
 import team.holder.android.resource.AttachFlowConnectDialog
+import team.holder.android.resource.createCameraCaptureUri
 import team.holder.android.resource.rememberAttachFlow
 import team.holder.android.splitLeadingHeading
 import team.holder.android.titleFromFirstLine
@@ -108,6 +110,12 @@ fun CardEditScreen(
     val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null || cardId == null) return@rememberLauncherForActivityResult
         attachFlow.attach(uri)
+    }
+
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) pendingCameraUri?.let { attachFlow.attach(it) }
+        pendingCameraUri = null
     }
 
     // One-shot guard, local to this screen instance. `saving` isn't enough: it resets to
@@ -196,6 +204,15 @@ fun CardEditScreen(
                     // -- null on the "new card" screen, which hides the button entirely.
                     onAttachPhoto = if (cardId != null && !attachFlow.attaching) {
                         { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    } else {
+                        null
+                    },
+                    onAttachCamera = if (cardId != null && !attachFlow.attaching) {
+                        {
+                            val uri = createCameraCaptureUri(context)
+                            pendingCameraUri = uri
+                            cameraLauncher.launch(uri)
+                        }
                     } else {
                         null
                     },

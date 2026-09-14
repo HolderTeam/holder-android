@@ -253,12 +253,15 @@ private fun TextFieldState.toggleHeading() {
  * [onAttachPhoto] is null to hide the attach button entirely (the caller decides when
  * attaching makes sense at all -- e.g. not on a card that doesn't exist yet); [attaching]
  * shows a progress spinner in its place while a previously-triggered attach is in flight.
+ * [onAttachCamera] is the same idea for the system-camera-handoff capture source, shown or
+ * hidden independently of [onAttachPhoto].
  */
 @Composable
 fun MarkdownFormattingToolbar(
     state: TextFieldState,
     modifier: Modifier = Modifier,
     onAttachPhoto: (() -> Unit)? = null,
+    onAttachCamera: (() -> Unit)? = null,
     attaching: Boolean = false,
 ) {
     Row(
@@ -288,9 +291,16 @@ fun MarkdownFormattingToolbar(
         }
         if (attaching) {
             CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
-        } else if (onAttachPhoto != null) {
-            IconButton(onClick = onAttachPhoto) {
-                Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
+        } else {
+            if (onAttachPhoto != null) {
+                IconButton(onClick = onAttachPhoto) {
+                    Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
+                }
+            }
+            if (onAttachCamera != null) {
+                IconButton(onClick = onAttachCamera) {
+                    Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take photo")
+                }
             }
         }
     }
