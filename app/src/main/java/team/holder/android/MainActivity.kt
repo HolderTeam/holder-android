@@ -101,6 +101,11 @@ class MainActivity : ComponentActivity() {
     // shape, same reason it's a plain mutableStateOf field rather than composable state.
     private var pendingSharedContent by mutableStateOf<PendingSharedContent?>(null)
 
+    // Set from the "New card" static app shortcut (see res/xml/shortcuts.xml) -- same
+    // onCreate/onNewIntent shape as pendingRecoveryToken/pendingSharedContent above, but a
+    // plain Boolean rather than a payload type since the shortcut carries no data of its own.
+    private var pendingNewCardShortcut by mutableStateOf(false)
+
     // A non-secret SavedState mirror of the coordinator-owned unresolved Auth Tab marker. It
     // survives process death only so a restored stale result is discarded and a fresh Auth Tab
     // is not launched through the same registration first; it is never OAuth authority. A
@@ -134,6 +139,7 @@ class MainActivity : ComponentActivity() {
         )
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
         pendingSharedContent = sharedContentFromIntent(intent)
+        pendingNewCardShortcut = isNewCardShortcutIntent(intent)
 
         // Captured before initialize() below, which creates this directory if it's missing --
         // its absence right now is the exact, one-shot signal that this is the first launch
@@ -194,6 +200,8 @@ class MainActivity : ComponentActivity() {
                         pendingRecoveryToken = pendingRecoveryToken,
                         pendingSharedContent = pendingSharedContent,
                         onSharedContentHandled = { pendingSharedContent = null },
+                        pendingNewCardShortcut = pendingNewCardShortcut,
+                        onNewCardShortcutHandled = { pendingNewCardShortcut = false },
                         githubBrowserLauncher = githubBrowserLauncher,
                     )
                 }
@@ -214,6 +222,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
         sharedContentFromIntent(intent)?.let { pendingSharedContent = it }
+        if (isNewCardShortcutIntent(intent)) pendingNewCardShortcut = true
     }
 
     /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
@@ -227,6 +236,11 @@ class MainActivity : ComponentActivity() {
             contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
+
+    /** True when this activity was opened via the "New card" static app shortcut (see
+     * res/xml/shortcuts.xml and the intent's own targetClass/no-targetPackage comment there). */
+    private fun isNewCardShortcutIntent(intent: Intent?): Boolean =
+        intent?.action == "team.holder.android.action.NEW_CARD"
 
     /** Reads what another app's Share action sent (Files app "Share" on a photo/PDF, a
      * browser's "Share" on a page URL, etc. -- see the SEND/SEND_MULTIPLE intent-filters in
@@ -301,6 +315,8 @@ private fun HolderNavHost(
     pendingRecoveryToken: String? = null,
     pendingSharedContent: PendingSharedContent? = null,
     onSharedContentHandled: () -> Unit = {},
+    pendingNewCardShortcut: Boolean = false,
+    onNewCardShortcutHandled: () -> Unit = {},
     githubBrowserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher,
 ) {
     val navController = rememberNavController()
@@ -326,6 +342,10 @@ private fun HolderNavHost(
     // Non-null only while more than one project exists and pendingSharedContent needs one
     // picked before it can be turned into a card -- see the ProjectPickerDialog call below.
     var sharedContentProjectChoices by remember { mutableStateOf<List<HolderProject>?>(null) }
+    // Same role as sharedContentProjectChoices above, but for the "New card" shortcut's own
+    // project-choice step -- kept separate rather than merged since the shortcut carries no
+    // PendingSharedContent payload to share the same state with.
+    var newCardShortcutProjectChoices by remember { mutableStateOf<List<HolderProject>?>(null) }
 
     suspend fun handleSharedContent(shared: PendingSharedContent, projectId: String) {
         when (shared) {
@@ -414,6 +434,47 @@ private fun HolderNavHost(
                 },
             )
         }
+    }
+
+    // The exact navigation the plain card-list "+" already uses (see onCreateCard on the
+    // "projects/{projectId}/cards" route below) -- reused here rather than duplicated so
+    // there's one canonical way this app navigates to "new card at project root."
+    fun navigateToNewCard(projectId: String) {
+        pendingParentCardId = null
+        navController.navigate("projects/$projectId/cards/new")
+    }
+
+    // Jumps straight into a new card when launched via the "New card" static app shortcut
+    // (see res/xml/shortcuts.xml). One project: proceed immediately. More than one: defer to
+    // newCardShortcutProjectChoices below and let ProjectPickerDialog decide -- same shape as
+    // pendingSharedContent's handling above, just without a payload to carry through.
+    LaunchedEffect(pendingNewCardShortcut) {
+        if (!pendingNewCardShortcut) return@LaunchedEffect
+        val projects = runCatching { withContext(Dispatchers.IO) { HolderNative.listProjects() } }.getOrNull()
+        when {
+            projects == null || projects.isEmpty() -> onNewCardShortcutHandled()
+            projects.size == 1 -> {
+                navigateToNewCard(projects.single().projectId)
+                onNewCardShortcutHandled()
+            }
+            else -> newCardShortcutProjectChoices = projects
+        }
+    }
+
+    newCardShortcutProjectChoices?.let { projects ->
+        ProjectPickerDialog(
+            projects = projects,
+            homeProjectName = HolderNative.DEFAULT_PROJECT_NAME,
+            onSelect = { project ->
+                newCardShortcutProjectChoices = null
+                navigateToNewCard(project.projectId)
+                onNewCardShortcutHandled()
+            },
+            onDismiss = {
+                newCardShortcutProjectChoices = null
+                onNewCardShortcutHandled()
+            },
+        )
     }
 
     // The automatic half of BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9: once per device,
