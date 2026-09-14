@@ -149,6 +149,14 @@ fun CardListScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { scope.launch { HolderSettings.setBoardViewEnabled(context, !boardViewEnabled) } },
+                    ) {
+                        Icon(
+                            if (boardViewEnabled) Icons.AutoMirrored.Filled.List else Icons.Filled.Folder,
+                            contentDescription = if (boardViewEnabled) "Switch to List view" else "Switch to Board view",
+                        )
+                    }
                     IconButton(onClick = onCalendarClick) {
                         Icon(Icons.Filled.DateRange, contentDescription = "Calendar")
                     }
@@ -165,31 +173,21 @@ fun CardListScreen(
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Search cards") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search cards") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Clear search")
                         }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f).padding(12.dp),
-                )
-                IconButton(
-                    onClick = { scope.launch { HolderSettings.setBoardViewEnabled(context, !boardViewEnabled) } },
-                ) {
-                    Icon(
-                        if (boardViewEnabled) Icons.AutoMirrored.Filled.List else Icons.Filled.Folder,
-                        contentDescription = if (boardViewEnabled) "Switch to List view" else "Switch to Board view",
-                    )
-                }
-            }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+            )
 
             if (boardViewEnabled && breadcrumbs.isNotEmpty() && searchState == null) {
                 Row(
