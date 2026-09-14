@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -58,6 +58,7 @@ import team.holder.android.HolderCard
 import team.holder.android.HolderNative
 import team.holder.android.HolderSearchResult
 import team.holder.android.HolderSettings
+import team.holder.android.R
 import team.holder.android.ui.CenteredMessage
 import team.holder.android.ui.LoadState
 import team.holder.android.ui.sortKeyOrderedSiblings
@@ -152,10 +153,11 @@ fun CardListScreen(
                     IconButton(
                         onClick = { scope.launch { HolderSettings.setBoardViewEnabled(context, !boardViewEnabled) } },
                     ) {
-                        Icon(
-                            if (boardViewEnabled) Icons.AutoMirrored.Filled.List else Icons.Filled.Folder,
-                            contentDescription = if (boardViewEnabled) "Switch to List view" else "Switch to Board view",
-                        )
+                        if (boardViewEnabled) {
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Switch to List view")
+                        } else {
+                            Icon(painterResource(R.drawable.ic_folder), contentDescription = "Switch to Board view")
+                        }
                     }
                     IconButton(onClick = onCalendarClick) {
                         Icon(Icons.Filled.DateRange, contentDescription = "Calendar")
@@ -303,7 +305,7 @@ private fun CardListBody(
                         Box {
                             if (childCount > 0) {
                                 ListItem(
-                                    leadingContent = { Icon(Icons.Filled.Folder, contentDescription = null) },
+                                    leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                                     headlineContent = { Text(card.title) },
                                     supportingContent = {
                                         Text("$childCount ${if (childCount == 1) "item" else "items"}")

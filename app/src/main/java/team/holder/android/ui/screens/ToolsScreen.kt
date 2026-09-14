@@ -20,7 +20,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -216,7 +215,7 @@ fun ToolsScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 ToolsBarButton(
-                    icon = { Icon(Icons.Filled.Link, contentDescription = "Connections") },
+                    icon = { Icon(painterResource(R.drawable.ic_link), contentDescription = "Connections") },
                     label = "Connections",
                     onClick = onConnectionsClick,
                 )
