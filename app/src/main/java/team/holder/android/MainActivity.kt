@@ -1,7 +1,10 @@
 package team.holder.android
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Parcelable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -73,12 +76,26 @@ import team.holder.android.git.github.GitHubConnectionCoordinator
 
 private const val KEY_AUTH_TAB_OUTSTANDING_ATTEMPT_ID = "authTabOutstandingAttemptId"
 
+/** What another app's Share action handed off (see the SEND/SEND_MULTIPLE intent-filters in
+ * AndroidManifest.xml), read by [MainActivity.sharedContentFromIntent]. Kept as two cases
+ * rather than a single "text or uris" shape so a future ACTION_PROCESS_TEXT branch (selected
+ * text -> "Holder" in the text-selection toolbar) can fold into [Text] without a third case. */
+sealed class PendingSharedContent {
+    data class Text(val text: String) : PendingSharedContent()
+    data class Files(val uris: List<Uri>) : PendingSharedContent()
+}
+
 class MainActivity : ComponentActivity() {
     // Set from a .hrk file opened directly (Files app, email attachment, etc. -- see the
     // ACTION_VIEW intent-filter in AndroidManifest.xml) rather than a token pasted by hand.
     // A regular property with Compose's `by` delegate, not composable state: it needs to be
     // writable from onNewIntent, which runs outside the setContent{} composition entirely.
     private var pendingRecoveryToken by mutableStateOf<String?>(null)
+
+    // Set from another app's Share action (see the SEND/SEND_MULTIPLE intent-filters in
+    // AndroidManifest.xml) -- mirrors pendingRecoveryToken exactly, same onCreate/onNewIntent
+    // shape, same reason it's a plain mutableStateOf field rather than composable state.
+    private var pendingSharedContent by mutableStateOf<PendingSharedContent?>(null)
 
     // A non-secret SavedState mirror of the coordinator-owned unresolved Auth Tab marker. It
     // survives process death only so a restored stale result is discarded and a fresh Auth Tab
@@ -112,6 +129,7 @@ class MainActivity : ComponentActivity() {
             authTabOutstandingAttemptId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
         )
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
+        pendingSharedContent = sharedContentFromIntent(intent)
 
         // Captured before initialize() below, which creates this directory if it's missing --
         // its absence right now is the exact, one-shot signal that this is the first launch
@@ -168,7 +186,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    HolderNavHost(pendingRecoveryToken = pendingRecoveryToken, githubBrowserLauncher = githubBrowserLauncher)
+                    HolderNavHost(
+                        pendingRecoveryToken = pendingRecoveryToken,
+                        pendingSharedContent = pendingSharedContent,
+                        onSharedContentHandled = { pendingSharedContent = null },
+                        githubBrowserLauncher = githubBrowserLauncher,
+                    )
                 }
             }
         }
@@ -186,6 +209,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
+        sharedContentFromIntent(intent)?.let { pendingSharedContent = it }
     }
 
     /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
@@ -199,11 +223,64 @@ class MainActivity : ComponentActivity() {
             contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
+
+    /** Reads what another app's Share action sent (Files app "Share" on a photo/PDF, a
+     * browser's "Share" on a page URL, etc. -- see the SEND/SEND_MULTIPLE intent-filters in
+     * AndroidManifest.xml). Null for any other launch, including a malformed share intent
+     * missing the extra it should have -- never a fatal error, just nothing to share in.
+     * A `when (intent?.action)` on purpose: `process_text.md`'s planned ACTION_PROCESS_TEXT
+     * branch (reading EXTRA_PROCESS_TEXT into the same PendingSharedContent.Text case) slots
+     * in here as a third arm. */
+    private fun sharedContentFromIntent(intent: Intent?): PendingSharedContent? = runCatching {
+        when (intent?.action) {
+            Intent.ACTION_SEND -> {
+                if (intent.type == "text/plain") {
+                    intent.getStringExtra(Intent.EXTRA_TEXT)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { PendingSharedContent.Text(it) }
+                } else {
+                    intentParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                        ?.let { PendingSharedContent.Files(listOfNotNull(it)) }
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                intentParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { PendingSharedContent.Files(it) }
+            }
+            else -> null
+        }
+    }.getOrNull()
 }
+
+/** [Intent.getParcelableExtra] across the API 33 split -- the typed overload only exists from
+ * API 33 on, so anything older falls back to the deprecated untyped one. */
+@Suppress("DEPRECATION")
+private fun <T> intentParcelableExtra(intent: Intent, name: String, clazz: Class<T>): T? =
+    if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableExtra(name, clazz)
+    } else {
+        val raw: Parcelable? = intent.getParcelableExtra(name)
+        @Suppress("UNCHECKED_CAST")
+        raw as? T
+    }
+
+/** [Intent.getParcelableArrayListExtra] across the same API 33 split as [intentParcelableExtra]. */
+@Suppress("DEPRECATION")
+private fun <T> intentParcelableArrayListExtra(intent: Intent, name: String, clazz: Class<T>): List<T>? =
+    if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableArrayListExtra(name, clazz)
+    } else {
+        val raw: ArrayList<Parcelable>? = intent.getParcelableArrayListExtra(name)
+        @Suppress("UNCHECKED_CAST")
+        raw as? List<T>
+    }
 
 @Composable
 private fun HolderNavHost(
     pendingRecoveryToken: String? = null,
+    pendingSharedContent: PendingSharedContent? = null,
+    onSharedContentHandled: () -> Unit = {},
     githubBrowserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher,
 ) {
     val navController = rememberNavController()
@@ -236,6 +313,26 @@ private fun HolderNavHost(
         if (pendingRecoveryToken != null) {
             navController.navigate("recover-project")
         }
+    }
+
+    // Shares a text/URL straight into a new card, then jumps to it so the user can tidy the
+    // title/body -- the one-project fast path only for now; more than one project is a no-op
+    // until the project-picker dialog lands. Keyed on pendingSharedContent itself so a second
+    // share while already handling one re-fires just like pendingRecoveryToken above.
+    LaunchedEffect(pendingSharedContent) {
+        val shared = pendingSharedContent ?: return@LaunchedEffect
+        if (shared !is PendingSharedContent.Text) return@LaunchedEffect
+        val projects = runCatching { withContext(Dispatchers.IO) { HolderNative.listProjects() } }.getOrNull()
+        val projectId = projects?.singleOrNull()?.projectId ?: return@LaunchedEffect
+        val card = runCatching {
+            withContext(Dispatchers.IO) {
+                HolderNative.createCard(projectId, titleFromFirstLine(shared.text), shared.text)
+            }
+        }.getOrNull() ?: return@LaunchedEffect
+        selectedCardTitle = card.title
+        cardListRefreshKey++
+        navController.navigate("projects/$projectId/cards/${card.cardId}")
+        onSharedContentHandled()
     }
 
     // The automatic half of BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9: once per device,

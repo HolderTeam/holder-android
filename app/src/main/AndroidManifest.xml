@@ -82,6 +82,32 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
+            <!-- Lets another app's Share action send text/a URL (URLs travel as text/plain
+                 too) straight into Holder as a new card; see MainActivity's
+                 sharedContentFromIntent. Kept apart from the */* filter below on the same
+                 precedent as the two .hrk filters above: combining a text/plain mimeType with
+                 a broader */* one would let Android fold them into a single, stricter
+                 requirement rather than offering both independently. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Covers a shared image/PDF/other file. Separate intent-filter from the
+                 text/plain one above; see that filter's comment. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
         </activity>
 
         <!-- The sole exported App Link boundary. Both http and https declarations are required
