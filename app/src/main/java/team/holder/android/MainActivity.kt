@@ -37,6 +37,7 @@ import team.holder.android.git.backup.SnapshotScheduler
 import team.holder.android.git.backup.snapshotFile
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
+import team.holder.android.ui.ProjectPickerDialog
 import team.holder.android.ui.screens.AboutSettingsScreen
 import team.holder.android.ui.screens.AddConnectionScreen
 import team.holder.android.ui.screens.AddMilestoneScreen
@@ -303,6 +304,27 @@ private fun HolderNavHost(
     var pendingParentCardId by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    // Non-null only while more than one project exists and pendingSharedContent needs one
+    // picked before it can be turned into a card -- see the ProjectPickerDialog call below.
+    var sharedContentProjectChoices by remember { mutableStateOf<List<HolderProject>?>(null) }
+
+    suspend fun handleSharedContent(shared: PendingSharedContent, projectId: String) {
+        when (shared) {
+            is PendingSharedContent.Text -> {
+                val card = runCatching {
+                    withContext(Dispatchers.IO) {
+                        HolderNative.createCard(projectId, titleFromFirstLine(shared.text), shared.text)
+                    }
+                }.getOrNull() ?: return
+                selectedCardTitle = card.title
+                cardListRefreshKey++
+                navController.navigate("projects/$projectId/cards/${card.cardId}")
+            }
+            is PendingSharedContent.Files -> {
+                // Files/images land in a follow-up commit (attachPickedFile integration).
+            }
+        }
+    }
 
     // Jumps straight to Recover Project when launched (or resumed) via a .hrk file, rather
     // than making the user find the recovery icon themselves after already handing over the
@@ -315,24 +337,45 @@ private fun HolderNavHost(
         }
     }
 
-    // Shares a text/URL straight into a new card, then jumps to it so the user can tidy the
-    // title/body -- the one-project fast path only for now; more than one project is a no-op
-    // until the project-picker dialog lands. Keyed on pendingSharedContent itself so a second
-    // share while already handling one re-fires just like pendingRecoveryToken above.
+    // Shares text/URL/files straight into a new card, then jumps to it so the user can tidy
+    // things up. One project: proceed immediately. More than one: defer to
+    // sharedContentProjectChoices below and let ProjectPickerDialog decide. Keyed on
+    // pendingSharedContent itself so a second share while already handling one re-fires just
+    // like pendingRecoveryToken above.
     LaunchedEffect(pendingSharedContent) {
         val shared = pendingSharedContent ?: return@LaunchedEffect
-        if (shared !is PendingSharedContent.Text) return@LaunchedEffect
         val projects = runCatching { withContext(Dispatchers.IO) { HolderNative.listProjects() } }.getOrNull()
-        val projectId = projects?.singleOrNull()?.projectId ?: return@LaunchedEffect
-        val card = runCatching {
-            withContext(Dispatchers.IO) {
-                HolderNative.createCard(projectId, titleFromFirstLine(shared.text), shared.text)
+        when {
+            projects == null || projects.isEmpty() -> Unit
+            projects.size == 1 -> {
+                handleSharedContent(shared, projects.single().projectId)
+                onSharedContentHandled()
             }
-        }.getOrNull() ?: return@LaunchedEffect
-        selectedCardTitle = card.title
-        cardListRefreshKey++
-        navController.navigate("projects/$projectId/cards/${card.cardId}")
-        onSharedContentHandled()
+            else -> sharedContentProjectChoices = projects
+        }
+    }
+
+    sharedContentProjectChoices?.let { projects ->
+        val shared = pendingSharedContent
+        if (shared == null) {
+            sharedContentProjectChoices = null
+        } else {
+            ProjectPickerDialog(
+                projects = projects,
+                homeProjectName = HolderNative.DEFAULT_PROJECT_NAME,
+                onSelect = { project ->
+                    sharedContentProjectChoices = null
+                    scope.launch {
+                        handleSharedContent(shared, project.projectId)
+                        onSharedContentHandled()
+                    }
+                },
+                onDismiss = {
+                    sharedContentProjectChoices = null
+                    onSharedContentHandled()
+                },
+            )
+        }
     }
 
     // The automatic half of BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9: once per device,

@@ -304,7 +304,11 @@ data class RecoveryTokenImportGlobalResult(
  * app's lifetime instead of reopening the SQLite store on every call.
  */
 object HolderNative {
-    private const val DEFAULT_PROJECT_NAME = "Home"
+    /** The project `ensure_default_project` seeds on first run -- see RestoreOffer/
+     * SnapshotProtection's doc comments. Not private: the share-in project picker (see
+     * MainActivity's ProjectPickerDialog usage) sorts this project first since it's the one
+     * most people land in most often. */
+    const val DEFAULT_PROJECT_NAME = "Home"
     private const val WELCOME_CARD_TITLE_FALLBACK = "Welcome"
 
     private val loadError: Throwable? = runCatching {
