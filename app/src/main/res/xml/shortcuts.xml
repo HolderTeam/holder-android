@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- targetClass alone, deliberately no targetPackage: this file is under res/xml/, which
-     Gradle's ${applicationId} manifest-placeholder substitution does not reach (unlike
-     AndroidManifest.xml), and debug's applicationIdSuffix makes the actual installed
-     package team.holder.android.debug rather than team.holder.android. A hardcoded
-     android:targetPackage="team.holder.android" would silently be wrong for every local
-     debug build. A static shortcut is already scoped to its declaring app by the OS, so
-     targetClass alone is sufficient and correct across build variants. -->
+<!-- Release variant: targetPackage matches defaultConfig's applicationId. This file is under
+     res/xml/, which Gradle's ${applicationId} manifest-placeholder substitution does not reach
+     (unlike AndroidManifest.xml), so it can't be written once and shared across variants;
+     a debug build needs its own copy with a different targetPackage. See
+     app/src/debug/res/xml/shortcuts.xml (that one wins for debug builds via Gradle's normal
+     resource-overlay rules), and app/src/debug/res/values/strings.xml for the same per-variant
+     override pattern already used for app_name. Confirmed live: omitting targetPackage here
+     (relying on targetClass alone) resolves to nothing on a debug install and the launcher
+     reports "App isn't installed" instead of launching the shortcut; it does not fall back to
+     whatever's actually installed. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
         android:shortcutId="new_card"
@@ -15,6 +18,7 @@
         android:shortcutLongLabel="@string/shortcut_new_card_long_label">
         <intent
             android:action="team.holder.android.action.NEW_CARD"
+            android:targetPackage="team.holder.android"
             android:targetClass="team.holder.android.MainActivity" />
     </shortcut>
 </shortcuts>

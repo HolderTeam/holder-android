@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-variant override of targetPackage (main: app/src/main/res/xml/shortcuts.xml), for the
+     same reason app/src/debug/res/values/strings.xml overrides app_name; the debug buildType's
+     applicationIdSuffix makes the actual installed package team.holder.android.debug rather than
+     team.holder.android, and this file's targetPackage must match whatever is really installed. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_card"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_card_short_label"
+        android:shortcutLongLabel="@string/shortcut_new_card_long_label">
+        <intent
+            android:action="team.holder.android.action.NEW_CARD"
+            android:targetPackage="team.holder.android.debug"
+            android:targetClass="team.holder.android.MainActivity" />
+    </shortcut>
+</shortcuts>
