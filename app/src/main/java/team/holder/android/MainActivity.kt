@@ -1,10 +1,12 @@
 package team.holder.android
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -34,6 +36,7 @@ import kotlinx.coroutines.withContext
 import team.holder.android.git.backup.RestoreOffer
 import team.holder.android.git.backup.SnapshotProtection
 import team.holder.android.git.backup.SnapshotScheduler
+import team.holder.android.resource.attachPickedFile
 import team.holder.android.git.backup.snapshotFile
 import team.holder.android.sync.GitSyncScheduler
 import team.holder.android.ui.CenteredMessage
@@ -277,6 +280,16 @@ private fun <T> intentParcelableArrayListExtra(intent: Intent, name: String, cla
         raw as? List<T>
     }
 
+/** Same technique as AssetAttachment.kt's own private queryDisplayName (used by
+ * [attachPickedFile]) -- duplicated here rather than exposed there for this one extra caller. */
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    return context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+    }
+}
+
 @Composable
 private fun HolderNavHost(
     pendingRecoveryToken: String? = null,
@@ -321,7 +334,26 @@ private fun HolderNavHost(
                 navController.navigate("projects/$projectId/cards/${card.cardId}")
             }
             is PendingSharedContent.Files -> {
-                // Files/images land in a follow-up commit (attachPickedFile integration).
+                val uri = shared.uris.firstOrNull() ?: return
+                val title = queryDisplayName(context, uri) ?: "Shared file"
+                val card = runCatching {
+                    withContext(Dispatchers.IO) { HolderNative.createCard(projectId, title, "") }
+                }.getOrNull() ?: return
+                // Sequential, not parallel -- attachPickedFile does its own file copy + native
+                // import per URI, and updateCard below needs every reference collected first.
+                val references = shared.uris.mapNotNull { fileUri ->
+                    runCatching { attachPickedFile(context, projectId, card.cardId, fileUri) }.getOrNull()
+                }
+                if (references.isNotEmpty()) {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            HolderNative.updateCard(card.cardId, title, references.joinToString("\n"))
+                        }
+                    }
+                }
+                selectedCardTitle = title
+                cardListRefreshKey++
+                navController.navigate("projects/$projectId/cards/${card.cardId}")
             }
         }
     }
