@@ -252,6 +252,12 @@ class MainActivity : ComponentActivity() {
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { PendingSharedContent.Files(it) }
             }
+            Intent.ACTION_PROCESS_TEXT -> {
+                intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
+                    ?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { PendingSharedContent.Text(it) }
+            }
             else -> null
         }
     }.getOrNull()

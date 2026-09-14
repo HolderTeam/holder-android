@@ -108,6 +108,17 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
 
+            <!-- Lets a text-selection toolbar (long-press text in any app) offer "Holder"
+                 directly, next to Copy/Share/Web search; see MainActivity's
+                 sharedContentFromIntent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
         </activity>
 
         <!-- The sole exported App Link boundary. Both http and https declarations are required
