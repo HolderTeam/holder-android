@@ -16,11 +16,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import team.holder.android.resource.drive.GoogleDriveAuthException
 import team.holder.android.resource.drive.GoogleDriveConnection
+
+/**
+ * Creates a fresh, empty file under the `captures/` cache subdirectory (see
+ * `res/xml/file_paths.xml`) and returns a FileProvider `content://` URI for it -- the
+ * destination [ActivityResultContracts.TakePicture] needs upfront, since (unlike the
+ * gallery/file pickers) the system camera app writes into a URI the caller supplies rather
+ * than returning one of its own. The returned URI plugs into [AttachFlowState.attach] exactly
+ * like a picked photo or file URI does.
+ */
+fun createCameraCaptureUri(context: Context): Uri {
+    val dir = File(context.cacheDir, "captures").apply { mkdirs() }
+    val file = File(dir, "capture-${UUID.randomUUID()}.jpg")
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
 
 /**
  * Holds the state behind attaching a picked file to a card -- shared by [team.holder.android.ui.screens.CardEditScreen]
