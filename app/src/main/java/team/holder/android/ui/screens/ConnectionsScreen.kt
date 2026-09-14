@@ -102,7 +102,10 @@ fun ConnectionsScreen(
 
     LaunchedEffect(cardId, refreshKey) { refresh() }
 
-    LaunchedEffect(mapCenterCardId, refreshKey) {
+    // Gated on showMap -- no reason to double every List-mode open's listCardLinks call with an
+    // identical Map fetch nobody asked for; re-fires (cheaply, cache-warm) each time Map opens.
+    LaunchedEffect(mapCenterCardId, refreshKey, showMap) {
+        if (!showMap) return@LaunchedEffect
         mapLinksState = runCatching {
             withContext(Dispatchers.IO) { HolderNative.listCardLinks(mapCenterCardId) }
         }.fold(
