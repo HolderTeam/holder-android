@@ -275,18 +275,29 @@ fun CardEditScreen(
     AttachFlowConnectDialog(attachFlow)
 }
 
-/** Inserts [text] at the cursor on its own line -- a blank line before it unless the cursor
- * is already at the start of a line, always a trailing newline -- mirroring
- * holder-desktop's MarkdownResourceImageController.block_insertion for the same
+/** Inserts [text] as its own CommonMark paragraph -- a full blank line before it (unless the
+ * cursor is at the very start of the document) and after it, mirroring holder-desktop's
+ * MarkdownResourceImageController.block_insertion for the same
  * `![label](holder://resource/<id>)` references, so a card edited on either platform ends up
- * with the same shape around an attached image. */
+ * with the same shape around an attached image. A single newline is only a *soft line break*
+ * within the same paragraph as whatever precedes it -- inserting with just one, as this used
+ * to, merges the reference into an adjacent line of text, which silently drops image
+ * rendering entirely: HolderMarkdownViewer only renders `![...](holder://resource/...)` as an
+ * image when it is the sole child of its own paragraph, so a merged paragraph falls back to
+ * showing just the image's alt text as plain words. */
 @OptIn(ExperimentalFoundationApi::class)
 private fun insertOwnLine(state: TextFieldState, text: String) {
     state.edit {
         val cursor = selection.start
         val content = asCharSequence()
-        val atLineStart = cursor == 0 || content[cursor - 1] == '\n'
-        val insertion = (if (atLineStart) "" else "\n") + text + "\n"
+        val before = content.subSequence(0, cursor).toString()
+        val leading = when {
+            before.isEmpty() -> ""
+            before.endsWith("\n\n") -> ""
+            before.endsWith("\n") -> "\n"
+            else -> "\n\n"
+        }
+        val insertion = "$leading$text\n\n"
         replace(cursor, cursor, insertion)
         placeCursorBeforeCharAt(cursor + insertion.length)
     }
