@@ -145,6 +145,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Single-button "New card" home-screen widget; fires the same NEW_CARD action as the
+             static app shortcut above, handled by MainActivity.isNewCardShortcutIntent. See
+             NewCardWidget.kt/NewCardWidgetReceiver.kt. -->
+        <receiver
+            android:name=".widget.NewCardWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/new_card_widget_info" />
+        </receiver>
+
         <!-- Grants other apps read-only, revocable access to a downloaded Resource
              attachment so it can be opened externally (ACTION_VIEW). See
              team.holder.android.resource.openResourceExternally. Only the
