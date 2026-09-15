@@ -33,9 +33,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -400,20 +402,25 @@ fun MarkdownFormattingToolbar(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { state.wrapSelection("**") }) {
-            Text("B", fontWeight = FontWeight.Bold)
-        }
-        IconButton(onClick = { state.wrapSelection("*") }) {
-            Text("I", fontStyle = FontStyle.Italic)
-        }
-        IconButton(onClick = { state.wrapSelection("~~") }) {
-            Text("S", textDecoration = TextDecoration.LineThrough)
-        }
-        IconButton(onClick = { state.wrapSelection("`") }) {
-            Text("</>", fontFamily = FontFamily.Monospace)
-        }
-        IconButton(onClick = { state.toggleHeading() }) {
-            Text("H", fontWeight = FontWeight.Bold)
+        // These five are plain text glyphs, not icons people need to hunt for one at a time --
+        // the default IconButton reserves an invisible 48dp touch target around each even though
+        // its visible container is much smaller, which is what reads as "too much gap" here.
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+            IconButton(onClick = { state.wrapSelection("**") }) {
+                Text("B", fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = { state.wrapSelection("*") }) {
+                Text("I", fontStyle = FontStyle.Italic)
+            }
+            IconButton(onClick = { state.wrapSelection("~~") }) {
+                Text("S", textDecoration = TextDecoration.LineThrough)
+            }
+            IconButton(onClick = { state.wrapSelection("`") }) {
+                Text("</>", fontFamily = FontFamily.Monospace)
+            }
+            IconButton(onClick = { state.toggleHeading() }) {
+                Text("H", fontWeight = FontWeight.Bold)
+            }
         }
         IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
             Text("[[ ]]")
