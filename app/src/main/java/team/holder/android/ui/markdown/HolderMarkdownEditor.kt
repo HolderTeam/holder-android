@@ -1,5 +1,15 @@
 package team.holder.android.ui.markdown
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -21,6 +31,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import team.holder.android.R
 
@@ -256,6 +268,7 @@ private fun TextFieldState.toggleHeading() {
  * [onAttachCamera] is the same idea for the system-camera-handoff capture source, shown or
  * hidden independently of [onAttachPhoto].
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MarkdownFormattingToolbar(
     state: TextFieldState,
@@ -264,6 +277,80 @@ fun MarkdownFormattingToolbar(
     onAttachCamera: (() -> Unit)? = null,
     attaching: Boolean = false,
 ) {
+    val context = LocalContext.current
+    var isListening by remember { mutableStateOf(false) }
+    // The span of already-inserted-but-still-revisable dictated text: each new partial
+    // hypothesis replaces this whole range rather than appending on top of the previous one.
+    var dictationStart by remember { mutableStateOf(0) }
+    var dictationEnd by remember { mutableStateOf(0) }
+    val activeRecognizer = remember { mutableStateOf<SpeechRecognizer?>(null) }
+
+    fun stopDictation() {
+        activeRecognizer.value?.destroy()
+        activeRecognizer.value = null
+        isListening = false
+    }
+
+    fun applyHypothesis(bundle: Bundle?) {
+        val hypothesis = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+        state.edit {
+            replace(dictationStart, dictationEnd, hypothesis)
+            dictationEnd = dictationStart + hypothesis.length
+            placeCursorBeforeCharAt(dictationEnd)
+        }
+    }
+
+    fun startDictation() {
+        dictationStart = state.selection.start
+        dictationEnd = dictationStart
+        val recognizer = if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        }
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                applyHypothesis(partialResults)
+            }
+
+            override fun onResults(results: Bundle?) {
+                applyHypothesis(results)
+                stopDictation()
+            }
+
+            // Silent stop, matching this codebase's general "external service failed, don't
+            // block, don't crash" convention -- no error UI to surface it through here anyway.
+            override fun onError(error: Int) {
+                stopDictation()
+            }
+        })
+        recognizer.startListening(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            },
+        )
+        activeRecognizer.value = recognizer
+        isListening = true
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startDictation()
+    }
+
+    // Tears down a session left running if the toolbar itself is disposed mid-listening (e.g.
+    // navigating away from the card while dictating).
+    DisposableEffect(Unit) {
+        onDispose { activeRecognizer.value?.destroy() }
+    }
+
     Row(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceContainer)
@@ -288,6 +375,23 @@ fun MarkdownFormattingToolbar(
         }
         IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
             Text("[[ ]]")
+        }
+        IconButton(
+            onClick = {
+                when {
+                    isListening -> stopDictation()
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                        PackageManager.PERMISSION_GRANTED -> startDictation()
+                    else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            enabled = !attaching,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_mic),
+                contentDescription = if (isListening) "Stop dictation" else "Dictate",
+                tint = if (isListening) MaterialTheme.colorScheme.error else LocalContentColor.current,
+            )
         }
         if (attaching) {
             CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
