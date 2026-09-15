@@ -335,6 +335,14 @@ fun MarkdownFormattingToolbar(
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                if (Build.VERSION.SDK_INT >= 33) {
+                    // Dictating into written notes, not issuing a voice command -- real
+                    // punctuation/capitalization is worth more here than shaving latency.
+                    putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY)
+                    // Otherwise a partial hypothesis's guessed trailing comma/period flickers
+                    // in and out as more words arrive -- only the final result needs it.
+                    putExtra(RecognizerIntent.EXTRA_HIDE_PARTIAL_TRAILING_PUNCTUATION, true)
+                }
             },
         )
         activeRecognizer.value = recognizer
