@@ -476,9 +476,9 @@ fun CardViewPagerScreen(
                         // neighbor (beyondViewportPageCount = 1) can't be in focus mode at all.
                         focusMode = isFront && focusMode,
                         onExitFocusMode = { if (isFront) focusMode = false },
-                        // Long-press the card body (cursorOffset null) or tap a specific spot in
-                        // it (a real offset -- see click_to_edit_position.md) to edit; gated to
-                        // the front page for the same reason as focus mode.
+                        // Tap a specific spot in the rendered body to edit right there (a real
+                        // offset -- see click_to_edit_position.md); gated to the front page for
+                        // the same reason as focus mode.
                         onEditRequested = { cursorOffset ->
                             if (isFront) {
                                 currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it, cursorOffset) }

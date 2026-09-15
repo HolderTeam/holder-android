@@ -4,7 +4,6 @@ import android.content.Intent
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,10 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -76,9 +72,11 @@ fun CardViewScreen(
     refreshKey: Any,
     focusMode: Boolean,
     onExitFocusMode: () -> Unit,
-    // Null for the bottom-bar Edit button and long-press-anywhere (open wherever the cursor
-    // last was); a real offset -- into initialContent's coordinate space, not `displayed`'s --
-    // when opened by tapping a specific spot in the rendered body. See click_to_edit_position.md.
+    // Null only for the bottom-bar Edit button (open wherever the cursor last was); a real
+    // offset -- into initialContent's coordinate space, not `displayed`'s -- for every tap on
+    // the rendered body itself, which is now the only in-viewer way to reach the editor (no more
+    // separate long-press-anywhere gesture -- redundant once tap-to-position existed, and this
+    // way a plain tap always does the same, single thing). See click_to_edit_position.md.
     onEditRequested: (cursorOffset: Int?) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
@@ -88,7 +86,6 @@ fun CardViewScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
     var state by remember(cardId, refreshKey) { mutableStateOf<LoadState<String>>(LoadState.Loading) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -214,20 +211,7 @@ fun CardViewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = minHeight)
-                            .verticalScroll(rememberScrollState())
-                            // Long-press anywhere on the body to open the editor. Tapping a
-                            // wikilink/tag still navigates -- those spans consume their own tap
-                            // first, so a plain tap never reaches this, and a long-press is
-                            // unambiguously "edit". Movement (scroll, the pager swipe) cancels
-                            // the long-press before it fires.
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onLongPress = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onEditRequested(null)
-                                    },
-                                )
-                            },
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         HolderMarkdownViewer(
