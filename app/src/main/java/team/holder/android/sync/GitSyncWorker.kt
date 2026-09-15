@@ -10,10 +10,11 @@ import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
 import team.holder.android.diagnostics.DiagnosticsEntry
 import team.holder.android.diagnostics.DiagnosticsLog
-import team.holder.android.diagnostics.RELIABILITY_FAILURE_THRESHOLD
 import team.holder.android.diagnostics.ReliabilityFailureKind
 import team.holder.android.diagnostics.ReliabilityNotifier
 import team.holder.android.diagnostics.diagnosticsLogFile
+import team.holder.android.diagnostics.nextConsecutiveFailureCount
+import team.holder.android.diagnostics.shouldNotifyReliabilityFailure
 import java.io.File
 
 /** [team.holder.android.GitSyncIfDueResult.pushStatus] values that mean the push itself
@@ -41,7 +42,7 @@ private const val SUCCESSFUL_PULL_STATUS = "succeeded"
  * the per-project loop at all (e.g. HolderNative.initialize itself failing).
  *
  * Also tracks a consecutive-failure streak (see [HolderSettings.gitSyncConsecutiveFailures]) and
- * posts one [ReliabilityNotifier] notification once it crosses [RELIABILITY_FAILURE_THRESHOLD],
+ * posts one [ReliabilityNotifier] notification once [shouldNotifyReliabilityFailure] says so,
  * reset on the next tick where everything attempted succeeds -- see sync_reliability.md. That
  * streak is computed from each project's structured push/pull status strings, not from whether
  * anything here threw: a single project's sync failing is otherwise a silent structured result,
@@ -122,19 +123,18 @@ class GitSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             )
         }
 
-        // Only touch the streak when this tick actually attempted something -- a device with no
+        // null (untouched) when this tick attempted nothing at all -- a device with no
         // configured git remotes (or nothing due yet on every configured one) must never
-        // accumulate a false failure streak from having nothing to attempt.
-        if (anyAttempted) {
-            val newCount = if (anyFailed) {
-                HolderSettings.gitSyncConsecutiveFailures(applicationContext).first() + 1
-            } else {
-                0
-            }
-            HolderSettings.setGitSyncConsecutiveFailures(applicationContext, newCount)
-            // `==`, not `>=`: fires exactly once per failure streak, not on every tick past the
-            // threshold, until a success resets the count back to 0.
-            if (anyFailed && newCount == RELIABILITY_FAILURE_THRESHOLD) {
+        // accumulate a false failure streak from having nothing to attempt. See
+        // ReliabilityFailureTracking.kt for the pure, unit-tested logic itself.
+        val newFailureCount = nextConsecutiveFailureCount(
+            currentCount = HolderSettings.gitSyncConsecutiveFailures(applicationContext).first(),
+            attempted = anyAttempted,
+            succeeded = !anyFailed,
+        )
+        if (newFailureCount != null) {
+            HolderSettings.setGitSyncConsecutiveFailures(applicationContext, newFailureCount)
+            if (shouldNotifyReliabilityFailure(newFailureCount, succeeded = !anyFailed)) {
                 ReliabilityNotifier.notify(applicationContext, ReliabilityFailureKind.GIT_SYNC)
             }
         }
