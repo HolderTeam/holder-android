@@ -45,6 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -54,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -516,10 +519,24 @@ fun HolderMarkdownEditor(
     state: TextFieldState,
     modifier: Modifier = Modifier,
     placeholder: String = "Write in Markdown…",
+    // CardEditScreen always opens to type, whichever of its entry points got here (the
+    // bottom-bar Edit button, tapping a spot in the rendered body -- see
+    // click_to_edit_position.md -- or a fresh "new card"), so this defaults true there; false
+    // here is only for a hypothetical future caller that shows this editor without expecting to
+    // be typed into immediately.
+    autoFocus: Boolean = false,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val density = LocalDensity.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     val spellChecker = remember { MarkdownSpellChecker(context) }
     DisposableEffect(Unit) { onDispose { spellChecker.close() } }
@@ -567,7 +584,7 @@ fun HolderMarkdownEditor(
         }
         BasicTextField(
             state = state,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().focusRequester(focusRequester),
             textStyle = LocalTextStyle.current.copy(color = colorScheme.onSurface),
             cursorBrush = SolidColor(colorScheme.primary),
             inputTransformation = ListContinuation,

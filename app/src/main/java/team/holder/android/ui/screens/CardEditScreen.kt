@@ -272,11 +272,13 @@ fun CardEditScreen(
                 HolderMarkdownEditor(
                     state = separateBodyState,
                     modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
+                    autoFocus = true,
                 )
             } else {
                 HolderMarkdownEditor(
                     state = firstLineBodyState,
                     modifier = Modifier.fillMaxWidth().weight(1f),
+                    autoFocus = true,
                 )
             }
         }
