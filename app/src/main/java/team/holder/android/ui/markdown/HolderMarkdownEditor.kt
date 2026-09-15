@@ -47,10 +47,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -278,6 +280,7 @@ fun MarkdownFormattingToolbar(
     attaching: Boolean = false,
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var isListening by remember { mutableStateOf(false) }
     // The span of already-inserted-but-still-revisable dictated text: each new partial
     // hypothesis replaces this whole range rather than appending on top of the previous one.
@@ -285,9 +288,14 @@ fun MarkdownFormattingToolbar(
     var dictationEnd by remember { mutableStateOf(0) }
     val activeRecognizer = remember { mutableStateOf<SpeechRecognizer?>(null) }
 
+    // Toggle-on/off haptics -- there's no visible waveform or level meter here, so this is the
+    // only non-visual cue that listening actually started or actually stopped (whether the user
+    // tapped to stop, the recognizer finished on its own, or it errored -- stopDictation() is
+    // the single place all three converge, so one call here covers all of them).
     fun stopDictation() {
         activeRecognizer.value?.destroy()
         activeRecognizer.value = null
+        if (isListening) haptic.performHapticFeedback(HapticFeedbackType.ToggleOff)
         isListening = false
     }
 
@@ -347,6 +355,7 @@ fun MarkdownFormattingToolbar(
         )
         activeRecognizer.value = recognizer
         isListening = true
+        haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
     }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
