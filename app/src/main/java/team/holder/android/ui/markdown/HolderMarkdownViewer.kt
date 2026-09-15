@@ -76,6 +76,8 @@ import org.commonmark.ext.task.list.items.TaskListItemsExtension
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
 import org.commonmark.node.Code
+import org.commonmark.node.CustomNode
+import org.commonmark.node.Delimited
 import org.commonmark.node.Emphasis
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
@@ -85,13 +87,17 @@ import org.commonmark.node.IndentedCodeBlock
 import org.commonmark.node.Link
 import org.commonmark.node.ListItem
 import org.commonmark.node.Node
+import org.commonmark.node.Nodes
 import org.commonmark.node.OrderedList
 import org.commonmark.node.Paragraph
 import org.commonmark.node.SoftLineBreak
+import org.commonmark.node.SourceSpans
 import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.ThematicBreak
 import org.commonmark.node.Text as MdText
 import org.commonmark.parser.Parser
+import org.commonmark.parser.delimiter.DelimiterProcessor
+import org.commonmark.parser.delimiter.DelimiterRun
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
 import team.holder.android.R
@@ -145,6 +151,44 @@ private fun preprocessWikilinks(markdown: String): String =
         "[$name]($HOLDER_LINK_SCHEME${URLEncoder.encode(name, "UTF-8")})"
     }
 
+/** Holder's own `++text++` underline convention -- not part of CommonMark or GFM, so unlike
+ * `~~text~~` (commonmark-java's built-in StrikethroughExtension) it needs a real parser
+ * extension rather than an existing node to recognize it. */
+private class Underline(private val delimiter: String) : CustomNode(), Delimited {
+    override fun getOpeningDelimiter() = delimiter
+    override fun getClosingDelimiter() = delimiter
+}
+
+/** Mirrors commonmark-java's own StrikethroughDelimiterProcessor almost exactly, but -- unlike
+ * that processor's optional single-tilde mode -- only accepts exactly two `+` characters. A lone
+ * `+` is too common in ordinary prose, arithmetic, version numbers, and `C++` to safely claim. */
+private class UnderlineDelimiterProcessor : DelimiterProcessor {
+    override fun getOpeningCharacter() = '+'
+
+    override fun getClosingCharacter() = '+'
+
+    override fun getMinLength() = 2
+
+    override fun process(openingRun: DelimiterRun, closingRun: DelimiterRun): Int {
+        if (openingRun.length() != closingRun.length() || openingRun.length() != 2) return 0
+
+        val opener = openingRun.opener
+        val underline = Underline(opener.literal + opener.literal)
+
+        val sourceSpans = SourceSpans()
+        sourceSpans.addAllFrom(openingRun.getOpeners(2))
+        for (node in Nodes.between(opener, closingRun.closer)) {
+            underline.appendChild(node)
+            sourceSpans.addAll(node.sourceSpans)
+        }
+        sourceSpans.addAllFrom(closingRun.getClosers(2))
+        underline.setSourceSpans(sourceSpans.sourceSpans)
+
+        opener.insertAfter(underline)
+        return 2
+    }
+}
+
 private fun resolveWikilink(target: String, cards: List<HolderCard>): HolderCard? =
     cards.firstOrNull { it.cardId == target }
         ?: cards.firstOrNull { it.title == target }
@@ -196,6 +240,7 @@ fun HolderMarkdownViewer(
                     AlertsExtension.create(),
                 ),
             )
+            .customDelimiterProcessor(UnderlineDelimiterProcessor())
             .build()
         parser.parse(preprocessWikilinks(markdown))
     }
@@ -517,6 +562,11 @@ private fun appendInline(
                 val start = builder.length
                 appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, builder.length)
+            }
+            is Underline -> {
+                val start = builder.length
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), start, builder.length)
             }
             is Code -> {
                 val start = builder.length

@@ -72,6 +72,7 @@ private val HEADING_REGEX = Regex("(?m)^#{1,6}[ \t].*$")
 private val BOLD_REGEX = Regex("\\*\\*[^*\n]+\\*\\*|__[^_\n]+__")
 private val ITALIC_REGEX = Regex("(?<!\\*)\\*[^*\n]+\\*(?!\\*)|(?<!_)_[^_\n]+_(?!_)")
 private val STRIKETHROUGH_REGEX = Regex("~~[^~\n]+~~")
+private val UNDERLINE_REGEX = Regex("\\+\\+[^+\n]+\\+\\+")
 private val INLINE_CODE_REGEX = Regex("`[^`\n]+`")
 // Fence-to-fence, so other token regexes below can be suppressed inside one -- without this, a
 // code identifier like some_function_name renders as italic, and a code comment's # as a heading.
@@ -142,6 +143,10 @@ private class HolderMarkdownHighlighter(
         for (match in STRIKETHROUGH_REGEX.findAll(text)) {
             if (insideFence(match.range)) continue
             addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), match.range.first, match.range.last + 1)
+        }
+        for (match in UNDERLINE_REGEX.findAll(text)) {
+            if (insideFence(match.range)) continue
+            addStyle(SpanStyle(textDecoration = TextDecoration.Underline), match.range.first, match.range.last + 1)
         }
         for (match in INLINE_CODE_REGEX.findAll(text)) {
             if (insideFence(match.range)) continue
@@ -410,6 +415,9 @@ fun MarkdownFormattingToolbar(
         }
         IconButton(onClick = { state.wrapSelection("*") }, modifier = Modifier.size(24.dp, 40.dp)) {
             Text("I", fontStyle = FontStyle.Italic)
+        }
+        IconButton(onClick = { state.wrapSelection("++") }, modifier = Modifier.size(28.dp, 40.dp)) {
+            Text("U", textDecoration = TextDecoration.Underline)
         }
         IconButton(onClick = { state.wrapSelection("~~") }, modifier = Modifier.size(28.dp, 40.dp)) {
             Text("S", textDecoration = TextDecoration.LineThrough)
