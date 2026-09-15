@@ -33,11 +33,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -402,32 +400,32 @@ fun MarkdownFormattingToolbar(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // These five are plain text glyphs, not icons people need to hunt for one at a time --
-        // the default IconButton reserves an invisible 48dp touch target around each even though
-        // its visible container is much smaller, which is what reads as "too much gap" here.
-        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-            IconButton(onClick = { state.wrapSelection("**") }) {
-                Text("B", fontWeight = FontWeight.Bold)
-            }
-            IconButton(onClick = { state.wrapSelection("*") }) {
-                Text("I", fontStyle = FontStyle.Italic)
-            }
-            IconButton(onClick = { state.wrapSelection("~~") }) {
-                Text("S", textDecoration = TextDecoration.LineThrough)
-            }
-            IconButton(onClick = { state.wrapSelection("`") }) {
-                Text("</>", fontFamily = FontFamily.Monospace)
-            }
-            IconButton(onClick = { state.toggleHeading() }) {
-                Text("H", fontWeight = FontWeight.Bold)
-            }
+        // An explicit width on each button (rather than leaning on IconButton's own container
+        // sizing, which reserves more space than these glyphs need) is what actually controls
+        // the gap between them -- IconButton fills whatever box its modifier gives it, so a
+        // narrower box here means the buttons sit closer together on every device, not just
+        // this one. Narrower still for the five plain-text glyphs than for the pictographic ones.
+        IconButton(onClick = { state.wrapSelection("**") }, modifier = Modifier.size(28.dp, 40.dp)) {
+            Text("B", fontWeight = FontWeight.Bold)
         }
-        IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
+        IconButton(onClick = { state.wrapSelection("*") }, modifier = Modifier.size(24.dp, 40.dp)) {
+            Text("I", fontStyle = FontStyle.Italic)
+        }
+        IconButton(onClick = { state.wrapSelection("~~") }, modifier = Modifier.size(28.dp, 40.dp)) {
+            Text("S", textDecoration = TextDecoration.LineThrough)
+        }
+        IconButton(onClick = { state.wrapSelection("`") }, modifier = Modifier.size(34.dp, 40.dp)) {
+            Text("</>", fontFamily = FontFamily.Monospace)
+        }
+        IconButton(onClick = { state.toggleHeading() }, modifier = Modifier.size(28.dp, 40.dp)) {
+            Text("H", fontWeight = FontWeight.Bold)
+        }
+        IconButton(onClick = { state.wrapSelection("[[", "]]") }, modifier = Modifier.size(36.dp, 40.dp)) {
             Text("[[ ]]")
         }
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(40.dp)
                 .then(
                     if (attaching) {
                         Modifier
@@ -483,12 +481,12 @@ fun MarkdownFormattingToolbar(
             CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
         } else {
             if (onAttachPhoto != null) {
-                IconButton(onClick = onAttachPhoto) {
+                IconButton(onClick = onAttachPhoto, modifier = Modifier.size(36.dp, 40.dp)) {
                     Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
                 }
             }
             if (onAttachCamera != null) {
-                IconButton(onClick = onAttachCamera) {
+                IconButton(onClick = onAttachCamera, modifier = Modifier.size(36.dp, 40.dp)) {
                     Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take photo")
                 }
             }
