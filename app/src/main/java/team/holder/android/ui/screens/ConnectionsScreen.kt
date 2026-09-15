@@ -192,6 +192,8 @@ fun ConnectionsScreen(
                                 mapCenterCardId = node.cardId
                                 mapCenterCardTitle = node.title
                             },
+                            onNodeOpen = { node -> onNavigateToCard(node.cardId, node.title) },
+                            onCenterOpen = { onNavigateToCard(mapCenterCardId, mapCenterCardTitle) },
                             modifier = Modifier.fillMaxSize().padding(innerPadding),
                         )
                     }

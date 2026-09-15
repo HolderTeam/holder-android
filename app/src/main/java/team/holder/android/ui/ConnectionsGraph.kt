@@ -2,7 +2,7 @@ package team.holder.android.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -131,7 +131,11 @@ private fun ringRadius(nodeCount: Int): Dp {
 /** Radial connections graph: [centerTitle] fixed in the middle, [nodes] evenly spaced around it
  * with an arrow (direction per [GraphNode.direction]) drawn underneath. Tapping a satellite
  * reports it via [onNodeClick] -- recentering is the caller's job (it just refetches for the
- * tapped card), this composable only ever renders what it's given.
+ * tapped card), this composable only ever renders what it's given. Long-pressing a satellite
+ * (via [onNodeOpen]) or the center bubble (via [onCenterOpen]) is the way to actually leave the
+ * graph and open that card, since there's no desktop-style second pane to update here -- tap
+ * stays a pure "look around" gesture with no navigation side effect, so the same finger sweep
+ * that recenters a few hops out never accidentally jumps you out of the graph mid-explore.
  *
  * Pannable and pinch-zoomable like an ordinary infinite-canvas app (Miro, Google Maps, ...):
  * the ring's own radius grows with node count (see [ringRadius]) rather than always cramming
@@ -143,6 +147,8 @@ fun ConnectionsGraphView(
     centerTitle: String,
     nodes: List<GraphNode>,
     onNodeClick: (GraphNode) -> Unit,
+    onNodeOpen: (GraphNode) -> Unit,
+    onCenterOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (nodes.isEmpty()) {
@@ -230,7 +236,10 @@ fun ConnectionsGraphView(
             }
 
             Surface(
-                modifier = Modifier.align(Alignment.Center).widthIn(max = 100.dp),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 100.dp)
+                    .combinedClickable(onClick = {}, onLongClickLabel = "Open card", onLongClick = onCenterOpen),
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.primaryContainer,
                 tonalElevation = 2.dp,
@@ -252,6 +261,7 @@ fun ConnectionsGraphView(
                 GraphSatelliteNode(
                     node = node,
                     onClick = { onNodeClick(node) },
+                    onLongClick = { onNodeOpen(node) },
                     modifier = Modifier
                         .align(Alignment.Center)
                         .offset { IntOffset(dx.toPx().roundToInt(), dy.toPx().roundToInt()) },
@@ -293,7 +303,12 @@ private fun DrawScope.drawGraphEdge(from: Offset, to: Offset, direction: GraphDi
 }
 
 @Composable
-private fun GraphSatelliteNode(node: GraphNode, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun GraphSatelliteNode(
+    node: GraphNode,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val description = buildString {
         append(node.relationshipLabel)
         append(", ")
@@ -306,7 +321,7 @@ private fun GraphSatelliteNode(node: GraphNode, onClick: () -> Unit, modifier: M
     Surface(
         modifier = modifier
             .widthIn(max = 92.dp)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClickLabel = "Open card", onLongClick = onLongClick)
             .semantics { contentDescription = description },
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.surfaceVariant,
