@@ -288,6 +288,12 @@ fun MarkdownFormattingToolbar(
     var dictationStart by remember { mutableStateOf(0) }
     var dictationEnd by remember { mutableStateOf(0) }
     val activeRecognizer = remember { mutableStateOf<SpeechRecognizer?>(null) }
+    // True only while a press-and-hold gesture is physically still down. The recognition
+    // service ends its own session on a silence timeout regardless of the intent extras below
+    // (many services ignore those hints) -- while this is true, that natural end is treated as
+    // "reconnect and keep going" rather than "stop", so holding the button really does keep
+    // recording until it's released, not just until the recognizer feels like continuing.
+    val heldDown = remember { mutableStateOf(false) }
 
     // Toggle-on/off haptics -- there's no visible waveform or level meter here, so this is the
     // only non-visual cue that listening actually started or actually stopped (whether the user
@@ -309,7 +315,7 @@ fun MarkdownFormattingToolbar(
         }
     }
 
-    fun startDictation() {
+    fun startDictation(chained: Boolean = false) {
         dictationStart = state.selection.start
         dictationEnd = dictationStart
         val recognizer = if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
@@ -331,13 +337,22 @@ fun MarkdownFormattingToolbar(
 
             override fun onResults(results: Bundle?) {
                 applyHypothesis(results)
-                stopDictation()
+                if (heldDown.value) startDictation(chained = true) else stopDictation()
             }
 
             // Silent stop, matching this codebase's general "external service failed, don't
             // block, don't crash" convention -- no error UI to surface it through here anyway.
+            // ERROR_NO_MATCH/ERROR_SPEECH_TIMEOUT are the recognizer giving up on silence, which
+            // is exactly the case a held button should ride through; anything else (network,
+            // audio, permissions, ...) is a real failure and still ends the session.
             override fun onError(error: Int) {
-                stopDictation()
+                if (heldDown.value &&
+                    (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                ) {
+                    startDictation(chained = true)
+                } else {
+                    stopDictation()
+                }
             }
         })
         recognizer.startListening(
@@ -362,7 +377,10 @@ fun MarkdownFormattingToolbar(
         )
         activeRecognizer.value = recognizer
         isListening = true
-        haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
+        // A chained restart is invisible to the user -- one continuous held session under the
+        // hood is actually several recognizer sessions back to back -- so only the real start
+        // gets the cue.
+        if (!chained) haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
     }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -421,6 +439,7 @@ fun MarkdownFormattingToolbar(
                                     heldToRecord = false
                                     if (isListening) {
                                         tryAwaitRelease()
+                                        heldDown.value = false
                                         stopDictation()
                                     } else {
                                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -428,13 +447,19 @@ fun MarkdownFormattingToolbar(
                                         ) {
                                             startDictation()
                                             val released = tryAwaitRelease()
-                                            if (released && heldToRecord) stopDictation()
+                                            if (released && heldToRecord) {
+                                                heldDown.value = false
+                                                stopDictation()
+                                            }
                                         } else {
                                             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
                                     }
                                 },
-                                onLongPress = { heldToRecord = true },
+                                onLongPress = {
+                                    heldToRecord = true
+                                    heldDown.value = true
+                                },
                             )
                         }
                     },
