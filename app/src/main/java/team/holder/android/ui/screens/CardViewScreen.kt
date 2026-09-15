@@ -76,7 +76,10 @@ fun CardViewScreen(
     refreshKey: Any,
     focusMode: Boolean,
     onExitFocusMode: () -> Unit,
-    onEditRequested: () -> Unit,
+    // Null for the bottom-bar Edit button and long-press-anywhere (open wherever the cursor
+    // last was); a real offset -- into initialContent's coordinate space, not `displayed`'s --
+    // when opened by tapping a specific spot in the rendered body. See click_to_edit_position.md.
+    onEditRequested: (cursorOffset: Int?) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
     onCardCreated: (cardId: String, title: String, content: String) -> Unit,
@@ -221,7 +224,7 @@ fun CardViewScreen(
                                 detectTapGestures(
                                     onLongPress = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onEditRequested()
+                                        onEditRequested(null)
                                     },
                                 )
                             },
@@ -234,6 +237,18 @@ fun CardViewScreen(
                             onNavigateToCard = onNavigateToCard,
                             onNavigateToTag = onNavigateToTag,
                             onCardCreated = onCardCreated,
+                            // onRequestEditAt fires with an offset into `displayed`, but the
+                            // editor always works in initialContent's coordinate space (see
+                            // CardEditScreen's own translation back the other way) -- when
+                            // `displayed` is the heading-stripped variant (separateTitle on,
+                            // not in focus mode -- the one case where it's a different string
+                            // than current.value at all), re-add the stripped prefix's length so
+                            // both sides agree on one coordinate space regardless of how this
+                            // screen happened to be showing the body at tap time.
+                            onRequestEditAt = { offsetInDisplayed ->
+                                val prefixLength = current.value.length - displayed.length
+                                onEditRequested(offsetInDisplayed + prefixLength)
+                            },
                         )
                         // Hidden in focus mode along with the rest of the chrome -- focus mode
                         // means just the card content, nothing else.

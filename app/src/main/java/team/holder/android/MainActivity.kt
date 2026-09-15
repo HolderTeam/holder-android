@@ -348,6 +348,12 @@ private fun HolderNavHost(
     var selectedProjectForSync by remember { mutableStateOf<HolderProject?>(null) }
     var selectedCardTitle by rememberSaveable { mutableStateOf("") }
     var selectedCardContent by remember { mutableStateOf("") }
+    // Set alongside selectedCardTitle/selectedCardContent by the same onEdit callback below,
+    // right before navigating into the edit route -- always freshly overwritten there (there's
+    // exactly one navigation path into "cards/{cardId}/edit", so unlike pendingNewCardShortcut
+    // this never needs an explicit reset: every onEdit call already supplies null or a real
+    // offset). See click_to_edit_position.md.
+    var pendingEditCursorOffset by remember { mutableStateOf<Int?>(null) }
     var cardListRefreshKey by remember { mutableIntStateOf(0) }
     var cardViewRefreshKey by remember { mutableIntStateOf(0) }
     var connectionsRefreshKey by remember { mutableIntStateOf(0) }
@@ -681,9 +687,10 @@ private fun HolderNavHost(
                 projectId = projectId,
                 cardTitle = selectedCardTitle,
                 refreshKey = cardViewRefreshKey,
-                onEdit = { activeCardId, title, content ->
+                onEdit = { activeCardId, title, content, cursorOffset ->
                     selectedCardTitle = title
                     selectedCardContent = content
+                    pendingEditCursorOffset = cursorOffset
                     saveError = null
                     navController.navigate("projects/$projectId/cards/$activeCardId/edit")
                 },
@@ -876,6 +883,7 @@ private fun HolderNavHost(
                 screenTitle = "Edit card",
                 initialTitle = selectedCardTitle,
                 initialContent = selectedCardContent,
+                initialCursorOffset = pendingEditCursorOffset,
                 projectId = projectId,
                 cardId = cardId,
                 saving = saving,

@@ -7,6 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,13 +43,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -95,6 +102,7 @@ import org.commonmark.node.SourceSpans
 import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.ThematicBreak
 import org.commonmark.node.Text as MdText
+import org.commonmark.parser.IncludeSourceSpans
 import org.commonmark.parser.Parser
 import org.commonmark.parser.delimiter.DelimiterProcessor
 import org.commonmark.parser.delimiter.DelimiterRun
@@ -143,13 +151,59 @@ private fun plainText(node: Node): String = buildString {
     visit(node)
 }
 
+/** One `[[Name]]` -> `[Name](holder-link:...)` rewrite done by [preprocessWikilinks], recorded so
+ * [translateToOriginalOffset] can later map a position measured against the *rewritten* string
+ * back to the corresponding position in the original `markdown` passed to
+ * [HolderMarkdownViewer] -- see click_to_edit_position.md. */
+private data class WikilinkSubstitution(
+    /** Where the replacement text starts, in the rewritten string's own coordinates. */
+    val rewrittenStart: Int,
+    /** replacement.length - original.length -- always positive in practice (the holder-link:
+     * scheme prefix plus URL-encoding only ever adds characters), but the math below holds
+     * regardless of sign. */
+    val lengthDelta: Int,
+)
+
+private data class PreprocessedMarkdown(val text: String, val substitutions: List<WikilinkSubstitution>)
+
 /** Rewrites `[[Name]]` into an ordinary Markdown link with a custom scheme, so a vanilla
- * CommonMark parser handles it without any custom parser extension. */
-private fun preprocessWikilinks(markdown: String): String =
-    WIKILINK_REGEX.replace(markdown) { match ->
+ * CommonMark parser handles it without any custom parser extension -- and records each
+ * substitution's position/length delta so a source offset measured against the rewritten text
+ * (as every [org.commonmark.node.SourceSpan] necessarily is, since that's the string actually
+ * parsed) can be translated back to the original `markdown` string's own coordinates. */
+private fun preprocessWikilinks(markdown: String): PreprocessedMarkdown {
+    val substitutions = mutableListOf<WikilinkSubstitution>()
+    val result = StringBuilder()
+    var last = 0
+    for (match in WIKILINK_REGEX.findAll(markdown)) {
+        result.append(markdown, last, match.range.first)
         val name = match.groupValues[1]
-        "[$name]($HOLDER_LINK_SCHEME${URLEncoder.encode(name, "UTF-8")})"
+        val replacement = "[$name]($HOLDER_LINK_SCHEME${URLEncoder.encode(name, "UTF-8")})"
+        substitutions += WikilinkSubstitution(
+            rewrittenStart = result.length,
+            lengthDelta = replacement.length - match.value.length,
+        )
+        result.append(replacement)
+        last = match.range.last + 1
     }
+    result.append(markdown, last, markdown.length)
+    return PreprocessedMarkdown(result.toString(), substitutions)
+}
+
+/** The inverse of the substitutions [preprocessWikilinks] performed. Only ever called with a
+ * [rewrittenOffset] that fell on a [MdText]/[Code] leaf reached outside a [Link] (see
+ * `appendInline`'s `insideLink` handling) -- which a rewritten wikilink's own `[Name](holder-link:...)`
+ * span never is, so [rewrittenOffset] can never land *inside* one of these substitutions, only
+ * before all of them or strictly after any given one. Cards without a `[[wikilink]]` (the common
+ * case) take the fast path: an empty list, offset unchanged. */
+private fun translateToOriginalOffset(rewrittenOffset: Int, substitutions: List<WikilinkSubstitution>): Int {
+    var delta = 0
+    for (substitution in substitutions) {
+        if (substitution.rewrittenStart > rewrittenOffset) break
+        delta += substitution.lengthDelta
+    }
+    return rewrittenOffset - delta
+}
 
 /** Holder's own `++text++` underline convention -- not part of CommonMark or GFM, so unlike
  * `~~text~~` (commonmark-java's built-in StrikethroughExtension) it needs a real parser
@@ -209,6 +263,10 @@ fun HolderMarkdownViewer(
     onNavigateToTag: (tag: String) -> Unit,
     onCardCreated: (cardId: String, title: String, content: String) -> Unit,
     modifier: Modifier = Modifier,
+    // Null keeps every existing caller unaffected. Fires with an offset into `markdown` itself
+    // (already translated past any wikilink rewriting -- see translateToOriginalOffset) when a
+    // tap lands on plain rendered text, outside any link/tag span. See click_to_edit_position.md.
+    onRequestEditAt: ((Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -229,7 +287,8 @@ fun HolderMarkdownViewer(
         }
     }
 
-    val document = remember(markdown) {
+    val preprocessed = remember(markdown) { preprocessWikilinks(markdown) }
+    val document = remember(preprocessed) {
         val parser = Parser.builder()
             .extensions(
                 listOf(
@@ -241,8 +300,20 @@ fun HolderMarkdownViewer(
                 ),
             )
             .customDelimiterProcessor(UnderlineDelimiterProcessor())
+            // BLOCKS_AND_INLINES: every leaf inline node (MdText, Code) carries a SourceSpan
+            // recording its absolute offset into `preprocessed.text` -- the basis for mapping a
+            // tap on rendered text back to a position in the original markdown. See
+            // click_to_edit_position.md.
+            .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
             .build()
-        parser.parse(preprocessWikilinks(markdown))
+        parser.parse(preprocessed.text)
+    }
+
+    // Wraps onRequestEditAt exactly once here, rather than at every leaf callback invocation --
+    // every offset MarkdownBlock/appendInline ever produces is measured against
+    // preprocessed.text, so this is the one place that needs to know about substitutions at all.
+    val translatedOnRequestEditAt: ((Int) -> Unit)? = onRequestEditAt?.let { callback ->
+        { rewrittenOffset: Int -> callback(translateToOriginalOffset(rewrittenOffset, preprocessed.substitutions)) }
     }
 
     val onWikilinkClick: (String) -> Unit = { target ->
@@ -265,7 +336,7 @@ fun HolderMarkdownViewer(
 
     Column(modifier = modifier) {
         for (node in document.children()) {
-            MarkdownBlock(node, onWikilinkClick, onUrlClick, cardTags, onNavigateToTag)
+            MarkdownBlock(node, onWikilinkClick, onUrlClick, cardTags, onNavigateToTag, translatedOnRequestEditAt)
         }
     }
 
@@ -307,6 +378,7 @@ private fun MarkdownBlock(
     onUrlClick: (String) -> Unit,
     cardTags: Set<String>,
     onTagClick: (String) -> Unit,
+    onRequestEditAt: ((Int) -> Unit)?,
 ) {
     val linkColor = MaterialTheme.colorScheme.primary
     when (node) {
@@ -318,8 +390,9 @@ private fun MarkdownBlock(
                 4 -> MaterialTheme.typography.titleMedium
                 else -> MaterialTheme.typography.titleSmall
             }
-            Text(
-                text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
+            MarkdownInlineText(
+                content = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
+                onRequestEditAt = onRequestEditAt,
                 style = style,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -347,8 +420,9 @@ private fun MarkdownBlock(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 )
             } else {
-                Text(
-                    text = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
+                MarkdownInlineText(
+                    content = inlineText(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor),
+                    onRequestEditAt = onRequestEditAt,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
@@ -365,7 +439,7 @@ private fun MarkdownBlock(
                         }
                         Column {
                             for (child in item.children()) {
-                                MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                                MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick, onRequestEditAt)
                             }
                         }
                     }
@@ -381,7 +455,7 @@ private fun MarkdownBlock(
                             Text("${number++}.  ", modifier = Modifier.padding(top = 4.dp))
                             Column {
                                 for (child in item.children()) {
-                                    MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                                    MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick, onRequestEditAt)
                                 }
                             }
                         }
@@ -395,7 +469,9 @@ private fun MarkdownBlock(
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(8.dp),
         ) {
-            for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+            for (child in node.children()) {
+                MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick, onRequestEditAt)
+            }
         }
         is Alert -> {
             val alertColor = ALERT_COLORS[node.type] ?: MaterialTheme.colorScheme.primary
@@ -410,7 +486,7 @@ private fun MarkdownBlock(
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text(label, color = alertColor, fontWeight = FontWeight.Bold)
                     for (child in node.children()) {
-                        MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+                        MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick, onRequestEditAt)
                     }
                 }
             }
@@ -447,8 +523,8 @@ private fun MarkdownBlock(
                                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
                                             .padding(8.dp),
                                     ) {
-                                        Text(
-                                            text = inlineText(
+                                        MarkdownInlineText(
+                                            content = inlineText(
                                                 cell,
                                                 onWikilinkClick,
                                                 onUrlClick,
@@ -456,6 +532,7 @@ private fun MarkdownBlock(
                                                 onTagClick,
                                                 linkColor,
                                             ),
+                                            onRequestEditAt = onRequestEditAt,
                                             fontWeight = if (cell.isHeader) FontWeight.Bold else FontWeight.Normal,
                                             textAlign = when (cell.alignment) {
                                                 TableCell.Alignment.CENTER -> TextAlign.Center
@@ -472,9 +549,78 @@ private fun MarkdownBlock(
                 }
             }
         }
-        else -> for (child in node.children()) MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick)
+        else -> for (child in node.children()) {
+            MarkdownBlock(child, onWikilinkClick, onUrlClick, cardTags, onTagClick, onRequestEditAt)
+        }
     }
 }
+
+/** Every place [MarkdownBlock] renders a run of inline content (a heading, a paragraph, a table
+ * cell) as plain [Text] goes through here instead, so the tap-to-edit-here gesture (see
+ * click_to_edit_position.md) is written once rather than three times. [onRequestEditAt] is only
+ * ever invoked for a *confirmed* tap -- released without moving past touch slop and without the
+ * gesture being consumed elsewhere in the meantime -- specifically because this content sits
+ * inside a scrollable container (CardViewScreen's body Column): firing on the raw down instead
+ * (the way the editor's own misspelled-word popup does, where there's no ancestor scroll to
+ * conflict with) would wrongly jump into the editor the instant a scroll drag started on top of
+ * some rendered text. Everything here only *observes* pointer events (Initial pass, never
+ * consumed), so this is fully additive -- the existing long-press-anywhere-to-edit gesture and
+ * every link/tag click keep working exactly as before, land on the same down event, unaffected. */
+@Composable
+private fun MarkdownInlineText(
+    content: InlineContent,
+    onRequestEditAt: ((Int) -> Unit)?,
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    fontWeight: FontWeight? = null,
+    textAlign: TextAlign? = null,
+) {
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val gestureModifier = if (onRequestEditAt == null) {
+        Modifier
+    } else {
+        Modifier.pointerInput(content.sourceRuns, onRequestEditAt) {
+            awaitEachGesture {
+                val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                var isCleanTap = true
+                while (true) {
+                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    val dx = change.position.x - down.position.x
+                    val dy = change.position.y - down.position.y
+                    if (change.isConsumed || dx * dx + dy * dy > viewConfiguration.touchSlop * viewConfiguration.touchSlop) {
+                        isCleanTap = false
+                        break
+                    }
+                    if (!change.pressed) break
+                }
+                if (!isCleanTap) return@awaitEachGesture
+                val layout = textLayoutResult ?: return@awaitEachGesture
+                val tappedOffset = layout.getOffsetForPosition(down.position)
+                val run = content.sourceRuns.firstOrNull { tappedOffset in it.visibleRange } ?: return@awaitEachGesture
+                onRequestEditAt(run.sourceStart + (tappedOffset - run.visibleRange.first))
+            }
+        }
+    }
+    Text(
+        text = content.text,
+        style = style,
+        fontWeight = fontWeight,
+        textAlign = textAlign,
+        modifier = modifier.then(gestureModifier),
+        onTextLayout = { textLayoutResult = it },
+    )
+}
+
+/** One leaf run of literal text within an [InlineContent]'s [InlineContent.text] -- [visibleRange]
+ * is where it landed in that `AnnotatedString`'s own coordinates, [sourceStart] where its first
+ * character came from in the (rewritten, pre-wikilink-translation) source string. Never recorded
+ * for anything inside a [Link] or a recognized `#tag` span (see `appendInline`/`appendTaggedText`)
+ * -- those already do something meaningful on tap, so a hit there must never also trigger
+ * tap-to-edit. See click_to_edit_position.md. */
+private data class SourceRun(val visibleRange: IntRange, val sourceStart: Int)
+
+private data class InlineContent(val text: AnnotatedString, val sourceRuns: List<SourceRun>)
 
 @Composable
 private fun inlineText(
@@ -484,10 +630,12 @@ private fun inlineText(
     cardTags: Set<String>,
     onTagClick: (String) -> Unit,
     linkColor: Color,
-): AnnotatedString = remember(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor) {
-    buildAnnotatedString {
-        appendInline(node, this, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor)
+): InlineContent = remember(node, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor) {
+    val sourceRuns = mutableListOf<SourceRun>()
+    val text = buildAnnotatedString {
+        appendInline(node, this, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns)
     }
+    InlineContent(text, sourceRuns)
 }
 
 // Finds #word-shaped candidate spans; cardTags (the card's real extracted tags, already
@@ -501,16 +649,34 @@ private fun appendTaggedText(
     cardTags: Set<String>,
     onTagClick: (String) -> Unit,
     linkColor: Color,
+    // Where `text` itself starts in the source string, or null when this literal has no source
+    // span to speak of (shouldn't happen with source spans turned on, but a missing span just
+    // means no run gets recorded for it -- a tap there simply won't trigger tap-to-edit, not a
+    // crash).
+    sourceStart: Int?,
+    sourceRuns: MutableList<SourceRun>,
 ) {
+    // Records one run for a non-tag segment actually appended to `builder` just now --
+    // `textOffset` is that segment's own start within `text`, used together with [sourceStart]
+    // to land on its absolute position in the source string.
+    fun recordRun(visibleStart: Int, visibleEnd: Int, textOffset: Int) {
+        if (sourceStart != null && visibleEnd > visibleStart) {
+            sourceRuns += SourceRun(visibleStart until visibleEnd, sourceStart + textOffset)
+        }
+    }
     if (cardTags.isEmpty()) {
+        val visibleStart = builder.length
         builder.append(text)
+        recordRun(visibleStart, builder.length, 0)
         return
     }
     var last = 0
     for (match in TAG_CANDIDATE_REGEX.findAll(text)) {
         val tag = match.value.removePrefix("#").lowercase()
         if (tag !in cardTags) continue
+        val segmentVisibleStart = builder.length
         builder.append(text, last, match.range.first)
+        recordRun(segmentVisibleStart, builder.length, last)
         val start = builder.length
         builder.append(match.value)
         val end = builder.length
@@ -527,7 +693,9 @@ private fun appendTaggedText(
         )
         last = match.range.last + 1
     }
+    val tailVisibleStart = builder.length
     builder.append(text, last, text.length)
+    recordRun(tailVisibleStart, builder.length, last)
 }
 
 private fun appendInline(
@@ -538,6 +706,7 @@ private fun appendInline(
     cardTags: Set<String>,
     onTagClick: (String) -> Unit,
     linkColor: Color,
+    sourceRuns: MutableList<SourceRun>,
     insideLink: Boolean = false,
 ) {
     var child = node.firstChild
@@ -546,37 +715,53 @@ private fun appendInline(
             is MdText -> if (insideLink) {
                 builder.append(child.literal)
             } else {
-                appendTaggedText(child.literal, builder, cardTags, onTagClick, linkColor)
+                appendTaggedText(
+                    child.literal,
+                    builder,
+                    cardTags,
+                    onTagClick,
+                    linkColor,
+                    child.sourceSpans.firstOrNull()?.inputIndex,
+                    sourceRuns,
+                )
             }
             is Emphasis -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns, insideLink)
                 builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, builder.length)
             }
             is StrongEmphasis -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns, insideLink)
                 builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, builder.length)
             }
             is Strikethrough -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns, insideLink)
                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, builder.length)
             }
             is Underline -> {
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns, insideLink)
                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), start, builder.length)
             }
             is Code -> {
                 val start = builder.length
                 builder.append(child.literal)
                 builder.addStyle(SpanStyle(fontFamily = FontFamily.Monospace), start, builder.length)
+                if (!insideLink) {
+                    child.sourceSpans.firstOrNull()?.let { span ->
+                        sourceRuns += SourceRun(start until builder.length, span.inputIndex)
+                    }
+                }
             }
             is Link -> {
                 val destination = child.destination.orEmpty()
                 val start = builder.length
-                appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink = true)
+                appendInline(
+                    child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns,
+                    insideLink = true,
+                )
                 val end = builder.length
                 if (destination.startsWith(HOLDER_LINK_SCHEME)) {
                     val target = URLDecoder.decode(destination.removePrefix(HOLDER_LINK_SCHEME), "UTF-8")
@@ -607,7 +792,7 @@ private fun appendInline(
             }
             is SoftLineBreak -> builder.append(" ")
             is HardLineBreak -> builder.append("\n")
-            else -> appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, insideLink)
+            else -> appendInline(child, builder, onWikilinkClick, onUrlClick, cardTags, onTagClick, linkColor, sourceRuns, insideLink)
         }
         child = child.next
     }

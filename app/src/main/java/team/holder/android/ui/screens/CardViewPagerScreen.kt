@@ -149,7 +149,9 @@ fun CardViewPagerScreen(
     projectId: String,
     cardTitle: String,
     refreshKey: Any,
-    onEdit: (cardId: String, title: String, content: String) -> Unit,
+    // cursorOffset is null for every path except tapping a specific spot in the rendered body
+    // (see CardViewScreen's onEditRequested and click_to_edit_position.md).
+    onEdit: (cardId: String, title: String, content: String, cursorOffset: Int?) -> Unit,
     onNavigateToCard: (cardId: String, title: String) -> Unit,
     onNavigateToTag: (tag: String) -> Unit,
     onConnectionsClick: (cardId: String) -> Unit,
@@ -332,7 +334,7 @@ fun CardViewPagerScreen(
                     CardViewActionButton(
                         icon = { Icon(Icons.Filled.Edit, contentDescription = "Edit") },
                         label = "Edit",
-                        onClick = { currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it) } },
+                        onClick = { currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it, null) } },
                     )
                 }
             }
@@ -474,17 +476,21 @@ fun CardViewPagerScreen(
                         // neighbor (beyondViewportPageCount = 1) can't be in focus mode at all.
                         focusMode = isFront && focusMode,
                         onExitFocusMode = { if (isFront) focusMode = false },
-                        // Long-press the card body to edit -- same target as the bar's Edit
-                        // button, and gated to the front page for the same reason as focus mode.
-                        onEditRequested = {
-                            if (isFront) currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it) }
+                        // Long-press the card body (cursorOffset null) or tap a specific spot in
+                        // it (a real offset -- see click_to_edit_position.md) to edit; gated to
+                        // the front page for the same reason as focus mode.
+                        onEditRequested = { cursorOffset ->
+                            if (isFront) {
+                                currentCardContent?.let { onEdit(currentCard.cardId, currentCard.title, it, cursorOffset) }
+                            }
                         },
                         onNavigateToCard = onNavigateToCard,
                         onNavigateToTag = onNavigateToTag,
                         // A card created from a wikilink is empty by definition -- go straight
                         // to the editor, same target as long-press/the bar's Edit button, rather
-                        // than the viewer showing nothing.
-                        onCardCreated = onEdit,
+                        // than the viewer showing nothing. No tapped position to speak of for a
+                        // card that didn't exist a moment ago, so cursorOffset is always null here.
+                        onCardCreated = { cardId, title, content -> onEdit(cardId, title, content, null) },
                         onDeleted = onDeleted,
                         onBack = onBack,
                     )

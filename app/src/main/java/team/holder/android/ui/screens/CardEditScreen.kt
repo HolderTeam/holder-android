@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import team.holder.android.HolderSettings
@@ -61,6 +62,11 @@ fun CardEditScreen(
     initialContent: String,
     saving: Boolean,
     errorMessage: String? = null,
+    // Non-null only when this screen was reached by tapping a specific spot in the rendered
+    // body (see HolderMarkdownViewer's onRequestEditAt / click_to_edit_position.md) -- null for
+    // every other path in (the bottom-bar Edit button, long-press-anywhere, a fresh "new card"),
+    // which keep today's behavior of landing at the end of the body.
+    initialCursorOffset: Int? = null,
     // Attaching a photo needs a real, already-persisted card to attach to -- cardId is null
     // for the "new card" screen (see MainActivity's "projects/{projectId}/cards/new" route),
     // which hides the attach button entirely rather than offering something that would fail.
@@ -83,9 +89,29 @@ fun CardEditScreen(
     // All three TextFieldStates survive process death via their own built-in Saver.
     val titleState = rememberTextFieldState(initialTitle)
     val initialSeparateBody = remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent }
-    val separateBodyState = rememberTextFieldState(initialSeparateBody)
     val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } }
-    val firstLineBodyState = rememberTextFieldState(initialFirstLineBody)
+
+    // initialCursorOffset arrives measured against initialContent itself (see
+    // HolderMarkdownViewer's onRequestEditAt / CardViewScreen's translation of a tap into that
+    // coordinate space) -- separateBodyState needs it re-based onto initialSeparateBody, which is
+    // initialContent with its leading "# Title" heading (and the blank line after it) already
+    // stripped off the front. firstLineBodyState shows initialContent verbatim (short of the
+    // blank-card fallback below, which a tap could never have produced an offset against in the
+    // first place), so it takes the same offset unchanged. Both coerce into range as cheap
+    // insurance against a stale offset from a body that's changed length since the tap, not a
+    // case expected to actually happen in the normal flow.
+    val headingPrefixLength = initialContent.length - initialSeparateBody.length
+    val separateBodyState = rememberTextFieldState(
+        initialSeparateBody,
+        TextRange(
+            (initialCursorOffset?.minus(headingPrefixLength) ?: initialSeparateBody.length)
+                .coerceIn(0, initialSeparateBody.length),
+        ),
+    )
+    val firstLineBodyState = rememberTextFieldState(
+        initialFirstLineBody,
+        TextRange((initialCursorOffset ?: initialFirstLineBody.length).coerceIn(0, initialFirstLineBody.length)),
+    )
 
     // Undo/redo acts on whichever field last had focus (defaulting to the body, since that's
     // where most editing happens); each TextFieldState tracks its own history independently
