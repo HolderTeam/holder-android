@@ -10,6 +10,9 @@ import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
 import team.holder.android.diagnostics.DiagnosticsEntry
 import team.holder.android.diagnostics.DiagnosticsLog
+import team.holder.android.diagnostics.RELIABILITY_FAILURE_THRESHOLD
+import team.holder.android.diagnostics.ReliabilityFailureKind
+import team.holder.android.diagnostics.ReliabilityNotifier
 import team.holder.android.diagnostics.diagnosticsLogFile
 import java.io.File
 
@@ -35,10 +38,21 @@ import java.io.File
  * that stops one from completing -- this is arguably the single most important thing
  * Diagnostics logs at all: a broken backup safety net that fails silently is only ever
  * discovered at restore time, when it's too late to do anything about it.
+ *
+ * Also tracks a consecutive-failure streak (see [HolderSettings.snapshotConsecutiveFailures])
+ * and posts one [ReliabilityNotifier] notification once it crosses [RELIABILITY_FAILURE_THRESHOLD],
+ * reset on the next successfully-attempted regeneration -- see sync_reliability.md. Unlike
+ * GitSyncWorker, [result]'s own success/failure is already the right signal here (a snapshot
+ * write either succeeds or throws, no structured failure status to unpack); the only nuance is
+ * that a tick where [shouldRegenerate] is false is a no-op, not a success, so it must not reset
+ * an accumulating streak on its own.
  */
 class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val logFile = diagnosticsLogFile(applicationContext)
+        // True only once shouldRegenerate has actually said yes this tick -- a plain no-op
+        // (nothing changed since the last snapshot) never sets this.
+        var writeAttemptedThisTick = false
         val result = runCatching {
             HolderNative.initialize(
                 context = applicationContext,
@@ -51,6 +65,7 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
             val lastMax = HolderSettings.lastSnapshotMaxUpdatedAt(applicationContext).first()
             val armed = SnapshotProtection.isArmed(applicationContext.filesDir)
             if (shouldRegenerate(currentMax, lastMax, armed)) {
+                writeAttemptedThisTick = true
                 val writeResult = SnapshotWriter.regenerateAndRecordFreshness(applicationContext)
                 DiagnosticsLog.append(
                     logFile,
@@ -67,6 +82,26 @@ class SnapshotWorker(appContext: Context, params: WorkerParameters) : CoroutineW
                 logFile,
                 DiagnosticsEntry(System.currentTimeMillis() / 1000, "Backup snapshot failed: ${error.message}"),
             )
+        }
+
+        // Only touch the streak when this tick carries a real signal: either a regeneration was
+        // actually attempted (shouldRegenerate true, success or failure), or the whole run
+        // failed outright before even reaching that check (e.g. HolderNative.initialize itself
+        // failing) -- just as real a backup failure as one that reaches regenerateAndRecordFreshness.
+        // A plain no-op tick (shouldRegenerate false, nothing else went wrong) leaves the streak
+        // untouched rather than resetting it, since it's not actually evidence anything works.
+        if (writeAttemptedThisTick || result.isFailure) {
+            val newCount = if (result.isSuccess) {
+                0
+            } else {
+                HolderSettings.snapshotConsecutiveFailures(applicationContext).first() + 1
+            }
+            HolderSettings.setSnapshotConsecutiveFailures(applicationContext, newCount)
+            // `==`, not `>=`: fires exactly once per failure streak, not on every tick past the
+            // threshold, until a success resets the count back to 0.
+            if (result.isFailure && newCount == RELIABILITY_FAILURE_THRESHOLD) {
+                ReliabilityNotifier.notify(applicationContext, ReliabilityFailureKind.SNAPSHOT)
+            }
         }
 
         if (result.isSuccess) Result.success() else Result.retry()

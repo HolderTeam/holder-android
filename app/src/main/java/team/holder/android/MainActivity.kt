@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.diagnostics.ACTION_OPEN_DIAGNOSTICS
 import team.holder.android.git.backup.RestoreOffer
 import team.holder.android.git.backup.SnapshotProtection
 import team.holder.android.git.backup.SnapshotScheduler
@@ -106,6 +107,11 @@ class MainActivity : ComponentActivity() {
     // plain Boolean rather than a payload type since the shortcut carries no data of its own.
     private var pendingNewCardShortcut by mutableStateOf(false)
 
+    // Set when opened via a background-reliability notification's tap target (see
+    // team.holder.android.diagnostics.ReliabilityNotifier) -- same onCreate/onNewIntent shape as
+    // pendingNewCardShortcut above.
+    private var pendingOpenDiagnostics by mutableStateOf(false)
+
     // A non-secret SavedState mirror of the coordinator-owned unresolved Auth Tab marker. It
     // survives process death only so a restored stale result is discarded and a fresh Auth Tab
     // is not launched through the same registration first; it is never OAuth authority. A
@@ -140,6 +146,7 @@ class MainActivity : ComponentActivity() {
         pendingRecoveryToken = recoveryTokenFromIntent(intent)
         pendingSharedContent = sharedContentFromIntent(intent)
         pendingNewCardShortcut = isNewCardShortcutIntent(intent)
+        pendingOpenDiagnostics = isOpenDiagnosticsIntent(intent)
 
         // Captured before initialize() below, which creates this directory if it's missing --
         // its absence right now is the exact, one-shot signal that this is the first launch
@@ -202,6 +209,8 @@ class MainActivity : ComponentActivity() {
                         onSharedContentHandled = { pendingSharedContent = null },
                         pendingNewCardShortcut = pendingNewCardShortcut,
                         onNewCardShortcutHandled = { pendingNewCardShortcut = false },
+                        pendingOpenDiagnostics = pendingOpenDiagnostics,
+                        onOpenDiagnosticsHandled = { pendingOpenDiagnostics = false },
                         githubBrowserLauncher = githubBrowserLauncher,
                     )
                 }
@@ -223,6 +232,7 @@ class MainActivity : ComponentActivity() {
         recoveryTokenFromIntent(intent)?.let { pendingRecoveryToken = it }
         sharedContentFromIntent(intent)?.let { pendingSharedContent = it }
         if (isNewCardShortcutIntent(intent)) pendingNewCardShortcut = true
+        if (isOpenDiagnosticsIntent(intent)) pendingOpenDiagnostics = true
     }
 
     /** Reads a .hrk file's content when this activity was opened via ACTION_VIEW on one (Files
@@ -241,6 +251,11 @@ class MainActivity : ComponentActivity() {
      * res/xml/shortcuts.xml and the intent's own targetClass/no-targetPackage comment there). */
     private fun isNewCardShortcutIntent(intent: Intent?): Boolean =
         intent?.action == "team.holder.android.action.NEW_CARD"
+
+    /** True when this activity was opened via a background-reliability notification's tap
+     * target (see [team.holder.android.diagnostics.ReliabilityNotifier]). */
+    private fun isOpenDiagnosticsIntent(intent: Intent?): Boolean =
+        intent?.action == ACTION_OPEN_DIAGNOSTICS
 
     /** Reads what another app's Share action sent (Files app "Share" on a photo/PDF, a
      * browser's "Share" on a page URL, etc. -- see the SEND/SEND_MULTIPLE intent-filters in
@@ -317,6 +332,8 @@ private fun HolderNavHost(
     onSharedContentHandled: () -> Unit = {},
     pendingNewCardShortcut: Boolean = false,
     onNewCardShortcutHandled: () -> Unit = {},
+    pendingOpenDiagnostics: Boolean = false,
+    onOpenDiagnosticsHandled: () -> Unit = {},
     githubBrowserLauncher: GitHubConnectionCoordinator.GitHubBrowserLauncher,
 ) {
     val navController = rememberNavController()
@@ -477,6 +494,17 @@ private fun HolderNavHost(
                 onNewCardShortcutHandled()
             },
         )
+    }
+
+    // Jumps straight to Settings > Diagnostics when opened via a background-reliability
+    // notification's tap target (see team.holder.android.diagnostics.ReliabilityNotifier) --
+    // same onCreate/onNewIntent shape as pendingNewCardShortcut above, just without a
+    // project-choice step to defer to.
+    LaunchedEffect(pendingOpenDiagnostics) {
+        if (pendingOpenDiagnostics) {
+            navController.navigate("settings/diagnostics")
+            onOpenDiagnosticsHandled()
+        }
     }
 
     // The automatic half of BACKUP_RESTORE_IMPLEMENTATION_PLAN.md step 9: once per device,

@@ -1,5 +1,10 @@
 package team.holder.android.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import team.holder.android.HolderProject
 import team.holder.android.HolderSettings
@@ -79,6 +85,14 @@ fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoor
     // status is Connected. Idempotent (no-ops after the first real time), so it's safe to
     // call from every one of those places rather than needing one single canonical trigger.
     var backfillCandidates by remember { mutableStateOf<List<HolderProject>?>(null) }
+
+    // Requested only here, at the moment turning background sync on makes a sync-failure
+    // notification (see team.holder.android.diagnostics.ReliabilityNotifier) actually possible --
+    // same point-of-use convention as HolderMarkdownEditor's mic permission request on first
+    // dictation tap, not a proactive ask at cold launch. The result is otherwise unused: if
+    // denied, ReliabilityNotifier just skips posting silently rather than nagging further.
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     suspend fun maybeOfferBackfill(status: GitHubStatus) {
         if (status is GitHubStatus.Connected) {
@@ -136,6 +150,13 @@ fun SyncSettingsScreen(onBack: () -> Unit, browserLauncher: GitHubConnectionCoor
                     checked = backgroundSyncEnabled,
                     onCheckedChange = { enabled ->
                         scope.launch { HolderSettings.setGitBackgroundSyncEnabled(context, enabled) }
+                        if (enabled &&
+                            Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     },
                 )
             }

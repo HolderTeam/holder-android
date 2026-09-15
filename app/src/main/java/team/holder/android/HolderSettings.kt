@@ -33,6 +33,8 @@ object HolderSettings {
     private val TRIM_TWO_SPACE_LINE_ENDINGS = booleanPreferencesKey("trim_two_space_line_endings")
     private val TRIM_WHITESPACE_IN_CODE_BLOCKS = booleanPreferencesKey("trim_whitespace_in_code_blocks")
     private val CARD_LIST_BOARD_VIEW_ENABLED = booleanPreferencesKey("card_list_board_view_enabled")
+    private val GIT_SYNC_CONSECUTIVE_FAILURES = intPreferencesKey("git_sync_consecutive_failures")
+    private val SNAPSHOT_CONSECUTIVE_FAILURES = intPreferencesKey("snapshot_consecutive_failures")
 
     const val DEFAULT_BACKGROUND_SYNC_INTERVAL_MINUTES = 15
 
@@ -226,6 +228,31 @@ object HolderSettings {
 
     suspend fun setLastSnapshotMaxUpdatedAt(context: Context, updatedAt: Long) {
         context.settingsDataStore.edit { it[LAST_SNAPSHOT_MAX_UPDATED_AT] = updatedAt }
+    }
+
+    /** Consecutive GitSyncWorker runs where at least one project's attempted push/pull failed
+     * (see sync_reliability.md and GitSyncWorker's own doc comment) -- reset to 0 the moment a
+     * run's every attempted push/pull succeeds. A run with nothing to attempt at all (no project
+     * has a configured git remote) leaves this untouched: neither success nor failure, since
+     * nothing was actually tried. Crossing [team.holder.android.diagnostics.RELIABILITY_FAILURE_THRESHOLD]
+     * posts one notification via [team.holder.android.diagnostics.ReliabilityNotifier], not
+     * repeated on every subsequent failing tick until a success resets it. */
+    fun gitSyncConsecutiveFailures(context: Context): Flow<Int> =
+        context.settingsDataStore.data.map { it[GIT_SYNC_CONSECUTIVE_FAILURES] ?: 0 }
+
+    suspend fun setGitSyncConsecutiveFailures(context: Context, count: Int) {
+        context.settingsDataStore.edit { it[GIT_SYNC_CONSECUTIVE_FAILURES] = count }
+    }
+
+    /** Same shape and role as [gitSyncConsecutiveFailures], for SnapshotWorker: consecutive runs
+     * where an actually-attempted regeneration (shouldRegenerate true) failed, reset on the next
+     * one that succeeds. A tick where shouldRegenerate was false (nothing changed since the last
+     * snapshot) leaves this untouched. */
+    fun snapshotConsecutiveFailures(context: Context): Flow<Int> =
+        context.settingsDataStore.data.map { it[SNAPSHOT_CONSECUTIVE_FAILURES] ?: 0 }
+
+    suspend fun setSnapshotConsecutiveFailures(context: Context, count: Int) {
+        context.settingsDataStore.edit { it[SNAPSHOT_CONSECUTIVE_FAILURES] = count }
     }
 
     private val GITHUB_BACKFILL_OFFER_SHOWN = booleanPreferencesKey("github_backfill_offer_shown")
