@@ -35,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -42,7 +43,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import team.holder.android.HolderNative
 import team.holder.android.HolderSettings
 import team.holder.android.R
 import team.holder.android.combineTitleAndBody
@@ -68,6 +72,11 @@ fun CardEditScreen(
     // every other path in (the bottom-bar Edit button, long-press-anywhere, a fresh "new card"),
     // which keep today's behavior of landing at the end of the body.
     initialCursorOffset: Int? = null,
+    // What an otherwise-untitled card falls back to: "Untitled" normally, or
+    // "Untitled child of {parent title}" when this screen was reached via a "Create child card"
+    // action -- MainActivity decides which, this screen just shows/uses whatever it's given.
+    // Never blank itself.
+    defaultTitle: String = "Untitled",
     // Attaching a photo needs a real, already-persisted card to attach to -- cardId is null
     // for the "new card" screen (see MainActivity's "projects/{projectId}/cards/new" route),
     // which hides the attach button entirely rather than offering something that would fail.
@@ -75,8 +84,14 @@ fun CardEditScreen(
     cardId: String? = null,
     onSave: (title: String, content: String) -> Unit,
     onCancel: () -> Unit,
+    // Only ever called for an existing card (cardId != null) confirmed-deleted from the
+    // "Delete this empty card?" dialog below -- unlike onCancel, this needs to pop back past the
+    // now-nonexistent card's own view, not just one level. Never called for a "new card" screen,
+    // so the default no-op is never actually exercised there.
+    onDeleted: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val separateTitle by HolderSettings.separateTitleEnabled(context).collectAsState(initial = true)
     val preserveTrailingWhitespace by HolderSettings.preserveTrailingWhitespace(context).collectAsState(initial = false)
     val trimTwoSpaceLineEndings by HolderSettings.trimTwoSpaceLineEndings(context).collectAsState(initial = false)
@@ -90,7 +105,7 @@ fun CardEditScreen(
     // All three TextFieldStates survive process death via their own built-in Saver.
     val titleState = rememberTextFieldState(initialTitle)
     val initialSeparateBody = remember(initialContent) { splitLeadingHeading(initialContent) ?: initialContent }
-    val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# Untitled\n\n" } }
+    val initialFirstLineBody = remember(initialContent) { initialContent.ifBlank { "# $defaultTitle\n\n" } }
 
     // initialCursorOffset arrives measured against initialContent itself (see
     // HolderMarkdownViewer's onRequestEditAt / CardViewScreen's translation of a tap into that
@@ -158,10 +173,27 @@ fun CardEditScreen(
         if (errorMessage != null) hasSubmitted = false
     }
 
+    // Falls all the way back to defaultTitle (never blank) rather than gating Save on a
+    // non-blank title at all -- a card with real content shouldn't be unsaveable just because
+    // its Title field (Separate mode) was left empty. The middle step (the body's first line)
+    // is exactly what First line mode already does unconditionally, reused here as the same
+    // "something reasonable" a person would expect ("buy milk" typed straight into the body is
+    // a perfectly good title on its own).
     val derivedTitle = if (separateTitle) {
-        titleState.text.toString()
+        titleState.text.toString().ifBlank {
+            titleFromFirstLine(separateBodyState.text.toString()).ifBlank { defaultTitle }
+        }
     } else {
-        titleFromFirstLine(firstLineBodyState.text.toString())
+        titleFromFirstLine(firstLineBodyState.text.toString()).ifBlank { defaultTitle }
+    }
+
+    // Title and body both empty (Separate mode) or the one body field empty (First line mode)
+    // -- nothing a fallback title alone can paper over, since there's no content either.
+    // Handled by the two dialogs below instead of a plain save.
+    val isCompletelyBlank = if (separateTitle) {
+        titleState.text.isBlank() && separateBodyState.text.isBlank()
+    } else {
+        firstLineBodyState.text.isBlank()
     }
 
     val isDirty = if (separateTitle) {
@@ -172,23 +204,41 @@ fun CardEditScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     val requestCancel = { if (isDirty) showDiscardDialog = true else onCancel() }
 
+    // The actual write -- always produces a real, non-blank title (derivedTitle) and, for a
+    // completely blank First line body, synthesizes the same "# {title}\n\n" shape
+    // combineTitleAndBody already gives Separate mode, rather than persisting empty content
+    // with nowhere for that title to live.
+    val performSave = {
+        hasSubmitted = true
+        val rawContent = if (separateTitle) {
+            combineTitleAndBody(derivedTitle, separateBodyState.text.toString())
+        } else {
+            firstLineBodyState.text.toString().ifBlank { "# $derivedTitle\n\n" }
+        }
+        val content = trimTrailingWhitespaceForSave(
+            rawContent,
+            preserve = preserveTrailingWhitespace,
+            trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
+            trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
+        )
+        onSave(derivedTitle, content)
+    }
+
+    var showCreateEmptyDialog by remember { mutableStateOf(false) }
+    var showDeleteEmptyDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+
     // Shared by the app bar's checkmark and the "Save" option on the discard-changes dialog --
     // hasSubmitted's own doc comment (its double-tap guard) applies identically either way.
+    // Save is never simply blocked: a completely blank card routes to one of the two dialogs
+    // below instead of silently doing nothing.
     val save = {
         if (!hasSubmitted) {
-            hasSubmitted = true
-            val rawContent = if (separateTitle) {
-                combineTitleAndBody(titleState.text.toString(), separateBodyState.text.toString())
+            if (isCompletelyBlank) {
+                if (cardId == null) showCreateEmptyDialog = true else showDeleteEmptyDialog = true
             } else {
-                firstLineBodyState.text.toString()
+                performSave()
             }
-            val content = trimTrailingWhitespaceForSave(
-                rawContent,
-                preserve = preserveTrailingWhitespace,
-                trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
-                trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
-            )
-            onSave(derivedTitle, content)
         }
     }
 
@@ -213,7 +263,7 @@ fun CardEditScreen(
                     if (saving) {
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
                     } else {
-                        IconButton(onClick = save, enabled = derivedTitle.isNotBlank()) {
+                        IconButton(onClick = save) {
                             Icon(Icons.Filled.Check, contentDescription = "Save")
                         }
                     }
@@ -268,6 +318,13 @@ fun CardEditScreen(
                 OutlinedTextField(
                     state = titleState,
                     label = { Text("Title") },
+                    // Previews exactly what leaving this field blank will actually produce --
+                    // the same fallback chain derivedTitle itself uses -- rather than a generic
+                    // hint, so there's never a surprise between what's shown here and what gets
+                    // saved.
+                    placeholder = {
+                        Text(titleFromFirstLine(separateBodyState.text.toString()).ifBlank { defaultTitle })
+                    },
                     lineLimits = TextFieldLineLimits.SingleLine,
                     modifier = Modifier.fillMaxWidth().onFocusChanged { titleFocused = it.isFocused },
                 )
@@ -296,19 +353,76 @@ fun CardEditScreen(
             // the whole point of adding it.
             confirmButton = {
                 Row {
-                    TextButton(
-                        onClick = {
-                            showDiscardDialog = false
-                            save()
-                        },
-                        enabled = derivedTitle.isNotBlank(),
-                    ) { Text("Save") }
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        save()
+                    }) { Text("Save") }
                     TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
                     TextButton(onClick = {
                         showDiscardDialog = false
                         onCancel()
                     }) { Text("Discard") }
                 }
+            },
+        )
+    }
+
+    // Fresh "new card" screen, still completely blank -- offers a placeholder instead of just
+    // silently refusing to save (or silently creating a pointless empty card without asking).
+    if (showCreateEmptyDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateEmptyDialog = false },
+            title = { Text("Create placeholder?") },
+            text = { Text("This empty card has no title or content") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCreateEmptyDialog = false
+                    performSave()
+                }) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCreateEmptyDialog = false
+                    onCancel()
+                }) { Text("Discard") }
+            },
+        )
+    }
+
+    // An existing card wiped down to nothing -- almost always means "get rid of this", so this
+    // offers the real delete instead of quietly turning a once-real card into an empty
+    // placeholder without asking.
+    if (showDeleteEmptyDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) showDeleteEmptyDialog = false },
+            title = { Text("Delete this empty card?") },
+            text = { Text("You have cleared the title and content.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !isDeleting,
+                    onClick = {
+                        if (!isDeleting && cardId != null) {
+                            isDeleting = true
+                            scope.launch {
+                                runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(cardId) } }
+                                withContext(Dispatchers.Main.immediate) {
+                                    isDeleting = false
+                                    showDeleteEmptyDialog = false
+                                    onDeleted()
+                                }
+                            }
+                        }
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isDeleting,
+                    onClick = {
+                        showDeleteEmptyDialog = false
+                        performSave()
+                    },
+                ) { Text("Keep") }
             },
         )
     }

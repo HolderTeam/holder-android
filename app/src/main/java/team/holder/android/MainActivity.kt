@@ -360,6 +360,11 @@ private fun HolderNavHost(
     // Non-null only while navigating from a card's own "+" to create a child of it; the
     // plain card-list "+" leaves this null so the new card lands at the project root.
     var pendingParentCardId by remember { mutableStateOf<String?>(null) }
+    // Set alongside pendingParentCardId, from the same already-in-memory selectedCardTitle --
+    // only used to build the "Untitled child of X" fallback CardEditScreen's new-card route
+    // passes as defaultTitle; unused (and left stale, harmlessly) whenever pendingParentCardId
+    // is null.
+    var pendingParentCardTitle by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
     // Non-null only while more than one project exists and pendingSharedContent needs one
@@ -465,6 +470,7 @@ private fun HolderNavHost(
     // there's one canonical way this app navigates to "new card at project root."
     fun navigateToNewCard(projectId: String) {
         pendingParentCardId = null
+        pendingParentCardTitle = ""
         navController.navigate("projects/$projectId/cards/new")
     }
 
@@ -606,6 +612,7 @@ private fun HolderNavHost(
                 onCreateCard = {
                     saveError = null
                     pendingParentCardId = null
+                    pendingParentCardTitle = ""
                     navController.navigate("projects/$projectId/cards/new")
                 },
                 onTrashClick = { navController.navigate("projects/$projectId/trash") },
@@ -646,6 +653,7 @@ private fun HolderNavHost(
                 screenTitle = "New card",
                 initialTitle = "",
                 initialContent = "",
+                defaultTitle = if (pendingParentCardId != null) "Untitled child of $pendingParentCardTitle" else "Untitled",
                 projectId = projectId,
                 cardId = null,
                 saving = saving,
@@ -708,6 +716,10 @@ private fun HolderNavHost(
                 onCreateChildCard = { activeCardId ->
                     saveError = null
                     pendingParentCardId = activeCardId
+                    // selectedCardTitle already holds this exact card's title -- it's what's
+                    // currently on screen for the "Child" button to have been tapped from (kept
+                    // in sync by onPageChanged below for a swiped-to sibling too).
+                    pendingParentCardTitle = selectedCardTitle
                     navController.navigate("projects/$projectId/cards/new")
                 },
                 onDeleted = {
@@ -913,6 +925,13 @@ private fun HolderNavHost(
                     }
                 },
                 onCancel = { navController.popBackStack() },
+                // Pops back two levels (past the now-nonexistent card's own view), not the one
+                // level onCancel above uses -- same target route CardViewPagerScreen's own
+                // onBack already jumps to for the same "up to the list" reason.
+                onDeleted = {
+                    cardListRefreshKey++
+                    navController.popBackStack("projects/$projectId/cards", inclusive = false)
+                },
             )
         }
     }

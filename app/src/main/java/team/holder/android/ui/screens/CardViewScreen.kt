@@ -211,7 +211,19 @@ fun CardViewScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = minHeight)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            // Only when there's truly nothing rendered to tap-to-position
+                            // against (see click_to_edit_position.md) -- HolderMarkdownViewer
+                            // renders no children at all for a blank `displayed`, so there's no
+                            // competing per-text gesture here to double-fire against. A card
+                            // with any real content keeps relying on tapping that content itself.
+                            .then(
+                                if (displayed.isBlank()) {
+                                    Modifier.clickable { onEditRequested(null) }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         HolderMarkdownViewer(
