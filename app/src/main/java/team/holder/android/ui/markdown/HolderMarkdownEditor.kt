@@ -423,6 +423,22 @@ fun MarkdownFormattingToolbar(
         IconButton(onClick = { state.wrapSelection("[[", "]]") }, modifier = Modifier.size(36.dp, 40.dp)) {
             Text("[[ ]]")
         }
+        if (attaching) {
+            CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
+        } else {
+            if (onAttachPhoto != null) {
+                IconButton(onClick = onAttachPhoto, modifier = Modifier.size(36.dp, 40.dp)) {
+                    Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
+                }
+            }
+            if (onAttachCamera != null) {
+                IconButton(onClick = onAttachCamera, modifier = Modifier.size(36.dp, 40.dp)) {
+                    Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take photo")
+                }
+            }
+        }
+        // Last in the row -- deliberately, so it stays the rightmost button as more buttons
+        // (voice notes, doc scanning) join this group ahead of it rather than after.
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -476,20 +492,6 @@ fun MarkdownFormattingToolbar(
                 contentDescription = if (isListening) "Stop dictation" else "Dictate",
                 tint = if (isListening) MaterialTheme.colorScheme.error else LocalContentColor.current,
             )
-        }
-        if (attaching) {
-            CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
-        } else {
-            if (onAttachPhoto != null) {
-                IconButton(onClick = onAttachPhoto, modifier = Modifier.size(36.dp, 40.dp)) {
-                    Icon(painterResource(R.drawable.ic_attach_photo), contentDescription = "Attach photo")
-                }
-            }
-            if (onAttachCamera != null) {
-                IconButton(onClick = onAttachCamera, modifier = Modifier.size(36.dp, 40.dp)) {
-                    Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take photo")
-                }
-            }
         }
     }
 }
