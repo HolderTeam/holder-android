@@ -34,6 +34,18 @@ class CardTitleFormatTest {
     }
 
     @Test
+    fun titleFromFirstLine_skipsALeadingResourceReferenceLine() {
+        // Attaching a photo as the very first thing typed into a fresh card (see
+        // ensureCardCreated in CardEditScreen.kt) would otherwise hand back the raw
+        // `![label](holder://resource/<id>)` syntax itself as the "title".
+        assertEquals(
+            "Real title",
+            titleFromFirstLine("![photo](holder://resource/abc-123)\n\nReal title\nbody"),
+        )
+        assertEquals("", titleFromFirstLine("![photo](holder://resource/abc-123)"))
+    }
+
+    @Test
     fun splitLeadingHeading_returnsBodyWithoutHeadingAndOneBlankSeparator() {
         assertEquals("Body\nnext", splitLeadingHeading("# Title\n\nBody\nnext"))
     }

@@ -2,15 +2,23 @@ package team.holder.android
 
 private val ATX_HEADING = Regex("^#{1,6}[ \t].*")
 
+// A line that's nothing but an attached resource's own Markdown reference (see
+// AssetAttachment.kt's `![label](holder://resource/<id>)`) -- attaching a photo as the very
+// first thing typed into a fresh card would otherwise hand that raw syntax back as the "title".
+private val RESOURCE_REFERENCE_LINE = Regex("^!\\[[^\\]]*]\\(holder://resource/[^)]*\\)$")
+
 /**
  * Extracts the title implied by a card's body under "first line is the title" mode: the first
- * non-blank line, verbatim, with a leading Markdown heading marker stripped if present. Doesn't
- * require valid Markdown -- any first line is accepted as the title as-is.
+ * non-blank, non-resource-reference line, verbatim, with a leading Markdown heading marker
+ * stripped if present. Doesn't require valid Markdown -- any such line is accepted as the title
+ * as-is.
  */
 fun titleFromFirstLine(content: String): String {
-    val line = content.lineSequence().firstOrNull { it.isNotBlank() } ?: return ""
-    val trimmed = line.trim()
-    return if (ATX_HEADING.matches(trimmed)) trimmed.trimStart('#').trim() else trimmed
+    val line = content.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotBlank() && !RESOURCE_REFERENCE_LINE.matches(it) }
+        ?: return ""
+    return if (ATX_HEADING.matches(line)) line.trimStart('#').trim() else line
 }
 
 /**

@@ -77,10 +77,12 @@ fun CardEditScreen(
     // action -- MainActivity decides which, this screen just shows/uses whatever it's given.
     // Never blank itself.
     defaultTitle: String = "Untitled",
-    // Attaching a photo needs a real, already-persisted card to attach to -- cardId is null
-    // for the "new card" screen (see MainActivity's "projects/{projectId}/cards/new" route),
-    // which hides the attach button entirely rather than offering something that would fail.
     projectId: String = "",
+    // Only relevant on the "new card" screen (cardId == null) -- what a card silently created by
+    // ensureCardCreated below should record as its parent, mirroring whatever "Create child
+    // card" already passes MainActivity's own createCard call in the ordinary (Save-button)
+    // path.
+    parentCardId: String? = null,
     cardId: String? = null,
     onSave: (title: String, content: String) -> Unit,
     onCancel: () -> Unit,
@@ -89,6 +91,10 @@ fun CardEditScreen(
     // now-nonexistent card's own view, not just one level. Never called for a "new card" screen,
     // so the default no-op is never actually exercised there.
     onDeleted: () -> Unit = {},
+    // Fired the moment a "new card" screen silently creates its card behind an attach action
+    // (see ensureCardCreated below) -- lets MainActivity switch that screen's eventual Save over
+    // to an update of this same card instead of creating a second one.
+    onCardCreated: (cardId: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -142,15 +148,22 @@ fun CardEditScreen(
     }
     val activeBodyState = if (separateTitle) separateBodyState else firstLineBodyState
 
-    // Attaching needs a real, already-persisted card -- cardId is null on the "new card" screen,
-    // which hides the attach button entirely (see photoPickerLauncher below), so an empty
-    // fallback here is never actually exercised.
-    val attachFlow = rememberAttachFlow(projectId, cardId.orEmpty()) { markdown ->
+    // Starts as the passed-in cardId (null on a fresh "new card" screen) but can gain a real
+    // value mid-session the moment ensureCardCreated below silently creates one -- everything
+    // that needs "is there an actual persisted card right now" (attaching, the blank-card
+    // dialogs) reads this, not the original cardId param, which stays around only to answer
+    // "was this card here before this screen ever opened" (see wasAutoCreated below).
+    var currentCardId by remember { mutableStateOf(cardId) }
+
+    // rememberAttachFlow re-keys on cardId changes (see its own remember(projectId, cardId)),
+    // so this picks up currentCardId's real value automatically the moment ensureCardCreated
+    // sets it, with no extra wiring needed here.
+    val attachFlow = rememberAttachFlow(projectId, currentCardId.orEmpty()) { markdown ->
         insertOwnLine(activeBodyState, markdown)
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri == null || cardId == null) return@rememberLauncherForActivityResult
+        if (uri == null) return@rememberLauncherForActivityResult
         attachFlow.attach(uri)
     }
 
@@ -196,7 +209,16 @@ fun CardEditScreen(
         firstLineBodyState.text.isBlank()
     }
 
-    val isDirty = if (separateTitle) {
+    // True only on the "new card" screen (cardId == null) once ensureCardCreated has silently
+    // created one -- distinct from currentCardId != null in general, which is also true for an
+    // ordinary edit of a card that already existed before this screen ever opened.
+    val wasAutoCreated = cardId == null && currentCardId != null
+
+    // A silently-created draft counts as dirty on its own, even if the text still matches its
+    // (blank) initial values -- e.g. tapping "Attach photo" then cancelling the picker before
+    // choosing anything leaves a real, empty row behind that still needs a chance to be cleaned
+    // up via Discard below, not a request that quietly no-ops because nothing looked different.
+    val isDirty = wasAutoCreated || if (separateTitle) {
         titleState.text.toString() != initialTitle || separateBodyState.text.toString() != initialSeparateBody
     } else {
         firstLineBodyState.text.toString() != initialFirstLineBody
@@ -204,24 +226,60 @@ fun CardEditScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     val requestCancel = { if (isDirty) showDiscardDialog = true else onCancel() }
 
+    // Walking away without saving: an ordinary edit of a card that already existed just leaves
+    // (nothing was ever written), but a draft this screen silently created behind an attach
+    // action needs deleting first -- otherwise every cancelled "Attach photo" tap would leave a
+    // real, permanent "Untitled" card behind with nothing pointing back at it.
+    val discard = {
+        val idToDelete = if (wasAutoCreated) currentCardId else null
+        if (idToDelete != null) {
+            scope.launch {
+                runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(idToDelete) } }
+                withContext(Dispatchers.Main.immediate) { onCancel() }
+            }
+        } else {
+            onCancel()
+        }
+    }
+
+    fun buildRawContent(): String = if (separateTitle) {
+        combineTitleAndBody(derivedTitle, separateBodyState.text.toString())
+    } else {
+        firstLineBodyState.text.toString().ifBlank { "# $derivedTitle\n\n" }
+    }
+
+    fun buildContent(): String = trimTrailingWhitespaceForSave(
+        buildRawContent(),
+        preserve = preserveTrailingWhitespace,
+        trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
+        trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
+    )
+
     // The actual write -- always produces a real, non-blank title (derivedTitle) and, for a
     // completely blank First line body, synthesizes the same "# {title}\n\n" shape
     // combineTitleAndBody already gives Separate mode, rather than persisting empty content
     // with nowhere for that title to live.
     val performSave = {
         hasSubmitted = true
-        val rawContent = if (separateTitle) {
-            combineTitleAndBody(derivedTitle, separateBodyState.text.toString())
-        } else {
-            firstLineBodyState.text.toString().ifBlank { "# $derivedTitle\n\n" }
-        }
-        val content = trimTrailingWhitespaceForSave(
-            rawContent,
-            preserve = preserveTrailingWhitespace,
-            trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
-            trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
-        )
-        onSave(derivedTitle, content)
+        onSave(derivedTitle, buildContent())
+    }
+
+    // The first attach action on a still-uncreated "new card" screen creates the card right
+    // then, using whatever title/content exist at that exact moment -- silent, no dialog, since
+    // attaching is itself the deliberate action here, distinct from the two blank-card dialogs
+    // below (which only ever gate an explicit Save). Runs at most once per screen instance:
+    // every call after the first just returns the same currentCardId without touching the
+    // network/DB again. Fails silently (matching this codebase's usual "external call failed,
+    // don't block, don't crash" convention) -- callers treat a null result as "couldn't attach
+    // right now" and simply don't proceed to the picker/camera.
+    suspend fun ensureCardCreated(): String? {
+        currentCardId?.let { return it }
+        val created = runCatching {
+            withContext(Dispatchers.IO) { HolderNative.createCard(projectId, derivedTitle, buildContent(), parentCardId) }
+        }.getOrNull() ?: return null
+        currentCardId = created.cardId
+        onCardCreated(created.cardId)
+        return created.cardId
     }
 
     var showCreateEmptyDialog by remember { mutableStateOf(false) }
@@ -231,11 +289,14 @@ fun CardEditScreen(
     // Shared by the app bar's checkmark and the "Save" option on the discard-changes dialog --
     // hasSubmitted's own doc comment (its double-tap guard) applies identically either way.
     // Save is never simply blocked: a completely blank card routes to one of the two dialogs
-    // below instead of silently doing nothing.
+    // below instead of silently doing nothing. Branches on currentCardId, not the original
+    // cardId param -- a draft already created behind an attach action is a real row now, so
+    // wiping it back to blank means "delete", the same as any other existing card, not "create
+    // a placeholder" (there's nothing left to create, it already exists).
     val save = {
         if (!hasSubmitted) {
             if (isCompletelyBlank) {
-                if (cardId == null) showCreateEmptyDialog = true else showDeleteEmptyDialog = true
+                if (currentCardId == null) showCreateEmptyDialog = true else showDeleteEmptyDialog = true
             } else {
                 performSave()
             }
@@ -278,18 +339,29 @@ fun CardEditScreen(
                 MarkdownFormattingToolbar(
                     state = activeBodyState,
                     modifier = Modifier.fillMaxWidth().imePadding(),
-                    // Attaching needs a real, already-persisted card (see AssetImportService)
-                    // -- null on the "new card" screen, which hides the button entirely.
-                    onAttachPhoto = if (cardId != null && !attachFlow.attaching) {
-                        { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    // Always offered, even on a still-uncreated "new card" screen: attaching
+                    // itself is what triggers ensureCardCreated, rather than the button waiting
+                    // for a card that would otherwise only ever appear after a Save.
+                    onAttachPhoto = if (!attachFlow.attaching) {
+                        {
+                            scope.launch {
+                                if (ensureCardCreated() != null) {
+                                    photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }
+                            }
+                        }
                     } else {
                         null
                     },
-                    onAttachCamera = if (cardId != null && !attachFlow.attaching) {
+                    onAttachCamera = if (!attachFlow.attaching) {
                         {
-                            val uri = createCameraCaptureUri(context)
-                            pendingCameraUri = uri
-                            cameraLauncher.launch(uri)
+                            scope.launch {
+                                if (ensureCardCreated() != null) {
+                                    val uri = createCameraCaptureUri(context)
+                                    pendingCameraUri = uri
+                                    cameraLauncher.launch(uri)
+                                }
+                            }
                         }
                     } else {
                         null
@@ -360,7 +432,7 @@ fun CardEditScreen(
                     TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
                     TextButton(onClick = {
                         showDiscardDialog = false
-                        onCancel()
+                        discard()
                     }) { Text("Discard") }
                 }
             },
@@ -383,7 +455,7 @@ fun CardEditScreen(
             dismissButton = {
                 TextButton(onClick = {
                     showCreateEmptyDialog = false
-                    onCancel()
+                    discard()
                 }) { Text("Discard") }
             },
         )
@@ -401,14 +473,22 @@ fun CardEditScreen(
                 TextButton(
                     enabled = !isDeleting,
                     onClick = {
-                        if (!isDeleting && cardId != null) {
+                        val idToDelete = currentCardId
+                        if (!isDeleting && idToDelete != null) {
                             isDeleting = true
                             scope.launch {
-                                runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(cardId) } }
+                                runCatching { withContext(Dispatchers.IO) { HolderNative.deleteCard(idToDelete) } }
                                 withContext(Dispatchers.Main.immediate) {
                                     isDeleting = false
                                     showDeleteEmptyDialog = false
-                                    onDeleted()
+                                    // cardId (not currentCardId) decides which route this
+                                    // screen actually is: onDeleted expects to pop back past an
+                                    // intermediate card-view screen that only exists on the
+                                    // "edit an existing card" path -- a draft this same "new
+                                    // card" screen auto-created behind an attach action never
+                                    // had one, so it leaves the same way any other "new card"
+                                    // exit already does.
+                                    if (cardId != null) onDeleted() else onCancel()
                                 }
                             }
                         }

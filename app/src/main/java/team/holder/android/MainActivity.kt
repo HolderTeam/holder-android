@@ -649,15 +649,23 @@ private fun HolderNavHost(
         }
         composable("projects/{projectId}/cards/new") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            // Set the moment CardEditScreen silently creates this card behind an attach action
+            // (see its own ensureCardCreated) -- null the entire time otherwise, right up until
+            // an ordinary Save creates it for real below. Local to this route's own composition,
+            // same as saving/saveError just above being shared across every route instead: a
+            // fresh visit to "new card" always starts with no card yet.
+            var autoCreatedCardId by remember { mutableStateOf<String?>(null) }
             CardEditScreen(
                 screenTitle = "New card",
                 initialTitle = "",
                 initialContent = "",
                 defaultTitle = if (pendingParentCardId != null) "Untitled child of $pendingParentCardTitle" else "Untitled",
                 projectId = projectId,
+                parentCardId = pendingParentCardId,
                 cardId = null,
                 saving = saving,
                 errorMessage = saveError,
+                onCardCreated = { id -> autoCreatedCardId = id },
                 onSave = { title, content ->
                     // CardEditScreen's own one-shot guard is what actually prevents a double-tap
                     // from calling this twice; this is just a secondary guard against onSave
@@ -668,7 +676,15 @@ private fun HolderNavHost(
                         scope.launch {
                             val result = runCatching {
                                 withContext(Dispatchers.IO) {
-                                    HolderNative.createCard(projectId, title, content, pendingParentCardId)
+                                    // Already created behind an earlier attach action in this
+                                    // same session -- Save updates that same row rather than
+                                    // creating a second card.
+                                    val existingId = autoCreatedCardId
+                                    if (existingId != null) {
+                                        HolderNative.updateCard(existingId, title, content)
+                                    } else {
+                                        HolderNative.createCard(projectId, title, content, pendingParentCardId)
+                                    }
                                 }
                             }
                             withContext(Dispatchers.Main.immediate) {
