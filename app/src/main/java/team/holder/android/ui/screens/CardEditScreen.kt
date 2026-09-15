@@ -9,6 +9,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -171,6 +172,26 @@ fun CardEditScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     val requestCancel = { if (isDirty) showDiscardDialog = true else onCancel() }
 
+    // Shared by the app bar's checkmark and the "Save" option on the discard-changes dialog --
+    // hasSubmitted's own doc comment (its double-tap guard) applies identically either way.
+    val save = {
+        if (!hasSubmitted) {
+            hasSubmitted = true
+            val rawContent = if (separateTitle) {
+                combineTitleAndBody(titleState.text.toString(), separateBodyState.text.toString())
+            } else {
+                firstLineBodyState.text.toString()
+            }
+            val content = trimTrailingWhitespaceForSave(
+                rawContent,
+                preserve = preserveTrailingWhitespace,
+                trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
+                trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
+            )
+            onSave(derivedTitle, content)
+        }
+    }
+
     BackHandler(onBack = requestCancel)
 
     Scaffold(
@@ -192,26 +213,7 @@ fun CardEditScreen(
                     if (saving) {
                         CircularProgressIndicator(modifier = Modifier.padding(12.dp))
                     } else {
-                        IconButton(
-                            onClick = {
-                                if (!hasSubmitted) {
-                                    hasSubmitted = true
-                                    val rawContent = if (separateTitle) {
-                                        combineTitleAndBody(titleState.text.toString(), separateBodyState.text.toString())
-                                    } else {
-                                        firstLineBodyState.text.toString()
-                                    }
-                                    val content = trimTrailingWhitespaceForSave(
-                                        rawContent,
-                                        preserve = preserveTrailingWhitespace,
-                                        trimTwoSpaceLineEndings = trimTwoSpaceLineEndings,
-                                        trimWhitespaceInCodeBlocks = trimWhitespaceInCodeBlocks,
-                                    )
-                                    onSave(derivedTitle, content)
-                                }
-                            },
-                            enabled = derivedTitle.isNotBlank(),
-                        ) {
+                        IconButton(onClick = save, enabled = derivedTitle.isNotBlank()) {
                             Icon(Icons.Filled.Check, contentDescription = "Save")
                         }
                     }
@@ -287,15 +289,26 @@ fun CardEditScreen(
     if (showDiscardDialog) {
         AlertDialog(
             onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Discard changes?") },
+            title = { Text("Save changes?") },
+            // All three in one row here, in this specific order (Save, Keep editing, Discard),
+            // rather than split across confirmButton/dismissButton -- that slot pair only ever
+            // renders two, and "Save" leaving without a trip back into the checkmark button is
+            // the whole point of adding it.
             confirmButton = {
-                TextButton(onClick = {
-                    showDiscardDialog = false
-                    onCancel()
-                }) { Text("Discard") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
+                Row {
+                    TextButton(
+                        onClick = {
+                            showDiscardDialog = false
+                            save()
+                        },
+                        enabled = derivedTitle.isNotBlank(),
+                    ) { Text("Save") }
+                    TextButton(onClick = { showDiscardDialog = false }) { Text("Keep editing") }
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        onCancel()
+                    }) { Text("Discard") }
+                }
             },
         )
     }
