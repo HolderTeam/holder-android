@@ -14,6 +14,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -343,6 +344,12 @@ fun MarkdownFormattingToolbar(
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                // The recognizer's own default silence timeout cuts off eagerly mid-thought
+                // (reported live: a pause of a second or two ends the session). These push it out
+                // to something closer to a natural pause between sentences.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 15000L)
                 if (Build.VERSION.SDK_INT >= 33) {
                     // Dictating into written notes, not issuing a voice command -- real
                     // punctuation/capitalization is worth more here than shaving latency.
@@ -393,16 +400,46 @@ fun MarkdownFormattingToolbar(
         IconButton(onClick = { state.wrapSelection("[[", "]]") }) {
             Text("[[ ]]")
         }
-        IconButton(
-            onClick = {
-                when {
-                    isListening -> stopDictation()
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                        PackageManager.PERMISSION_GRANTED -> startDictation()
-                    else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                }
-            },
-            enabled = !attaching,
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .then(
+                    if (attaching) {
+                        Modifier
+                    } else {
+                        // Keyed on Unit, not isListening: startDictation()/stopDictation() flip
+                        // isListening from inside this same gesture's onPress, and keying on that
+                        // state would cancel-and-restart this block mid-gesture, killing the
+                        // in-flight tryAwaitRelease() coroutine.
+                        Modifier.pointerInput(Unit) {
+                            // Tap toggles (press, release quickly -> keeps recording until tapped
+                            // again, unchanged from before). Press-and-hold past the long-press
+                            // threshold instead records only for as long as the finger stays down.
+                            var heldToRecord = false
+                            detectTapGestures(
+                                onPress = {
+                                    heldToRecord = false
+                                    if (isListening) {
+                                        tryAwaitRelease()
+                                        stopDictation()
+                                    } else {
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                                            PackageManager.PERMISSION_GRANTED
+                                        ) {
+                                            startDictation()
+                                            val released = tryAwaitRelease()
+                                            if (released && heldToRecord) stopDictation()
+                                        } else {
+                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                },
+                                onLongPress = { heldToRecord = true },
+                            )
+                        }
+                    },
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painterResource(R.drawable.ic_mic),
