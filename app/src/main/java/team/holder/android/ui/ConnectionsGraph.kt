@@ -3,31 +3,43 @@ package team.holder.android.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -88,17 +100,44 @@ fun buildConnectionGraphNodes(links: HolderCardLinks, sequence: CardSequenceLink
     return nodes
 }
 
+// The graph's own comfortable reference size for a handful of nodes -- unchanged from before
+// pan/zoom existed, so a typical 2-6 connection card looks exactly like it always did. Radius
+// only grows past this once MinArcSpacing needs more ring circumference than this gives it (see
+// ringRadius below) -- it no longer has to also fit inside the viewport at 1:1, since fitScale
+// now does that job.
 private val GraphMaxSize = 360.dp
 private val GraphPadding = 24.dp
 private const val RadiusFraction = 0.38f
 
+// Enough tangential room per satellite that GraphSatelliteNode's own widthIn(max = 92.dp) bubbles
+// don't run into their neighbors around the ring once there are many of them -- this, not the
+// viewport, is what decides how big the *unscaled* graph gets; pinch-zoom/pan (and the initial
+// fit-to-screen below) are what make a graph bigger than one screen fully visible and readable.
+private val MinArcSpacingPerNode = 108.dp
+private val SatelliteDiameter = 120.dp
+
+private const val MinScale = 0.3f
+private const val MaxScale = 3f
+
 private fun angleRadiansFor(index: Int, count: Int): Double =
     Math.toRadians((index * (360f / count) - 90f).toDouble())
+
+private fun ringRadius(nodeCount: Int): Dp {
+    val comfortable = GraphMaxSize * RadiusFraction
+    val arcBased = MinArcSpacingPerNode * nodeCount / (2 * Math.PI).toFloat()
+    return maxOf(comfortable, arcBased)
+}
 
 /** Radial connections graph: [centerTitle] fixed in the middle, [nodes] evenly spaced around it
  * with an arrow (direction per [GraphNode.direction]) drawn underneath. Tapping a satellite
  * reports it via [onNodeClick] -- recentering is the caller's job (it just refetches for the
- * tapped card), this composable only ever renders what it's given. */
+ * tapped card), this composable only ever renders what it's given.
+ *
+ * Pannable and pinch-zoomable like an ordinary infinite-canvas app (Miro, Google Maps, ...):
+ * the ring's own radius grows with node count (see [ringRadius]) rather than always cramming
+ * into one fixed size, and opening the graph (or tapping a satellite to recenter on it) fits
+ * whatever that node count needs into view, zoomed out just enough and no further -- from there,
+ * pinching in is for reading comfort, not a workaround for overlap. */
 @Composable
 fun ConnectionsGraphView(
     centerTitle: String,
@@ -118,17 +157,65 @@ fun ConnectionsGraphView(
     }
 
     val edgeColor = MaterialTheme.colorScheme.outline
+    val density = LocalDensity.current
 
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        BoxWithConstraints(
+    val radius = remember(nodes.size) { ringRadius(nodes.size) }
+    val graphSize = radius * 2 + SatelliteDiameter + GraphPadding * 2
+
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // Fits the whole (unscaled) graph into whatever viewport space is actually available, the
+    // moment both are known -- on first composition, and again on a fresh recenter (a new
+    // `nodes` list, from tapping a satellite), so a bigger or smaller connection set always
+    // opens fully visible rather than at a zoom level left over from whichever card was centered
+    // before it. Never zooms *in* past 1x automatically -- only ever out, and only as far as
+    // MinScale, so an enormous graph still opens at a sane (if small) size rather than vanishing.
+    LaunchedEffect(nodes, viewportSize) {
+        val viewport = viewportSize
+        if (viewport.width > 0 && viewport.height > 0) {
+            val graphSizePx = with(density) { graphSize.toPx() }
+            val fit = (minOf(viewport.width, viewport.height) / graphSizePx)
+            scale = fit.coerceIn(MinScale, 1f)
+            offset = Offset.Zero
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .onSizeChanged { viewportSize = it }
+            .pointerInput(Unit) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val oldScale = scale
+                    val newScale = (oldScale * zoom).coerceIn(MinScale, MaxScale)
+                    // Keeps whatever point is currently under the fingers visually fixed while
+                    // scale changes, the way pinch-zoom is expected to feel (Miro, Google Maps,
+                    // Photos, ...) -- translationX/Y apply in absolute screen pixels regardless
+                    // of this layer's own scale (see GraphicsLayerScope's own doc comment), so a
+                    // naive "just add pan" would otherwise make the content drift out from under
+                    // a pinch that isn't centered on the ring's middle.
+                    val viewportCenter = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
+                    val focal = centroid - viewportCenter - offset
+                    offset += focal * (1f - newScale / oldScale) + pan
+                    scale = newScale
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = GraphMaxSize)
-                .aspectRatio(1f)
-                .padding(GraphPadding),
+                .size(graphSize)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+            contentAlignment = Alignment.Center,
         ) {
-            val radius = maxWidth * RadiusFraction
-
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
                 val radiusPx = radius.toPx()
