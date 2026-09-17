@@ -152,12 +152,13 @@ android {
                 device = "Pixel 2"
                 apiLevel = 28
                 // Google no longer publishes an aosp x86_64 image for API 28 (ARM only now).
-                // Trying "aosp-atd" (the lightweight Automated Test Device image, no Google
-                // Play Services) before falling back to "google" (confirmed available, but its
-                // full GMS chimera stack -- Phenotype sync, Play services, a real IME, even a
-                // live font download -- overwhelmed a single-core CI emulator badly enough to
-                // blow past a 120s per-step budget in WholeAppSmokeTest).
-                systemImageSource = "aosp-atd"
+                // "aosp-atd"/"google-atd" (the lightweight Automated Test Device images, no
+                // Google Play Services) would dodge the google image's GMS overhead below, but
+                // Google's own system-image catalog (sys-img/google_atd) only carries ATD images
+                // from API 30 up -- there is no ATD variant at API 28, confirmed directly against
+                // the catalog rather than assumed. "google" is the only x86_64 source that
+                // actually exists at this API level.
+                systemImageSource = "google"
                 require64Bit = true
             }
             // Recent-Android coverage on a long-settled image. "Pixel 6" reads sensibly next to
