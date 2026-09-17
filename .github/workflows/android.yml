@@ -91,12 +91,8 @@ jobs:
     # or get conflated with the others, and a rerun only redoes the device that failed. Each
     # device's own androidTest task (pixel2Api28DebugAndroidTest etc.) already existed.
     #
-    # pixel2Api28 is parked: run manually only (workflow_dispatch), not on every push/PR. See
-    # build.gradle.kts's pixel2Api28 comment for the full investigation -- short version, the only
-    # x86_64 image left at API 28 runs a full GMS background stack that stalls WholeAppSmokeTest
-    # for 5+ minutes in CI, cause not yet pinned down (CI-runner headroom vs. a load-sensitive
-    # race exposed by that background load). pixel2Api30 covers fast, reliable near-floor
-    # coverage in the meantime, and is one of the blocking legs below.
+    # pixel2Api28 is a separate, workflow_dispatch-only job below (not in this matrix) -- see its
+    # own comment for why. pixel2Api30 covers fast, reliable near-floor coverage here instead.
     #
     # pixel6Api36 is advisory: API 36 is the SDK level the app ships against, but its AOSP
     # emulator image under CI's software renderer is genuinely flaky (same smoke test, identical
@@ -106,8 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [pixel2Api28, pixel2Api30, pixel6Api34, pixel6Api36]
-    if: matrix.device != 'pixel2Api28' || github.event_name == 'workflow_dispatch'
+        device: [pixel2Api30, pixel6Api34, pixel6Api36]
     continue-on-error: ${{ matrix.device == 'pixel6Api36' }}
     env:
       VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
@@ -185,10 +180,8 @@ jobs:
           retention-days: 7
 
       - name: Save x86_64 vcpkg binary package cache
-        # All matrix legs build the identical x86_64 cache -- gated to one of them so they don't
-        # race to save the same key (harmless if they did, just wasted upload time). pixel2Api30,
-        # not pixel2Api28: the latter is workflow_dispatch-only now and wouldn't save on a normal
-        # push at all.
+        # All matrix legs build the identical x86_64 cache -- gated to one of them so they
+        # don't race to save the same key (harmless if they did, just wasted upload time).
         if: >-
           success() && github.event_name != 'pull_request' &&
           steps.vcpkg-cache.outputs.cache-hit != 'true' && matrix.device == 'pixel2Api30'
@@ -196,3 +189,90 @@ jobs:
         with:
           path: .vcpkg-binary-cache
           key: vcpkg-android-x86_64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+
+  managed-device-tests-pixel2api28-manual:
+    runs-on: ubuntu-24.04
+    # Split out of the managed-device-tests matrix above rather than gated with a job-level `if`
+    # on matrix.device: the matrix context isn't available in jobs.<job_id>.if at all (it's
+    # evaluated before the matrix expands), only in steps.<step_id>.if -- confirmed the hard way,
+    # this job used to be that `if` and it broke the whole workflow file.
+    #
+    # PARKED: run manually only. See build.gradle.kts's pixel2Api28 comment for the full
+    # investigation -- short version, the only x86_64 image left at API 28 runs a full GMS
+    # background stack that stalls WholeAppSmokeTest for 5+ minutes in CI, cause not yet pinned
+    # down (CI-runner headroom vs. a load-sensitive race exposed by that background load).
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
+
+    steps:
+      - name: Check out holder-android
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null
+
+      - name: Install Android emulator and NDK
+        run: |
+          sdkmanager "emulator" "platform-tools" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Restore x86_64 vcpkg binary package cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vcpkg-binary-cache
+          key: vcpkg-android-x86_64-${{ runner.os }}-${{ hashFiles('submodules/holder-core/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-android-x86_64-${{ runner.os }}-
+
+      - name: Install vcpkg build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Run pixel2Api28 managed-device tests
+        run: >-
+          ./gradlew :app:pixel2Api28DebugAndroidTest
+          -Pholder.android.abis=x86_64
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Upload managed-device test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: holder-android-managed-device-test-reports-pixel2Api28
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 7
