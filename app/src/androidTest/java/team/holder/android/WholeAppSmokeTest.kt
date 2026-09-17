@@ -27,9 +27,13 @@ class WholeAppSmokeTest {
     // Deliberately generous: this test's slow steps each wait on a real libholder round trip
     // (git-backed create/save) rendered by a software-GPU emulator under CI contention. The old
     // 20s budget was where this test's flakiness lived -- it would time out mid-flow on a loaded
-    // runner and pass on a rerun. A correct app still settles well within this; only a genuinely
-    // stuck one now waits the full minute.
-    private val settleTimeoutMs = 60_000L
+    // runner and pass on a rerun. 60s covered that, until pixel2Api28 had to move from the aosp
+    // to the google system image (aosp no longer ships an x86_64 image for API 28 at all) --
+    // the extra weight of Google Play Services on an already CPU-starved software-rendered
+    // emulator pushed ordinary steps past 60s too, each run timing out at a different point in
+    // the flow rather than hanging at the same spot twice. A correct app still settles well
+    // within this; only a genuinely stuck one now waits the full two minutes.
+    private val settleTimeoutMs = 120_000L
 
     private var smokeTitle: String? = null
 
