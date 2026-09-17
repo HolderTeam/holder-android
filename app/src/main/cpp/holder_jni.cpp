@@ -1272,6 +1272,34 @@ Java_team_holder_android_HolderNative_nativeGitTestRemote(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeGitProbeRemoteUrl(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring url
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars url_chars(env, url);
+  if (url_chars.get() == nullptr) {
+    throw_runtime(env, "url must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_git_probe_remote_url(context, url_chars.get(), &json, &error);
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeGitPush(
     JNIEnv* env,
     jobject /* thiz */,

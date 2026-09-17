@@ -477,6 +477,7 @@ object HolderNative {
         remoteUrl: String?,
     ): String
     private external fun nativeGitTestRemote(contextHandle: Long, projectId: String, branch: String?): String
+    private external fun nativeGitProbeRemoteUrl(contextHandle: Long, url: String): String
     private external fun nativeGitPush(
         contextHandle: Long,
         projectId: String,
@@ -956,6 +957,16 @@ object HolderNative {
     fun testGitRemote(projectId: String, branch: String? = null): GitTestRemoteResult = synchronized(gitSignerLock) {
         selectGitSignerForProject(projectId)
         val json = JSONObject(nativeGitTestRemote(requireContext(), projectId, branch))
+        GitTestRemoteResult(
+            status = json.getString("status"),
+            remoteHasHead = json.optBoolean("remote_has_head", false),
+            errorMessage = json.optStringOrNull("error_message"),
+        )
+    }
+
+    fun probeRemoteUrl(projectId: String, url: String): GitTestRemoteResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
+        val json = JSONObject(nativeGitProbeRemoteUrl(requireContext(), url))
         GitTestRemoteResult(
             status = json.getString("status"),
             remoteHasHead = json.optBoolean("remote_has_head", false),

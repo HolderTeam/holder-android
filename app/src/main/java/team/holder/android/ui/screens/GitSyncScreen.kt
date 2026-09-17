@@ -271,7 +271,7 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     enabled = !isBusy,
                     onClick = {
                         runAction("Test") {
-                            val result = HolderNative.testGitRemote(project.projectId)
+                            val result = HolderNative.probeRemoteUrl(project.projectId, remoteUrlInput.trim())
                             "Test: ${result.status}" + (result.errorMessage?.let { " -- $it" } ?: "")
                         }
                     },
