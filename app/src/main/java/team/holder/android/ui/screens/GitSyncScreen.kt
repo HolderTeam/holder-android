@@ -217,10 +217,22 @@ fun GitSyncScreen(project: HolderProject, onBack: () -> Unit) {
                     enabled = !isBusy,
                     onClick = {
                         runAction("Sync") {
-                            val pull = HolderNative.pullGit(project.projectId)
-                            val push = HolderNative.pushGit(project.projectId)
-                            "Sync -- pull: ${pull.status}" + conflictsSuffix(pull.conflictsResolved) +
-                                ", push: ${push.status}"
+                            // A single forced pull-then-push operation, not two independent
+                            // calls -- a failed pull always skips the push phase, so this can
+                            // never push on top of a pull that didn't actually succeed.
+                            val result = HolderNative.gitSyncNow(project.projectId)
+                            val pullPart = if (result.pullAttempted) {
+                                "pull: ${result.pullStatus}" + conflictsSuffix(result.pullConflictsResolved) +
+                                    (result.pullError?.let { " -- $it" } ?: "")
+                            } else {
+                                "pull: skipped"
+                            }
+                            val pushPart = if (result.pushAttempted) {
+                                "push: ${result.pushStatus}" + (result.pushError?.let { " -- $it" } ?: "")
+                            } else {
+                                "push: skipped"
+                            }
+                            "Sync -- $pullPart, $pushPart"
                         }
                     },
                     modifier = Modifier.padding(start = 8.dp),

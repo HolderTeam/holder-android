@@ -1403,6 +1403,46 @@ Java_team_holder_android_HolderNative_nativeGitSyncIfDue(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeGitSyncNow(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring branch,
+    jboolean push,
+    jboolean set_upstream
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars branch_chars(env, branch);
+  if (project_id_chars.get() == nullptr) {
+    throw_runtime(env, "project_id must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_git_sync_now(
+      context,
+      project_id_chars.get(),
+      branch_chars.get(),
+      push == JNI_TRUE ? 1 : 0,
+      set_upstream == JNI_TRUE ? 1 : 0,
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeEncryptionCheck(
     JNIEnv* env,
     jobject /* thiz */,

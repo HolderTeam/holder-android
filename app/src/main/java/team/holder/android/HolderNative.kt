@@ -266,6 +266,21 @@ data class GitSyncIfDueResult(
     val pushError: String?,
 )
 
+data class GitSyncNowResult(
+    val pullAttempted: Boolean,
+    val pullStatus: String?,
+    val pullError: String?,
+    /** Non-zero only when pullStatus is "succeeded" after a divergent remote -- Holder's
+     * remote-wins conflict merge, not a user-facing merge tool. */
+    val pullConflictsResolved: Int,
+    val pushAttempted: Boolean,
+    val pushStatus: String?,
+    val pushError: String?,
+    val pushAheadCount: Int,
+    val pushBehindCount: Int,
+    val pushLocalHeadCommit: String?,
+)
+
 data class EncryptionCheckResult(
     val privacyMode: String,
     val ok: Boolean,
@@ -475,6 +490,13 @@ object HolderNative {
         projectId: String,
         pushIntervalSeconds: Int,
         pullIntervalSeconds: Int,
+    ): String
+    private external fun nativeGitSyncNow(
+        contextHandle: Long,
+        projectId: String,
+        branch: String?,
+        push: Boolean,
+        setUpstream: Boolean,
     ): String
     private external fun nativeEncryptionCheck(contextHandle: Long, projectId: String): String
     private external fun nativeRecoveryTokenExport(contextHandle: Long, projectId: String, pin: String): String
@@ -1000,6 +1022,37 @@ object HolderNative {
             pushAttempted = json.getBoolean("push_attempted"),
             pushStatus = json.optStringOrNull("push_status"),
             pushError = json.optStringOrNull("push_error"),
+        )
+    }
+
+    /**
+     * Runs pull-then-push as one serialized, forced operation -- unlike [gitSyncIfDue], not
+     * gated by cadence. A failed pull always skips the push phase, so this is safe to call
+     * as a single "Sync now" action rather than composing separate [pullGit]/[pushGit] calls
+     * (which have no such ordering guarantee between them). A no-op if the project has no
+     * remote configured. push = false performs a pull-only forced sync.
+     */
+    fun gitSyncNow(
+        projectId: String,
+        branch: String? = null,
+        push: Boolean = true,
+        setUpstream: Boolean = true,
+    ): GitSyncNowResult = synchronized(gitSignerLock) {
+        selectGitSignerForProject(projectId)
+        val json = JSONObject(
+            nativeGitSyncNow(requireContext(), projectId, branch, push, setUpstream),
+        )
+        GitSyncNowResult(
+            pullAttempted = json.getBoolean("pull_attempted"),
+            pullStatus = json.optStringOrNull("pull_status"),
+            pullError = json.optStringOrNull("pull_error"),
+            pullConflictsResolved = json.optInt("pull_conflicts_resolved", 0),
+            pushAttempted = json.getBoolean("push_attempted"),
+            pushStatus = json.optStringOrNull("push_status"),
+            pushError = json.optStringOrNull("push_error"),
+            pushAheadCount = json.optInt("push_ahead_count", 0),
+            pushBehindCount = json.optInt("push_behind_count", 0),
+            pushLocalHeadCommit = json.optStringOrNull("push_local_head_commit"),
         )
     }
 
