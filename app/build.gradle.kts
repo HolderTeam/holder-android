@@ -148,17 +148,33 @@ android {
         managedDevices {
             // minSdk floor. Left as a generic old profile rather than matched to real hardware:
             // an old device paired with an old API level is an unremarkable combination.
+            //
+            // PARKED (see android.yml: gated to workflow_dispatch, not run on push/PR). Google no
+            // longer publishes an aosp x86_64 image for API 28 (ARM only now), and there's no ATD
+            // (lightweight, no-GMS) image at API 28 either -- confirmed directly against Google's
+            // system-image catalog (sys-img/google_atd), which only carries ATD images from API 30
+            // up. "google" is the only x86_64 source left at API 28, and its full GMS background
+            // stack (Phenotype sync, Play services chimera scans, a real keyboard, live font
+            // fetches) made WholeAppSmokeTest stall for 5+ minutes in CI, reproduced across
+            // several runs. Ruled out a fixed-budget problem (300s wasn't enough). NOT ruled out:
+            // whether this is GitHub's runner simply lacking headroom, or a load-sensitive race
+            // (in Holder, in Compose/instrumentation, or in the emulator itself) that GMS's
+            // background load happens to trigger -- one clean local run on an identical AVD
+            // (33s, no stall) is too weak a signal to tell those apart. pixel2Api30 below is the
+            // fast, reliable stand-in for "old API" coverage until this gets run down further.
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
                 apiLevel = 28
-                // Google no longer publishes an aosp x86_64 image for API 28 (ARM only now).
-                // "aosp-atd"/"google-atd" (the lightweight Automated Test Device images, no
-                // Google Play Services) would dodge the google image's GMS overhead below, but
-                // Google's own system-image catalog (sys-img/google_atd) only carries ATD images
-                // from API 30 up -- there is no ATD variant at API 28, confirmed directly against
-                // the catalog rather than assumed. "google" is the only x86_64 source that
-                // actually exists at this API level.
                 systemImageSource = "google"
+                require64Bit = true
+            }
+            // Fast, reliable near-floor coverage while pixel2Api28 above is parked -- aosp-atd is
+            // the lightest image source that exists at all (no GMS background stack), but only
+            // from API 30 up, one level above the app's actual minSdk 28.
+            val pixel2Api30 = localDevices.create("pixel2Api30") {
+                device = "Pixel 2"
+                apiLevel = 30
+                systemImageSource = "aosp-atd"
                 require64Bit = true
             }
             // Recent-Android coverage on a long-settled image. "Pixel 6" reads sensibly next to
@@ -187,6 +203,7 @@ android {
             }
             groups.create("ciPhones") {
                 targetDevices.add(pixel2Api28)
+                targetDevices.add(pixel2Api30)
                 targetDevices.add(pixel6Api34)
                 targetDevices.add(pixel6Api36)
             }
