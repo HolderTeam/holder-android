@@ -1,110 +1,103 @@
 package team.holder.android
 
-import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.hasSetTextAction
-import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import java.util.UUID
 import org.junit.After
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import team.holder.android.ui.screens.CalendarScreen
 
-/** Milestone creation through the real Activity, Compose navigation, JNI, and libholder, then
- * confirms the Calendar screen actually picks it up: create a card, add a milestone via its
- * Tools dashboard, and confirm the milestone shows up (with the right card title) back on the
- * same Calendar screen the dashboard's Milestones tile opens -- this is the seam (range query ->
- * JSON -> cardTitle -> Compose list) most likely to regress silently, since it's normally only
- * checked by hand on the emulator. */
+/** The seam most likely to regress silently: a milestone's range-query result (JNI/libholder)
+ * rendered by CalendarScreen's Compose list, cardTitle and all.
+ * [HolderNativeIntegrationTest.milestones_roundTripThroughTheFullJniBoundary] already covers the
+ * JNI round trip itself (listMilestonesInRange returning the right cardTitle); this test's job
+ * is just the last hop, that CalendarScreen actually shows it.
+ *
+ * Deliberately not a full-Activity/navigation test (that's how this used to work, driving
+ * through Home -> New card -> Tools -> Milestones -> Add milestone by hand): every one of those
+ * navigation waits was a fresh chance to time out on a loaded CI emulator, for coverage this
+ * test doesn't need -- it isn't checking that navigation wiring, only this one screen's render
+ * of already-created data. Seeding through HolderNative directly into its own isolated project
+ * (own dataDir, not the shared "Home" project WholeAppSmokeTest uses) also drops the
+ * unique-title-plus-teardown-delete dance that sharing requires. */
 @RunWith(AndroidJUnit4::class)
 class MilestoneCalendarSmokeTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createComposeRule()
 
-    // Generous on purpose -- see the same constant in WholeAppSmokeTest: every slow step here
-    // waits on a real libholder round trip on a software-GPU CI emulator, and a tight budget is
-    // what turns "slow" into "flaky".
-    private val settleTimeoutMs = 60_000L
+    // This screen's only async work is one HolderNative.listMilestonesInRange round trip inside
+    // a LaunchedEffect -- no navigation animation or multi-screen composition to wait on -- so it
+    // doesn't need the old test's 60s budget. Matches ComposeUiTest's own background-work timeout
+    // for the same class of wait: a real native call landing under CI load, not just composition.
+    private val backgroundWorkTimeoutMs = 15_000L
 
-    private var smokeTitle: String? = null
+    private lateinit var dataDir: File
+
+    @Before
+    fun setUp() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        dataDir = context.cacheDir.resolve("milestone-calendar-smoke-${UUID.randomUUID()}")
+        check(dataDir.mkdirs()) { "Could not create test data directory: $dataDir" }
+        // Force a fresh context on this test's own dataDir -- initialize() is a no-op reopen
+        // once contextHandle is already set, so a handle left open by a previous test would
+        // otherwise seed/query the previous test's dataDir instead of this one's.
+        HolderNative.close()
+        HolderNative.initialize(
+            context = context,
+            dataDir = dataDir,
+            schemaSql = context.assets.open("schema.sql").bufferedReader().use { it.readText() },
+            welcomeContent = "# Welcome\n\nWelcome",
+        )
+    }
 
     @After
     fun tearDown() {
-        runCatching {
-            val title = smokeTitle ?: return@runCatching
-            val home = HolderNative.listProjects().firstOrNull { it.name == "Home" } ?: return@runCatching
-            HolderNative.listCards(home.projectId)
-                .filter { it.title == title }
-                .forEach { HolderNative.deleteCard(it.cardId) }
-        }
         HolderNative.close()
+        dataDir.deleteRecursively()
     }
 
     @Test
     fun addMilestone_showsUpOnTheCalendarWithTheCardTitle() {
         val title = "Milestone smoke card ${UUID.randomUUID()}"
-        smokeTitle = title
+        val project = HolderNative.createProject("Milestone smoke project")
+        val card = HolderNative.createCard(project.projectId, title, "Created by milestone smoke test.")
+        HolderNative.addCardMilestone(
+            cardId = card.cardId,
+            startAt = System.currentTimeMillis() / 1000,
+            allDay = true,
+        )
 
-        awaitText("Home")
-        composeRule.onNodeWithText("Home").performClick()
-
-        awaitContentDescription("New card")
-        composeRule.onNodeWithContentDescription("New card").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size >= 2
+        var navigatedCardId: String? = null
+        var navigatedTitle: String? = null
+        composeRule.setContent {
+            CalendarScreen(
+                projectId = project.projectId,
+                refreshKey = Unit,
+                onNavigateToCard = { cardId, cardTitle ->
+                    navigatedCardId = cardId
+                    navigatedTitle = cardTitle
+                },
+                onBack = {},
+            )
         }
-        val fields = composeRule.onAllNodes(hasSetTextAction())
-        fields[0].performTextInput(title)
-        fields[1].performTextInput("Created by milestone smoke test.")
-        awaitContentDescription("Save")
-        composeRule.onNodeWithContentDescription("Save").performClick()
 
-        awaitText(title)
+        composeRule.waitUntil(timeoutMillis = backgroundWorkTimeoutMs) {
+            composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText(title).assertIsDisplayed()
+
         composeRule.onNodeWithText(title).performClick()
-
-        // Tools dashboard, not a direct "Connections" button -- see CardViewPagerScreen's
-        // bottom bar (Focus/Tools/Child/Edit). No wait between opening the card and this tap
-        // was the API 36 flake: on a slow emulator the card view (and its bottom bar) hadn't
-        // composed yet.
-        awaitContentDescription("Tools")
-        composeRule.onNodeWithContentDescription("Tools").performClick()
-
-        // The dashboard's Milestones tile opens this same card's project Calendar directly,
-        // with "Add milestone" already wired to it (see CalendarScreen's onAddMilestone doc
-        // comment) -- no separate per-card milestone screen to go through first.
-        awaitContentDescription("Milestones")
-        composeRule.onNodeWithContentDescription("Milestones").performClick()
-
-        awaitContentDescription("Add milestone")
-        composeRule.onNodeWithContentDescription("Add milestone").performClick()
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodes(hasText("Add milestone") and hasClickAction())
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        // Defaults (today, all-day, no end) already make the form saveable -- no input needed.
-        composeRule.onNode(hasText("Add milestone") and hasClickAction()).performClick()
-
-        // Saving pops straight back to the same Calendar screen (see AddMilestoneScreen's
-        // onAdded), already refreshed -- no extra navigation needed to see it land.
-        awaitText(title)
-        assertTrue(composeRule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty())
+        assertEquals(card.cardId, navigatedCardId)
+        assertEquals(title, navigatedTitle)
     }
-
-    private fun awaitText(text: String) = composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-        composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
-    }
-
-    private fun awaitContentDescription(description: String) =
-        composeRule.waitUntil(timeoutMillis = settleTimeoutMs) {
-            composeRule.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
-        }
 }
