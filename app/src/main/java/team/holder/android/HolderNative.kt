@@ -810,8 +810,8 @@ object HolderNative {
      * is required for [CardPlacementIntent.INTO]/[CardPlacementIntent.BEFORE]/
      * [CardPlacementIntent.AFTER] and ignored otherwise. [parentCardId] is an optional override
      * for [CardPlacementIntent.TO_START]/[CardPlacementIntent.TO_END]/[CardPlacementIntent.LEFT]/
-     * [CardPlacementIntent.RIGHT]; when omitted, cardId's current parent is used. This is a
-     * primitive only -- no drag-to-reorder gesture UI is wired up to it yet. */
+     * [CardPlacementIntent.RIGHT]; when omitted, cardId's current parent is used. Driven by
+     * Board mode's per-card move menu and its drag-to-reorder handle -- see CardListScreen. */
     fun moveCard(
         projectId: String,
         cardId: String,

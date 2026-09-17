@@ -616,6 +616,12 @@ private fun HolderNavHost(
                     pendingParentCardTitle = ""
                     navController.navigate("projects/$projectId/cards/new")
                 },
+                onCreateChildCard = { card ->
+                    saveError = null
+                    pendingParentCardId = card.cardId
+                    pendingParentCardTitle = card.title
+                    navController.navigate("projects/$projectId/cards/new")
+                },
                 onTrashClick = { navController.navigate("projects/$projectId/trash") },
                 onCalendarClick = { navController.navigate("projects/$projectId/calendar") },
                 onBack = { navController.popBackStack() },
