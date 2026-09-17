@@ -132,9 +132,9 @@ class ComposeUiTest {
             .performTextReplacement("Changed")
         composeRule.onNodeWithContentDescription("Cancel").performClick()
 
-        composeRule.onNodeWithText("Discard changes?").assertIsDisplayed()
+        composeRule.onNodeWithText("Save changes?").assertIsDisplayed()
         composeRule.onNodeWithText("Keep editing").performClick()
-        composeRule.onNodeWithText("Discard changes?").assertDoesNotExist()
+        composeRule.onNodeWithText("Save changes?").assertDoesNotExist()
         assertEquals(0, cancelCount)
 
         composeRule.onNodeWithContentDescription("Cancel").performClick()
