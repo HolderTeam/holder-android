@@ -2,6 +2,7 @@ package team.holder.android
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -28,6 +29,12 @@ import team.holder.android.ui.markdown.HolderMarkdownViewer
 class ResourceAttachmentViewerTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    // rememberResourceAttachmentKind resolves asynchronously (a real HolderNative.getResource
+    // JNI round trip inside a LaunchedEffect, starting from ResourceAttachmentKind.Loading) --
+    // asserting right after setContent was a race that happened to win often enough on a fast
+    // emulator to go unnoticed. Matches ComposeUiTest's own budget for this class of wait.
+    private val backgroundWorkTimeoutMs = 15_000L
 
     private lateinit var context: android.content.Context
     private lateinit var dataDir: File
@@ -81,6 +88,9 @@ class ResourceAttachmentViewerTest {
             )
         }
 
+        composeRule.waitUntil(timeoutMillis = backgroundWorkTimeoutMs) {
+            composeRule.onAllNodesWithText("notes.txt").fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithText("notes.txt").assertIsDisplayed()
     }
 }
