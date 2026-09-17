@@ -1,5 +1,6 @@
 package team.holder.android
 
+import android.os.Build
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -27,13 +28,15 @@ class WholeAppSmokeTest {
     // Deliberately generous: this test's slow steps each wait on a real libholder round trip
     // (git-backed create/save) rendered by a software-GPU emulator under CI contention. The old
     // 20s budget was where this test's flakiness lived -- it would time out mid-flow on a loaded
-    // runner and pass on a rerun. 60s covered that, until pixel2Api28 had to move from the aosp
-    // to the google system image (aosp no longer ships an x86_64 image for API 28 at all) --
-    // the extra weight of Google Play Services on an already CPU-starved software-rendered
-    // emulator pushed ordinary steps past 60s too, each run timing out at a different point in
-    // the flow rather than hanging at the same spot twice. A correct app still settles well
-    // within this; only a genuinely stuck one now waits the full two minutes.
-    private val settleTimeoutMs = 120_000L
+    // runner and pass on a rerun; 60s covers that on pixel6Api34/pixel6Api36 (still the aosp
+    // image). pixel2Api28 is a separate story: aosp no longer ships an x86_64 image for API 28 at
+    // all, so it has to run on the "google" image instead, whose full GMS background stack
+    // (Phenotype sync, Play services module scans, a real keyboard, even a live font download)
+    // was enough to blow past even 120s, each run stalling at a different point in the flow
+    // rather than hanging at the same spot twice -- general resource contention, not a hang. Try
+    // brute-force patience there before reaching for anything more drastic (a different image
+    // doesn't exist below API 30; see build.gradle.kts's pixel2Api28 comment).
+    private val settleTimeoutMs = if (Build.VERSION.SDK_INT <= 28) 300_000L else 60_000L
 
     private var smokeTitle: String? = null
 
