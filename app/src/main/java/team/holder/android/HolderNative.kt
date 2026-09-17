@@ -25,7 +25,14 @@ data class HolderCard(
      * parentCardId -- not comparable across siblings of different parents. */
     val sortKey: Double,
     val deletedAt: Long? = null,
+    /** Number of non-deleted direct children, set only when the query that produced this
+     * card was asked for it (see [HolderNative.queryCards]'s includeChildCounts); every other
+     * card-returning call leaves this null rather than paying for a count nobody asked for. */
+    val childCount: Int? = null,
 )
+
+/** Matches holder_card_query_json's "view" values (lowercased on the wire). */
+enum class CardQueryView { ROOTS, CHILDREN, ALL, RECENT }
 
 /** One page of [HolderNative.backupSnapshotPage]: a project's cards, most-recently-updated
  * first. [cards] are kept as raw [JSONObject]s rather than reshaped into a typed data class --
@@ -384,6 +391,7 @@ object HolderNative {
     private external fun nativeDatabaseRebuild(dataDir: String, schemaSql: String, dryRun: Boolean): String
     private external fun nativeProjectList(contextHandle: Long): String
     private external fun nativeCardList(contextHandle: Long, projectId: String): String
+    private external fun nativeCardQuery(contextHandle: Long, projectId: String, requestJson: String): String
     private external fun nativeBackupSnapshotPage(
         contextHandle: Long,
         projectId: String,
@@ -664,6 +672,36 @@ object HolderNative {
 
     fun listCards(projectId: String): List<HolderCard> {
         val cards = JSONArray(nativeCardList(requireContext(), projectId))
+        return List(cards.length()) { index -> parseCard(cards.getJSONObject(index)) }
+    }
+
+    /** One hierarchy/recency view of projectId's cards, bundling what would otherwise be
+     * several one-off native calls (list_roots/list_children/list_all/list_recent_page)
+     * behind a single request. [parentCardId] is required for [CardQueryView.CHILDREN] and
+     * ignored otherwise; [beforeUpdatedAt]/[beforeCardId] are an optional pagination cursor
+     * for [CardQueryView.RECENT] (both null for the first page); [limit] is required and must
+     * be positive for [CardQueryView.RECENT] and ignored otherwise, which are unbounded like
+     * their underlying CardRepo methods. Set [includeChildCounts] to also populate each
+     * returned card's [HolderCard.childCount]. */
+    fun queryCards(
+        projectId: String,
+        view: CardQueryView,
+        parentCardId: String? = null,
+        beforeUpdatedAt: Long? = null,
+        beforeCardId: String? = null,
+        limit: Int? = null,
+        includeChildCounts: Boolean = false,
+    ): List<HolderCard> {
+        val request = JSONObject()
+        request.put("view", view.name.lowercase())
+        if (parentCardId != null) request.put("parent_card_id", parentCardId)
+        if (beforeUpdatedAt != null) request.put("before_updated_at", beforeUpdatedAt)
+        if (beforeCardId != null) request.put("before_card_id", beforeCardId)
+        if (limit != null) request.put("limit", limit)
+        if (includeChildCounts) request.put("include_child_counts", true)
+
+        val cards = JSONObject(nativeCardQuery(requireContext(), projectId, request.toString()))
+            .getJSONArray("cards")
         return List(cards.length()) { index -> parseCard(cards.getJSONObject(index)) }
     }
 
@@ -1302,6 +1340,7 @@ object HolderNative {
         updatedAt = json.getLong("updated_at"),
         sortKey = json.getDouble("sort_key"),
         deletedAt = json.optLongOrNull("deleted_at"),
+        childCount = json.optIntOrNull("child_count"),
     )
 
     private fun parseOutgoingLink(json: JSONObject) = HolderOutgoingLink(
@@ -1386,6 +1425,9 @@ object HolderNative {
 
     private fun JSONObject.optLongOrNull(name: String): Long? =
         if (isNull(name)) null else getLong(name)
+
+    private fun JSONObject.optIntOrNull(name: String): Int? =
+        if (isNull(name)) null else getInt(name)
 
     private fun JSONObject.toStringMap(): Map<String, String> {
         val map = mutableMapOf<String, String>()
