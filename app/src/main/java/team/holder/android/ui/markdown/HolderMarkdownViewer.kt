@@ -106,6 +106,7 @@ import org.commonmark.parser.IncludeSourceSpans
 import org.commonmark.parser.Parser
 import org.commonmark.parser.delimiter.DelimiterProcessor
 import org.commonmark.parser.delimiter.DelimiterRun
+import team.holder.android.CardReferenceResolution
 import team.holder.android.HolderCard
 import team.holder.android.HolderNative
 import team.holder.android.R
@@ -243,10 +244,12 @@ private class UnderlineDelimiterProcessor : DelimiterProcessor {
     }
 }
 
-private fun resolveWikilink(target: String, cards: List<HolderCard>): HolderCard? =
-    cards.firstOrNull { it.cardId == target }
-        ?: cards.firstOrNull { it.title == target }
-        ?: cards.firstOrNull { it.title.equals(target, ignoreCase = true) }
+// holder-core's CardReferenceResolver (used via HolderNative.resolveCardReference) doesn't do
+// case-insensitive title matching -- its exact-title match is a case-sensitive SQL `=`. This is
+// kept as an Android-side fallback, tried only when the native resolver returns not_found, for
+// existing content that relied on the old hand-rolled resolver's case-insensitive third branch.
+private fun resolveWikilinkCaseInsensitive(target: String, cards: List<HolderCard>): HolderCard? =
+    cards.firstOrNull { it.title.equals(target, ignoreCase = true) }
 
 /**
  * Renders a card's Markdown body as a document -- headings, emphasis, lists, code, quotes,
@@ -318,14 +321,40 @@ fun HolderMarkdownViewer(
 
     val onWikilinkClick: (String) -> Unit = { target ->
         scope.launch {
-            val cards = runCatching {
-                withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
-            }.getOrDefault(emptyList())
-            val resolved = resolveWikilink(target, cards)
-            if (resolved != null) {
-                onNavigateToCard(resolved.cardId, resolved.title)
-            } else {
-                pendingWikilink = target
+            val resolution = runCatching {
+                withContext(Dispatchers.IO) { HolderNative.resolveCardReference(projectId, target) }
+            }.getOrDefault(CardReferenceResolution.NotFound)
+            when (resolution) {
+                is CardReferenceResolution.Resolved ->
+                    onNavigateToCard(resolution.card.cardId, resolution.card.title)
+                is CardReferenceResolution.Ambiguous -> {
+                    // Deliberate simplification: holder-core can report an ambiguous match (e.g.
+                    // two live cards sharing an exact title), but Android has no disambiguation
+                    // UI yet. Always landing on the first candidate preserves today's actual
+                    // behavior (the old firstOrNull-based resolver never blocked the user
+                    // either) rather than introducing a picker, which is out of scope here. A
+                    // future pass can add real disambiguation if this ever matters in practice.
+                    val first = resolution.candidates.firstOrNull()
+                    if (first != null) {
+                        onNavigateToCard(first.cardId, first.title)
+                    } else {
+                        pendingWikilink = target
+                    }
+                }
+                is CardReferenceResolution.NotFound -> {
+                    // holder-core's resolver has no case-insensitive title fallback (see
+                    // resolveWikilinkCaseInsensitive) -- only try it, at the cost of fetching
+                    // every live card, once the cheap native call has already failed.
+                    val cards = runCatching {
+                        withContext(Dispatchers.IO) { HolderNative.listCards(projectId) }
+                    }.getOrDefault(emptyList())
+                    val fallback = resolveWikilinkCaseInsensitive(target, cards)
+                    if (fallback != null) {
+                        onNavigateToCard(fallback.cardId, fallback.title)
+                    } else {
+                        pendingWikilink = target
+                    }
+                }
             }
         }
     }

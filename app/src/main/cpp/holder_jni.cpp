@@ -415,6 +415,44 @@ Java_team_holder_android_HolderNative_nativeCardGetContent(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardReferenceResolve(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring reference,
+    jint scope
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars reference_chars(env, reference);
+  if (project_id_chars.get() == nullptr || reference_chars.get() == nullptr) {
+    throw_runtime(env, "project_id and reference must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_reference_resolve(
+      context,
+      project_id_chars.get(),
+      reference_chars.get(),
+      static_cast<int>(scope),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_team_holder_android_HolderNative_nativeProjectRename(
     JNIEnv* env,
     jobject /* thiz */,

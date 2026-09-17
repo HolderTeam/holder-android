@@ -60,6 +60,14 @@ data class HolderCardRef(
     val title: String,
 )
 
+/** Result of [HolderNative.resolveCardReference] -- mirrors holder-core's
+ * CardReferenceResolver::resolve (full-id, then id-prefix, then case-sensitive exact-title). */
+sealed interface CardReferenceResolution {
+    data class Resolved(val matchKind: String, val card: HolderCard) : CardReferenceResolution
+    data class Ambiguous(val matchKind: String, val candidates: List<HolderCard>) : CardReferenceResolution
+    object NotFound : CardReferenceResolution
+}
+
 data class HolderCardLinks(
     val outgoing: List<HolderOutgoingLink>,
     val backlinks: List<HolderBacklink>,
@@ -375,6 +383,12 @@ object HolderNative {
         commitMessage: String,
     ): String
     private external fun nativeCardGetContent(contextHandle: Long, cardId: String): String
+    private external fun nativeCardReferenceResolve(
+        contextHandle: Long,
+        projectId: String,
+        reference: String,
+        scope: Int,
+    ): String
     private external fun nativeProjectCreate(
         contextHandle: Long,
         name: String,
@@ -632,6 +646,28 @@ object HolderNative {
 
     fun getCardContent(cardId: String): String {
         return nativeCardGetContent(requireContext(), cardId)
+    }
+
+    /** Resolves a [[wikilink]]-style reference (a card id, an unambiguous id prefix, or a
+     * case-sensitive exact title) the same way holder-daemon/holderctl do. This is a local
+     * read, not a git network operation, so it's not wrapped in [gitSignerLock]. scope defaults
+     * to 0 (live cards only), matching holder::model::CardScope::Live. */
+    fun resolveCardReference(projectId: String, reference: String, scope: Int = 0): CardReferenceResolution {
+        val json = JSONObject(nativeCardReferenceResolve(requireContext(), projectId, reference, scope))
+        return when (json.getString("status")) {
+            "resolved" -> CardReferenceResolution.Resolved(
+                matchKind = json.getString("match_kind"),
+                card = parseCard(json.getJSONObject("card")),
+            )
+            "ambiguous" -> {
+                val candidates = json.getJSONArray("candidates")
+                CardReferenceResolution.Ambiguous(
+                    matchKind = json.getString("match_kind"),
+                    candidates = List(candidates.length()) { index -> parseCard(candidates.getJSONObject(index)) },
+                )
+            }
+            else -> CardReferenceResolution.NotFound
+        }
     }
 
     /** One page of projectId's cards, most-recently-updated first, for
