@@ -151,9 +151,13 @@ android {
             val pixel2Api28 = localDevices.create("pixel2Api28") {
                 device = "Pixel 2"
                 apiLevel = 28
-                // Google no longer publishes an aosp x86_64 image for API 28 (ARM only now);
-                // "google" is the source Gradle itself points to as still carrying one.
-                systemImageSource = "google"
+                // Google no longer publishes an aosp x86_64 image for API 28 (ARM only now).
+                // Trying "aosp-atd" (the lightweight Automated Test Device image, no Google
+                // Play Services) before falling back to "google" (confirmed available, but its
+                // full GMS chimera stack -- Phenotype sync, Play services, a real IME, even a
+                // live font download -- overwhelmed a single-core CI emulator badly enough to
+                // blow past a 120s per-step budget in WholeAppSmokeTest).
+                systemImageSource = "aosp-atd"
                 require64Bit = true
             }
             // Recent-Android coverage on a long-settled image. "Pixel 6" reads sensibly next to
