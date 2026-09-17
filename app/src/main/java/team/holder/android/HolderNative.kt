@@ -75,6 +75,20 @@ sealed interface CardReferenceResolution {
     object NotFound : CardReferenceResolution
 }
 
+/** Matches holder_card_move_json's "intent" values (lowercased, underscore-separated, on the
+ * wire) -- see holder-core's CardPlacementResolver for the full algorithm each one runs. */
+enum class CardPlacementIntent { INTO, BEFORE, AFTER, TO_START, TO_END, LEFT, RIGHT, UP_LEVEL }
+
+/** Result of [HolderNative.moveCard] -- the card's new placement, same shape holder-daemon's
+ * /move route already returns. [revision] is the card's updated_at after the move. */
+data class HolderCardMoveResult(
+    val cardId: String,
+    val parentCardId: String?,
+    val sortKey: Double,
+    val revision: Long,
+    val movedIntoTitle: String?,
+)
+
 data class HolderCardLinks(
     val outgoing: List<HolderOutgoingLink>,
     val backlinks: List<HolderBacklink>,
@@ -412,6 +426,12 @@ object HolderNative {
         projectId: String,
         reference: String,
         scope: Int,
+    ): String
+    private external fun nativeCardMove(
+        contextHandle: Long,
+        projectId: String,
+        cardId: String,
+        requestJson: String,
     ): String
     private external fun nativeProjectCreate(
         contextHandle: Long,
@@ -783,6 +803,36 @@ object HolderNative {
 
     fun updateCard(cardId: String, title: String, content: String): HolderCard =
         parseCard(JSONObject(nativeCardUpdateContent(requireContext(), cardId, content, title)))
+
+    /** Resolves and applies one of eight relative-placement intents to cardId within
+     * projectId, via holder-core's CardPlacementResolver (see that class for the full
+     * algorithm/error vocabulary this shares with holder-daemon's /move route). [targetCardId]
+     * is required for [CardPlacementIntent.INTO]/[CardPlacementIntent.BEFORE]/
+     * [CardPlacementIntent.AFTER] and ignored otherwise. [parentCardId] is an optional override
+     * for [CardPlacementIntent.TO_START]/[CardPlacementIntent.TO_END]/[CardPlacementIntent.LEFT]/
+     * [CardPlacementIntent.RIGHT]; when omitted, cardId's current parent is used. This is a
+     * primitive only -- no drag-to-reorder gesture UI is wired up to it yet. */
+    fun moveCard(
+        projectId: String,
+        cardId: String,
+        intent: CardPlacementIntent,
+        targetCardId: String? = null,
+        parentCardId: String? = null,
+    ): HolderCardMoveResult {
+        val request = JSONObject()
+        request.put("intent", intent.name.lowercase())
+        if (targetCardId != null) request.put("target_card_id", targetCardId)
+        if (parentCardId != null) request.put("parent_card_id", parentCardId)
+
+        val json = JSONObject(nativeCardMove(requireContext(), projectId, cardId, request.toString()))
+        return HolderCardMoveResult(
+            cardId = json.getString("card_id"),
+            parentCardId = json.optStringOrNull("parent_card_id"),
+            sortKey = json.getDouble("sort_key"),
+            revision = json.getLong("revision"),
+            movedIntoTitle = json.optStringOrNull("moved_into_title"),
+        )
+    }
 
     /** Soft-deletes (trashes) a card; it stops appearing in listCards until restored or purged. */
     fun deleteCard(cardId: String) {
