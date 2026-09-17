@@ -61,8 +61,11 @@ object SnapshotProtection {
         markerFile(filesDir).apply { parentFile?.mkdirs() }.createNewFile()
     }
 
-    /** Checked only by [SnapshotWorker]'s automatic, dirty-check-triggered regeneration --
-     * deliberately NOT checked by [team.holder.android.ui.screens.BackupSettingsScreen]'s
+    /** Checked by [SnapshotWorker]'s automatic, dirty-check-triggered regeneration (guarding
+     * against overwriting an unseen restored snapshot) and by [RestoreOffer] (as the race-free
+     * "was a snapshot already there before this install's first launch" signal, instead of
+     * re-reading [snapshotFile] itself after [SnapshotWorker] may have already regenerated it).
+     * Deliberately NOT checked by [team.holder.android.ui.screens.BackupSettingsScreen]'s
      * "Prepare" button, an explicit manual request this guard was never meant to block. */
     fun isArmed(filesDir: File): Boolean = markerFile(filesDir).isFile
 

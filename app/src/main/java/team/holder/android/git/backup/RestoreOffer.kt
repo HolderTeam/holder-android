@@ -23,15 +23,26 @@ import team.holder.android.HolderSettings
  * even if a new snapshot file later appears (e.g. from a second Auto Backup run) -- accepted,
  * matching [HolderSettings.githubBackfillOfferShown]'s own precedent, and the manual entry
  * point remains available regardless.
+ *
+ * Checks [SnapshotProtection.isArmed] rather than re-reading [snapshotFile] itself: this runs
+ * from a Composable's LaunchedEffect, after MainActivity.onCreate has already called
+ * [SnapshotScheduler.reconcile], which can (and in practice often does) start [SnapshotWorker]
+ * regenerating that exact file within milliseconds -- a live re-check here would race it and
+ * could see a snapshot [SnapshotWorker] itself just wrote, not a genuine Auto Backup restore,
+ * and wrongly navigate to Restore Backup mid-composition. [SnapshotProtection.armIfFreshInstall
+ * HasAnUnseenSnapshot] already answers the exact right question (was a snapshot already there
+ * before this install's first [HolderNative.initialize] call) at the exact right moment
+ * (synchronously in onCreate, strictly before [SnapshotScheduler.reconcile] runs), so this
+ * reuses that race-free signal instead of taking its own.
  */
 object RestoreOffer {
-    /** Call once at startup (see MainActivity). Returns true if this device has a snapshot
-     * file to offer restoring AND has never been asked before -- marks the flag as a side
-     * effect of calling this, unconditionally, so it can never re-fire. */
+    /** Call once at startup (see MainActivity). Returns true if this device had a snapshot
+     * file waiting before this install's first launch AND has never been asked before -- marks
+     * the flag as a side effect of calling this, unconditionally, so it can never re-fire. */
     suspend fun checkAndMarkOfferedOnce(context: Context): Boolean {
         val appContext = context.applicationContext
         if (HolderSettings.restoreOfferShown(appContext).first()) return false
         HolderSettings.setRestoreOfferShown(appContext, true)
-        return withContext(Dispatchers.IO) { SnapshotReader.hasSnapshot(snapshotFile(appContext)) }
+        return withContext(Dispatchers.IO) { SnapshotProtection.isArmed(appContext.filesDir) }
     }
 }
