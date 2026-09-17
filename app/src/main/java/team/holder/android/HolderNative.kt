@@ -109,6 +109,22 @@ data class HolderMilestone(
     val cardTitle: String? = null,
 )
 
+/** A tri-state value for [HolderNative.updateCardMilestone]'s clearable fields (endAt/kind/
+ * description): [Unset] leaves the field unchanged, [Clear] explicitly nulls it, [Value] sets
+ * it. Mirrors CardStore::MilestoneUpdate's has_*-flag semantics on the native side. */
+sealed class OptionalLong {
+    object Unset : OptionalLong()
+    object Clear : OptionalLong()
+    data class Value(val value: Long) : OptionalLong()
+}
+
+/** String counterpart of [OptionalLong], for endAt/kind/description-shaped string fields. */
+sealed class OptionalString {
+    object Unset : OptionalString()
+    object Clear : OptionalString()
+    data class Value(val value: String) : OptionalString()
+}
+
 /** One editing-session-grouped history entry (one saved card revision, e.g. one autosave). */
 data class HolderCardHistorySave(
     val oid: String,
@@ -470,6 +486,13 @@ object HolderNative {
         allDay: Boolean,
         kind: String?,
         description: String?,
+    ): String
+    private external fun nativeCardMilestoneUpdate(
+        contextHandle: Long,
+        projectId: String,
+        cardId: String,
+        milestoneId: String,
+        updateJson: String,
     ): String
     private external fun nativeCardMilestoneRemove(contextHandle: Long, cardId: String, milestoneId: String)
     private external fun nativeProjectListMilestonesInRange(
@@ -942,6 +965,48 @@ object HolderNative {
             )
         )
         return List(milestones.length()) { index -> parseMilestone(milestones.getJSONObject(index)) }
+    }
+
+    /** Partially updates cardId's milestoneId. Each parameter left at its default (Unset) means
+     * "leave unchanged"; pass Clear to explicitly null a clearable field (endAt/kind/description),
+     * or a real value to set it. startAt/allDay can never be cleared, matching MilestoneUpdate's
+     * own has_*-flag semantics on the native side -- omit them to leave unchanged, or pass a
+     * real value to change them. Throws if projectId/cardId/milestoneId don't all identify the
+     * same live card's milestone. */
+    fun updateCardMilestone(
+        projectId: String,
+        cardId: String,
+        milestoneId: String,
+        startAt: Long? = null,
+        endAt: OptionalLong = OptionalLong.Unset,
+        allDay: Boolean? = null,
+        kind: OptionalString = OptionalString.Unset,
+        description: OptionalString = OptionalString.Unset,
+    ): HolderMilestone {
+        val body = JSONObject().apply {
+            if (startAt != null) put("start_at", startAt)
+            if (allDay != null) put("all_day", allDay)
+            when (endAt) {
+                is OptionalLong.Unset -> {}
+                is OptionalLong.Clear -> put("end_at", JSONObject.NULL)
+                is OptionalLong.Value -> put("end_at", endAt.value)
+            }
+            when (kind) {
+                is OptionalString.Unset -> {}
+                is OptionalString.Clear -> put("kind", JSONObject.NULL)
+                is OptionalString.Value -> put("kind", kind.value)
+            }
+            when (description) {
+                is OptionalString.Unset -> {}
+                is OptionalString.Clear -> put("description", JSONObject.NULL)
+                is OptionalString.Value -> put("description", description.value)
+            }
+        }
+        return parseMilestone(
+            JSONObject(
+                nativeCardMilestoneUpdate(requireContext(), projectId, cardId, milestoneId, body.toString())
+            )
+        )
     }
 
     /** A no-op, not an error, if milestoneId doesn't exist or belongs to a different card. */

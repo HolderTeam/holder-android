@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -633,6 +634,11 @@ private fun HolderNavHost(
                     navController.navigate("projects/$projectId/cards/$cardId")
                 },
                 onBack = { navController.popBackStack() },
+                onEditMilestone = { milestone ->
+                    navController.navigate(
+                        "projects/$projectId/cards/${milestone.cardId}/milestones/${milestone.milestoneId}/edit"
+                    )
+                },
             )
         }
         composable("projects/{projectId}/trash") { backStackEntry ->
@@ -861,6 +867,11 @@ private fun HolderNavHost(
                 onAddMilestone = {
                     navController.navigate("projects/$projectId/cards/$cardId/milestones/add")
                 },
+                onEditMilestone = { milestone ->
+                    navController.navigate(
+                        "projects/$projectId/cards/${milestone.cardId}/milestones/${milestone.milestoneId}/edit"
+                    )
+                },
             )
         }
         composable("projects/{projectId}/cards/{cardId}/history") { backStackEntry ->
@@ -894,15 +905,45 @@ private fun HolderNavHost(
             )
         }
         composable("projects/{projectId}/cards/{cardId}/milestones/add") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
             val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
             AddMilestoneScreen(
                 cardId = cardId,
+                projectId = projectId,
                 onAdded = {
                     connectionsRefreshKey++
                     navController.popBackStack()
                 },
                 onCancel = { navController.popBackStack() },
             )
+        }
+        composable("projects/{projectId}/cards/{cardId}/milestones/{milestoneId}/edit") { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()
+            val cardId = backStackEntry.arguments?.getString("cardId").orEmpty()
+            val milestoneId = backStackEntry.arguments?.getString("milestoneId").orEmpty()
+            // listCardMilestones rather than a single-milestone lookup -- there's no native
+            // get-one-milestone-by-id entry point, and the card's full list is cheap. Renders
+            // nothing until the lookup resolves (a missing/mismatched milestoneId also just
+            // leaves this route blank rather than crashing).
+            val existingMilestone by produceState<HolderMilestone?>(initialValue = null, cardId, milestoneId) {
+                value = runCatching {
+                    withContext(Dispatchers.IO) {
+                        HolderNative.listCardMilestones(cardId).firstOrNull { it.milestoneId == milestoneId }
+                    }
+                }.getOrNull()
+            }
+            existingMilestone?.let { milestone ->
+                AddMilestoneScreen(
+                    cardId = cardId,
+                    projectId = projectId,
+                    existingMilestone = milestone,
+                    onAdded = {
+                        connectionsRefreshKey++
+                        navController.popBackStack()
+                    },
+                    onCancel = { navController.popBackStack() },
+                )
+            }
         }
         composable("projects/{projectId}/cards/{cardId}/edit") { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId").orEmpty()

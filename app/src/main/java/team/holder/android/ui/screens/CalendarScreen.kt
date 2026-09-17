@@ -128,6 +128,7 @@ fun CalendarScreen(
     // .../cards/{cardId}/calendar route) -- the project-level Calendar entry point has no single
     // card to attach a new milestone to, so it leaves this null and gets no FAB.
     onAddMilestone: (() -> Unit)? = null,
+    onEditMilestone: (HolderMilestone) -> Unit = {},
 ) {
     val today = LocalDate.now(CALENDAR_ZONE)
     val context = LocalContext.current
@@ -235,6 +236,10 @@ fun CalendarScreen(
                         menuOpenFor = null
                         addMilestoneToDeviceCalendar(context, it)
                     },
+                    onEditMilestone = {
+                        menuOpenFor = null
+                        onEditMilestone(it)
+                    },
                     onRemoveRequested = {
                         menuOpenFor = null
                         pendingRemove = it
@@ -282,6 +287,10 @@ fun CalendarScreen(
                                             onAddToCalendar = {
                                                 menuOpenFor = null
                                                 addMilestoneToDeviceCalendar(context, milestone)
+                                            },
+                                            onEditRequested = {
+                                                menuOpenFor = null
+                                                onEditMilestone(milestone)
                                             },
                                             onRemoveRequested = {
                                                 menuOpenFor = null
@@ -449,6 +458,7 @@ private fun DayDetailPanel(
     onLongClickMilestone: (String) -> Unit,
     onDismissMenu: () -> Unit,
     onAddToCalendar: (HolderMilestone) -> Unit,
+    onEditMilestone: (HolderMilestone) -> Unit,
     onRemoveRequested: (HolderMilestone) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -479,6 +489,7 @@ private fun DayDetailPanel(
                             onLongClick = { onLongClickMilestone(milestone.milestoneId) },
                             onDismissMenu = onDismissMenu,
                             onAddToCalendar = { onAddToCalendar(milestone) },
+                            onEditRequested = { onEditMilestone(milestone) },
                             onRemoveRequested = { onRemoveRequested(milestone) },
                         )
                     }
@@ -535,6 +546,7 @@ private fun MilestoneRow(
     onLongClick: () -> Unit,
     onDismissMenu: () -> Unit,
     onAddToCalendar: () -> Unit,
+    onEditRequested: () -> Unit,
     onRemoveRequested: () -> Unit,
 ) {
     Box {
@@ -545,6 +557,7 @@ private fun MilestoneRow(
         )
         DropdownMenu(expanded = expanded, onDismissRequest = onDismissMenu) {
             DropdownMenuItem(text = { Text("Add to calendar") }, onClick = onAddToCalendar)
+            DropdownMenuItem(text = { Text("Edit") }, onClick = onEditRequested)
             DropdownMenuItem(text = { Text("Remove") }, onClick = onRemoveRequested)
         }
     }

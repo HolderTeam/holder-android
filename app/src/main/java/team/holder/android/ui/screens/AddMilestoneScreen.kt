@@ -50,32 +50,50 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import team.holder.android.HolderMilestone
 import team.holder.android.HolderNative
+import team.holder.android.OptionalLong
+import team.holder.android.OptionalString
 
 private val DISPLAY_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy")
 private val DISPLAY_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
 private val SUGGESTED_KINDS =
     listOf("Deadline", "Appointment", "Event", "Exam", "Birthday", "Expiry", "Renewal", "Service", "MOT")
 
-/** Creates a milestone on cardId: a start date (defaulting to today), optionally a specific time
+/** Creates a milestone on cardId, or edits an existing one when existingMilestone is non-null: a
+ * start date (defaulting to today, or the existing milestone's start), optionally a specific time
  * (all-day otherwise) and an end (a span rather than a point), plus a free-text kind and
  * description -- mirroring MILESTONE_IDEA.md's own mockup ("Date becomes start" once End is
- * added). Editing an existing milestone isn't supported yet; this screen only ever creates one. */
+ * added). projectId is only needed for the edit path (HolderNative.updateCardMilestone's
+ * ownership check); the add path derives it natively from cardId. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddMilestoneScreen(
     cardId: String,
+    projectId: String,
+    existingMilestone: HolderMilestone? = null,
     onAdded: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val startDateState = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
-    var startTime by remember { mutableStateOf(LocalTime.NOON) }
-    var allDay by remember { mutableStateOf(true) }
-    var hasEnd by remember { mutableStateOf(false) }
-    val endDateState = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
-    var endTime by remember { mutableStateOf(LocalTime.NOON) }
-    var kind by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
+    val isEditing = existingMilestone != null
+    val startDateState = rememberDatePickerState(
+        initialSelectedDateMillis = existingMilestone?.startAt?.let { epochSecondsToUtcMillis(it) }
+            ?: System.currentTimeMillis(),
+    )
+    var startTime by remember {
+        mutableStateOf(existingMilestone?.startAt?.let { epochSecondsToLocalTime(it) } ?: LocalTime.NOON)
+    }
+    var allDay by remember { mutableStateOf(existingMilestone?.allDay ?: true) }
+    var hasEnd by remember { mutableStateOf(existingMilestone?.endAt != null) }
+    val endDateState = rememberDatePickerState(
+        initialSelectedDateMillis = existingMilestone?.endAt?.let { epochSecondsToUtcMillis(it) }
+            ?: System.currentTimeMillis(),
+    )
+    var endTime by remember {
+        mutableStateOf(existingMilestone?.endAt?.let { epochSecondsToLocalTime(it) } ?: LocalTime.NOON)
+    }
+    var kind by remember { mutableStateOf(existingMilestone?.kind ?: "") }
+    var description by remember { mutableStateOf(existingMilestone?.description ?: "") }
     var saving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -100,7 +118,7 @@ fun AddMilestoneScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add milestone") },
+                title = { Text(if (isEditing) "Edit milestone" else "Add milestone") },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
@@ -208,14 +226,29 @@ fun AddMilestoneScreen(
                     scope.launch {
                         val result = runCatching {
                             withContext(Dispatchers.IO) {
-                                HolderNative.addCardMilestone(
-                                    cardId = cardId,
-                                    startAt = start,
-                                    endAt = endAt,
-                                    allDay = allDay,
-                                    kind = kind.trim().ifEmpty { null },
-                                    description = description.trim().ifEmpty { null },
-                                )
+                                if (existingMilestone != null) {
+                                    HolderNative.updateCardMilestone(
+                                        projectId = projectId,
+                                        cardId = cardId,
+                                        milestoneId = existingMilestone.milestoneId,
+                                        startAt = start,
+                                        endAt = endAt?.let { OptionalLong.Value(it) } ?: OptionalLong.Clear,
+                                        allDay = allDay,
+                                        kind = kind.trim().ifEmpty { null }
+                                            ?.let { OptionalString.Value(it) } ?: OptionalString.Clear,
+                                        description = description.trim().ifEmpty { null }
+                                            ?.let { OptionalString.Value(it) } ?: OptionalString.Clear,
+                                    )
+                                } else {
+                                    HolderNative.addCardMilestone(
+                                        cardId = cardId,
+                                        startAt = start,
+                                        endAt = endAt,
+                                        allDay = allDay,
+                                        kind = kind.trim().ifEmpty { null },
+                                        description = description.trim().ifEmpty { null },
+                                    )
+                                }
                             }
                         }
                         // Explicitly back on the main thread before onAdded() -- which navigates
@@ -234,7 +267,13 @@ fun AddMilestoneScreen(
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             ) {
-                Text(if (saving) "Adding..." else "Add milestone")
+                Text(
+                    if (saving) {
+                        if (isEditing) "Saving..." else "Adding..."
+                    } else {
+                        if (isEditing) "Save" else "Add milestone"
+                    }
+                )
             }
         }
     }
@@ -317,3 +356,13 @@ private fun DatePickerState.selectedLocalDate(): LocalDate? =
 
 private fun toEpochSeconds(date: LocalDate, time: LocalTime): Long =
     LocalDateTime.of(date, time).atZone(ZoneId.systemDefault()).toEpochSecond()
+
+// The inverse of toEpochSeconds/selectedLocalDate, for pre-filling from an existing milestone:
+// epoch seconds -> the system-default-zone local date's UTC midnight millis, matching how
+// DatePickerState's own selectedDateMillis is UTC-based (selectedLocalDate above).
+private fun epochSecondsToUtcMillis(epochSeconds: Long): Long =
+    Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()).toLocalDate()
+        .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun epochSecondsToLocalTime(epochSeconds: Long): LocalTime =
+    Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()).toLocalTime()

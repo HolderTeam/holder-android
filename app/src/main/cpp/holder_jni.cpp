@@ -1137,6 +1137,49 @@ Java_team_holder_android_HolderNative_nativeCardMilestoneAdd(
   return string_result(env, json);
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_team_holder_android_HolderNative_nativeCardMilestoneUpdate(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong context_handle,
+    jstring project_id,
+    jstring card_id,
+    jstring milestone_id,
+    jstring update_json
+) {
+  holder_context* context = context_from_handle(env, context_handle);
+  if (context == nullptr) {
+    return nullptr;
+  }
+
+  UtfChars project_id_chars(env, project_id);
+  UtfChars card_id_chars(env, card_id);
+  UtfChars milestone_id_chars(env, milestone_id);
+  UtfChars update_json_chars(env, update_json);
+  if (project_id_chars.get() == nullptr || card_id_chars.get() == nullptr ||
+      milestone_id_chars.get() == nullptr || update_json_chars.get() == nullptr) {
+    throw_runtime(env, "project_id, card_id, milestone_id, and update_json must not be null");
+    return nullptr;
+  }
+
+  char* json = nullptr;
+  holder_error* error = nullptr;
+  const int rc = holder_card_milestone_update_json(
+      context,
+      project_id_chars.get(),
+      card_id_chars.get(),
+      milestone_id_chars.get(),
+      update_json_chars.get(),
+      &json,
+      &error
+  );
+  if (rc != HOLDER_OK) {
+    throw_runtime(env, error_message(error));
+    return nullptr;
+  }
+  return string_result(env, json);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_team_holder_android_HolderNative_nativeCardMilestoneRemove(
     JNIEnv* env,
