@@ -35,6 +35,24 @@ The path from a fresh checkout to Holder running on your own devices:
    sudo apt install autoconf autoconf-archive automake libtool
    ```
 
+   On Fedora, install the equivalent native-build tools:
+
+   ```sh
+   sudo dnf install -y \
+     autoconf autoconf-archive automake libtool \
+     cmake curl git make pkgconf-pkg-config perl perl-IPC-Cmd tar unzip zip
+   ```
+
+   Perl and `perl-IPC-Cmd` are required when vcpkg builds OpenSSL for Android.
+
+   Android Studio includes a suitable JDK. If building without Android Studio,
+   install and select a JDK supported by the Android Gradle Plugin.
+
+   In Android Studio's SDK Manager, install Android SDK Platform 37 and NDK
+   `28.2.13676358`, as well as the corresponding Android SDK Build-Tools and
+   CMake packages. The build requires Platform 37 because it compiles and
+   targets API 37.
+
    Then clone and bootstrap vcpkg itself, anywhere on your machine:
 
    ```bash
